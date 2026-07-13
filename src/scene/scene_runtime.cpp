@@ -28,57 +28,89 @@ void SceneRuntime::request_import(std::filesystem::path const & path)
     }
     DBG_ASSERT_TRUE_M(_pending_scene_import == nullptr, "Only one scene import may be in flight at a time (poll guards this)");
 
-    auto import_task = std::make_shared<GltfImportTask>(&_scene, Scene::LoadManifestInfo{
+    auto importer = std::make_shared<GltfImporter>(&_scene, Scene::LoadManifestInfo{
         .root_path = path.parent_path(),
         .asset_name = path.filename(),
         .thread_pool = _thread_pool,
         .asset_processor = _asset_processor,
-    });
-    _thread_pool->async_dispatch(import_task, TaskPriority::LOW);
-    _pending_scene_import = std::move(import_task);
+    }, &_import_result_queue_mutex, &_import_result_queue);
+    _thread_pool->async_dispatch(importer, TaskPriority::LOW);
+    _pending_scene_import = std::move(importer);
 }
 
 void SceneRuntime::poll(std::string & desired_scene_path)
 {
-    if (_pending_scene_import == nullptr)
+    drain_import_results();
+
+    if (_pending_scene_import != nullptr)
     {
-        // No import in flight - start one if a scene load is requested. While an import runs the
-        // path is left untouched (a request made mid-import is not dropped, the newest one wins).
-        if (!desired_scene_path.empty())
+        if (!_pending_scene_import->group_finished.load(std::memory_order_acquire))
         {
-            fmt::print("Requested load: {}\n", desired_scene_path);
-            request_import(desired_scene_path);
-            desired_scene_path.clear();
+            return; // Parsing and/or cooking still in flight.
         }
-        return;
+        drain_import_results(); // Picks up anything pushed between the drain above and observing group_finished.
+        _pending_scene_import = nullptr;
     }
 
-    GltfImportTask & import_task = *_pending_scene_import;
-    if (!import_task.finished.load(std::memory_order_acquire))
+    // No import in flight - start one if a scene load is requested. While an import runs the path is
+    // left untouched (a request made mid-import is not dropped, the newest one wins).
+    if (!desired_scene_path.empty())
     {
-        return; // Still importing.
+        fmt::print("Requested load: {}\n", desired_scene_path);
+        request_import(desired_scene_path);
+        desired_scene_path.clear();
     }
-
-    std::string const path_string = (import_task.info.root_path / import_task.info.asset_name).string();
-    if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&import_task.result))
-    {
-        DEBUG_MSG(fmt::format("[WARN][SceneRuntime::poll()] Loading \"{}\" Error: {}", path_string, Scene::to_string(*err)));
-    }
-    else
-    {
-        apply_scene_metadata_batch(std::move(std::get<ImporterTaskResult::SceneMetadataBatch>(import_task.result)));
-    }
-    _pending_scene_import = nullptr;
 }
 
-void SceneRuntime::apply_scene_metadata_batch(ImporterTaskResult::SceneMetadataBatch batch)
+void SceneRuntime::drain_import_results()
 {
-    auto locked = _scene.lock();
+    std::vector<ImporterTaskResult> results = {};
+    {
+        std::lock_guard<std::mutex> lock{_import_result_queue_mutex};
+        if (_import_result_queue.empty()) { return; }
+        results = std::move(_import_result_queue);
+        _import_result_queue.clear();
+    }
 
+    // The batch always leads a given import's results; every CookedAsset already carries the global
+    // manifest index GltfImporter was handed via request_texture_cook/request_mesh_cook - no lookup needed.
+    auto locked = _scene.lock();
+    for (ImporterTaskResult & result : results)
+    {
+        if (auto * batch = std::get_if<ImporterTaskResult::SceneMetadataBatch>(&result.data))
+        {
+            DBG_ASSERT_TRUE_M(_pending_scene_import != nullptr, "A scene-metadata batch arrived with no import in flight");
+            apply_scene_metadata_batch(locked, *_pending_scene_import, std::move(*batch));
+        }
+        else
+        {
+            apply_cooked_asset(locked, std::move(std::get<ImporterTaskResult::CookedAsset>(result.data)));
+        }
+    }
+}
+
+void SceneRuntime::apply_scene_metadata_batch(Scene::Locked & locked, GltfImporter & importer, ImporterTaskResult::SceneMetadataBatch batch)
+{
     std::vector<u32> texture_local_to_global(batch.textures.size());
     for (u32 local_index = 0; local_index < s_cast<u32>(batch.textures.size()); ++local_index)
     {
-        texture_local_to_global[local_index] = locked.add_texture(std::move(batch.textures[local_index]));
+        ImporterTaskResult::SceneMetadataBatch::Texture & texture = batch.textures[local_index];
+        TextureMaterialType const type = texture.type;
+        auto const * gltf_data = std::get_if<TextureManifestEntry::GltfImporterData>(&texture.importer_data);
+        u32 const gltf_image_index = gltf_data != nullptr ? gltf_data->image_index : INVALID_MANIFEST_INDEX;
+
+        u32 const global_index = locked.add_texture(TextureManifestEntry{
+            .type = texture.type,
+            .name = std::move(texture.name),
+            .importer_data = std::move(texture.importer_data),
+        });
+        texture_local_to_global[local_index] = global_index;
+
+        if (gltf_data != nullptr)
+        {
+            if (type == TextureMaterialType::OPACITY) { importer.request_opacity_texture_cook(gltf_image_index, global_index); }
+            else { importer.request_texture_cook(gltf_image_index, global_index); }
+        }
     }
 
     auto remap_texture_info = [&](std::optional<MaterialManifestEntry::TextureInfo> & info)
@@ -91,23 +123,44 @@ void SceneRuntime::apply_scene_metadata_batch(ImporterTaskResult::SceneMetadataB
     std::vector<u32> material_local_to_global(batch.materials.size());
     for (u32 local_index = 0; local_index < s_cast<u32>(batch.materials.size()); ++local_index)
     {
-        MaterialManifestEntry material = std::move(batch.materials[local_index]);
+        ImporterTaskResult::SceneMetadataBatch::Material & material = batch.materials[local_index];
         remap_texture_info(material.diffuse_info);
         remap_texture_info(material.opacity_mask_info);
         remap_texture_info(material.normal_info);
         remap_texture_info(material.roughness_metalness_info);
-        material_local_to_global[local_index] = locked.add_material(std::move(material));
+        material_local_to_global[local_index] = locked.add_material(MaterialManifestEntry{
+            .diffuse_info = material.diffuse_info,
+            .opacity_mask_info = material.opacity_mask_info,
+            .normal_info = material.normal_info,
+            .roughness_metalness_info = material.roughness_metalness_info,
+            .alpha_discard_enabled = material.alpha_discard_enabled,
+            .double_sided = material.double_sided,
+            .blend_enabled = material.blend_enabled,
+            .base_color = material.base_color,
+            .emissive_color = material.emissive_color,
+            .name = std::move(material.name),
+        });
     }
 
     std::vector<u32> mesh_local_to_global(batch.mesh_lod_groups.size());
     for (u32 local_index = 0; local_index < s_cast<u32>(batch.mesh_lod_groups.size()); ++local_index)
     {
-        MeshLodGroupManifestEntry mesh = std::move(batch.mesh_lod_groups[local_index]);
-        if (mesh.material_index.has_value())
-        {
-            mesh.material_index = material_local_to_global.at(mesh.material_index.value());
-        }
-        mesh_local_to_global[local_index] = locked.add_mesh(std::move(mesh));
+        ImporterTaskResult::SceneMetadataBatch::MeshLodGroup & mesh = batch.mesh_lod_groups[local_index];
+        std::optional<u32> const material_index = mesh.material_index.has_value()
+                                                        ? std::optional{material_local_to_global.at(mesh.material_index.value())}
+                                                        : std::nullopt;
+        auto const * gltf_data = std::get_if<MeshLodGroupManifestEntry::GltfImporterData>(&mesh.importer_data);
+        u32 const gltf_mesh_index = gltf_data != nullptr ? gltf_data->mesh_index : INVALID_MANIFEST_INDEX;
+        u32 const gltf_primitive_index = gltf_data != nullptr ? gltf_data->primitive_index : INVALID_MANIFEST_INDEX;
+
+        u32 const global_index = locked.add_mesh(MeshLodGroupManifestEntry{
+            .material_index = material_index,
+            .name = std::move(mesh.name),
+            .importer_data = std::move(mesh.importer_data),
+        });
+        mesh_local_to_global[local_index] = global_index;
+
+        if (gltf_data != nullptr) { importer.request_mesh_cook(gltf_mesh_index, gltf_primitive_index, global_index); }
     }
 
     std::vector<u32> mesh_group_local_to_global(batch.mesh_groups.size());
@@ -127,12 +180,30 @@ void SceneRuntime::apply_scene_metadata_batch(ImporterTaskResult::SceneMetadataB
     std::vector<u32> point_light_local_to_global(batch.point_lights.size());
     for (u32 local_index = 0; local_index < s_cast<u32>(batch.point_lights.size()); ++local_index)
     {
-        point_light_local_to_global[local_index] = locked.add_point_light(batch.point_lights[local_index]);
+        ImporterTaskResult::SceneMetadataBatch::PointLight const & light = batch.point_lights[local_index];
+        // point_light_ptr is filled in by add_point_light itself, keyed on the light's global index.
+        point_light_local_to_global[local_index] = locked.add_point_light(PointLight{
+            .position = light.position,
+            .color = light.color,
+            .intensity = light.intensity,
+            .cutoff = light.cutoff,
+            .point_light_ptr = {},
+        });
     }
     std::vector<u32> spot_light_local_to_global(batch.spot_lights.size());
     for (u32 local_index = 0; local_index < s_cast<u32>(batch.spot_lights.size()); ++local_index)
     {
-        spot_light_local_to_global[local_index] = locked.add_spot_light(batch.spot_lights[local_index]);
+        ImporterTaskResult::SceneMetadataBatch::SpotLight const & light = batch.spot_lights[local_index];
+        // spot_light_ptr is filled in by add_spot_light itself, keyed on the light's global index.
+        spot_light_local_to_global[local_index] = locked.add_spot_light(SpotLight{
+            .transform = light.transform,
+            .color = light.color,
+            .intensity = light.intensity,
+            .cutoff = light.cutoff,
+            .inner_cone_angle = light.inner_cone_angle,
+            .outer_cone_angle = light.outer_cone_angle,
+            .spot_light_ptr = {},
+        });
     }
 
     // Entity ids must all exist before the tree's parent/child/sibling links (below) can reference them,
@@ -146,7 +217,13 @@ void SceneRuntime::apply_scene_metadata_batch(ImporterTaskResult::SceneMetadataB
     for (u32 local_index = 0; local_index < s_cast<u32>(batch.entities.size()); ++local_index)
     {
         ImporterTaskResult::SceneMetadataBatch::Entity const & local_entity = batch.entities[local_index];
-        RenderEntity entity = local_entity.entity;
+        RenderEntity entity = {
+            .transform = local_entity.transform,
+            .mesh_group_manifest_index = local_entity.mesh_group_manifest_index,
+            .type = local_entity.type,
+            .name = local_entity.name,
+            .light_index = local_entity.light_index,
+        };
         entity.parent = local_entity.parent_index.has_value()
                              ? std::optional{entity_local_to_global.at(local_entity.parent_index.value())}
                              : std::nullopt;
@@ -179,6 +256,22 @@ void SceneRuntime::apply_scene_metadata_batch(ImporterTaskResult::SceneMetadataB
         locked.update_entity(entity_local_to_global.at(local_index), entity);
     }
     locked.add_root_entity(entity_local_to_global.at(batch.root_entity_index));
+
+    // Every texture's/mesh's cook has now been requested with its global index - safe to dispatch.
+    importer.begin_cooking();
+}
+
+void SceneRuntime::apply_cooked_asset(Scene::Locked & locked, ImporterTaskResult::CookedAsset cooked_asset)
+{
+    // manifest_index is already global - request_texture_cook/request_mesh_cook resolved it up front.
+    if (auto * texture_streamer_data = std::get_if<TidoTextureStreamerData>(&cooked_asset.streamer_data))
+    {
+        locked.set_texture_streamer_data(cooked_asset.manifest_index, std::move(*texture_streamer_data));
+    }
+    else if (auto * mesh_streamer_data = std::get_if<TidoMeshStreamerData>(&cooked_asset.streamer_data))
+    {
+        locked.set_mesh_streamer_data(cooked_asset.manifest_index, std::move(*mesh_streamer_data));
+    }
 }
 
 // Moves the accumulated indices out of a dirty-index vector and leaves it empty. Only ever called

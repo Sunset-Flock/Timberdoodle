@@ -25,6 +25,7 @@ Read this at the start of every session and follow it.
 
 4. **Keep comments brief; comment the non-obvious, don't narrate the code.** 
    Explain *why*, a subtle constraint, or a gotcha — the things a reader can't see from the code itself.
+    - You have permission to ONLY write single line comments. If a comment requires more than a single line make it more brief.
     - Don't comment above a function about what this function does, this can be read from the implementation.
     - Don't comment above a private/public field about how this field is used - the name should already be descriptive enough.
     - If you really want to describe a field/function, describe how it should be used, not how and by whom it is used currently.

@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
-#include <functional>
 #include <span>
 
 #include <fastgltf/core.hpp>
@@ -433,42 +432,40 @@ static auto image_source_path(fastgltf::Asset const & asset, u32 gltf_image_inde
 }
 } // namespace
 
-GltfImporter::GltfImporter(Scene & scene, Scene::LoadManifestInfo const & info)
-    : scene{scene}, info{info}
+GltfImporter::GltfImporter(Scene * scene, Scene::LoadManifestInfo info, std::mutex * result_queue_mutex, std::vector<ImporterTaskResult> * result_queue)
+    : scene{scene}, info{std::move(info)}, result_queue_mutex{result_queue_mutex}, result_queue{result_queue}
 {
+    chunk_count = 1;
 }
 
-auto GltfImporter::import() -> std::variant<ImporterTaskResult::SceneMetadataBatch, Scene::LoadManifestErrorCode>
+void GltfImporter::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
     if (auto const error = parse(); error.has_value())
     {
-        return error.value();
+        DEBUG_MSG(fmt::format("[WARN][GltfImporter::callback] Loading \"{}\" Error: {}", (info.root_path / info.asset_name).string(), Scene::to_string(error.value())));
+        on_cook_chunk_finished(); // release the placeholder slot - no batch, no cooks, the group is already done.
+        return;
     }
 
-    // The pipeline cooks each leaf resource and only then adds it to the local batch, so every entry is
-    // already streamable the moment SceneRuntime appends it; each "translate" pass that references those
-    // leaves runs after they are added. Textures and meshes mirror each other: collect/cook/add the leaf,
-    // then a translate pass wires the consumer (materials reference images; mesh groups reference meshes).
+    // The scene-metadata batch is built purely from parsing, independent of cooking. Cooking is requested
+    // and dispatched later, by SceneRuntime/begin_cooking, once global manifest indices exist - see the
+    // header's Flow note.
     collect_referenced_images(); // pass 1: resolve each used texture to its image (+ type); skip unreferenced.
-    load_cache();                // load the shared .tido_cache once (used by load_images + load_meshes).
+    load_cache();                // load the shared .tido_cache once (used by dispatch_all_cooks).
     // A fully valid cache is reused verbatim and left untouched - the optimal path opens nothing. Otherwise
-    // something must be (re)cooked, so open the cache for a fresh rewrite: load_images / load_meshes then
-    // stream every artifact's record into it as its cook drains.
+    // something must be (re)cooked, so open the cache for a fresh rewrite: dispatch_all_cooks then streams
+    // every artifact's record into it as its cook drains.
     rewriting_cache = !validate_cache();
     if (rewriting_cache) { open_cache_writer(); }
-    load_images();               // pass 2: cook every referenced image, then add it to the local batch.
-    translate_materials();       // pass 3: a material's images are in the batch -> its entry is complete -> add it.
-    load_meshes();               // pass 4: cook every mesh, then add it to the local batch.
-    translate_mesh_groups();     // pass 5: a group's meshes are in the batch -> add the group over them.
+    add_texture_batch_entries(); // pass 2: add every referenced image's batch entry.
+    translate_materials();       // pass 3: a material's images already have batch entries -> add it.
+    add_mesh_batch_entries();    // pass 4: add every mesh's batch entry.
+    translate_mesh_groups();     // pass 5: a group's meshes already have batch entries -> add the group over them.
     batch.root_entity_index = translate_entities(); // pass 6: entities reference mesh groups.
 
-    return std::move(batch);
-}
-
-void GltfImportTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
-{
-    result = GltfImporter{*scene, info}.import();
-    finished.store(true, std::memory_order_release);
+    // SceneRuntime appends the batch, requests each cook with its global index, then calls begin_cooking().
+    std::lock_guard<std::mutex> lock{*result_queue_mutex};
+    result_queue->push_back(ImporterTaskResult{.data = std::move(batch)});
 }
 
 auto GltfImporter::parse() -> std::optional<Scene::LoadManifestErrorCode>
@@ -518,7 +515,7 @@ auto GltfImporter::parse() -> std::optional<Scene::LoadManifestErrorCode>
     }
 
     // Only used as a suffix for the root entity name; not a manifest offset.
-    import_index = scene.lock().root_entity_count();
+    import_index = scene->lock().root_entity_count();
     return std::nullopt;
 }
 
@@ -591,9 +588,9 @@ void GltfImporter::load_cache()
 {
     // Load this source file's shared .tido_cache. It is LOCATED by the source-path hash; whether its
     // entries are usable is decided per kind by the cook version (a bumped version stales all of that
-    // kind), and then per artifact by mtime/content hash in load_images/load_meshes. The source file
-    // merely changing (a new entity, reordered nodes) no longer invalidates anything on its own. Stored as
-    // members so both load_images and load_meshes reuse the one loaded cache.
+    // kind), and then per artifact by mtime/content hash in dispatch_texture_cooks/dispatch_mesh_cooks. The
+    // source file merely changing (a new entity, reordered nodes) no longer invalidates anything on its
+    // own. Stored as members so both dispatch passes reuse the one loaded cache.
     TidoCacheKey const current_key = tido_make_cache_key(file_path, GLTF_TEXTURE_COOK_VERSION, GLTF_MESH_COOK_VERSION);
     cache_output_dir = tido_cache_dir(info.asset_name.string(), current_key.source_hash);
     loaded_cache = read_tido_cache(cache_output_dir / tido_cache_file_name(info.asset_name.string(), current_key.source_hash));
@@ -648,9 +645,9 @@ auto GltfImporter::validate_cache() -> bool
     if (!loaded_cache.has_value() || !texture_cache_valid || !mesh_cache_valid) { return false; }
 
     // Every referenced artifact must have a cached entry whose source is unchanged (same mtime) and whose
-    // .tido is still on disk - the same fast-path test load_images/load_meshes apply per artifact. A single
-    // miss (absent entry, moved mtime, deleted .tido) means something will be (re)cooked, so the cache is
-    // rewritten rather than appended to.
+    // .tido is still on disk - the same fast-path test dispatch_texture_cooks/dispatch_mesh_cooks apply per
+    // artifact. A single miss (absent entry, moved mtime, deleted .tido) means something will be (re)cooked,
+    // so the cache is rewritten rather than appended to.
     for (u32 image_index = 0; image_index < s_cast<u32>(asset.images.size()); ++image_index)
     {
         if (image_types.at(image_index) == TextureMaterialType::NONE) { continue; } // unreferenced - not cooked
@@ -681,8 +678,8 @@ auto GltfImporter::validate_cache() -> bool
 
 void GltfImporter::open_cache_writer()
 {
-    // Truncates the cache file and writes the header record; load_images / load_meshes then append one record
-    // per artifact as its cook drains.
+    // Truncates the cache file and writes the header record; dispatch_texture_cooks / dispatch_mesh_cooks
+    // then append one record per artifact as its cook drains.
     DBG_ASSERT_TRUE_M(rewriting_cache, "[ERROR][GltfImporter::open_cache_writer] called without a rewrite decided (rewriting_cache is false)");
     TidoCacheKey const key = tido_make_cache_key(file_path, GLTF_TEXTURE_COOK_VERSION, GLTF_MESH_COOK_VERSION);
     std::filesystem::path const cache_path = cache_output_dir / tido_cache_file_name(info.asset_name.string(), key.source_hash);
@@ -695,7 +692,7 @@ void GltfImporter::open_cache_writer()
             file_path.string()));
         return;
     }
-    // The file leads with the header record; load_images / load_meshes append one record per artifact after it.
+    // The file leads with the header record; dispatch_texture_cooks / dispatch_mesh_cooks append one record per artifact after it.
     write_cache_record(serialize_tido_cache_header(key));
 }
 
@@ -713,54 +710,120 @@ void GltfImporter::write_cache_record(std::string const & record)
     cache_stream.flush();
 }
 
-void GltfImporter::load_images()
+void GltfImporter::on_cook_chunk_finished()
 {
-    // Second pass: cook every referenced image, then add each to the local batch with its cooked result
-    // in hand. An image is added ONLY after it is cooked, so the moment SceneRuntime appends it, it is
-    // already streamable. Each cook runs extract (load_raw_image, importer) -> process_image (optimizer)
-    // -> write_texture_tido (.tido on disk) - no GPU work (exactly like load_meshes). One task holds a
-    // chunk per image that needs cooking; the chunks run in parallel and each adds its own image on
-    // completion (add_cooked is thread-safe), so there is no separate collection pass.
+    if (outstanding_cook_chunks.fetch_sub(1, std::memory_order_acq_rel) == 1)
+    {
+        group_finished.store(true, std::memory_order_release);
+    }
+}
+
+void GltfImporter::push_cooked_asset(ImporterTaskResult::CookedAsset cooked_asset)
+{
+    std::lock_guard<std::mutex> lock{*result_queue_mutex};
+    result_queue->push_back(ImporterTaskResult{.data = std::move(cooked_asset)});
+}
+
+// opacity_artifact is reported only when the image both needs the split and the cook found real alpha.
+void GltfImporter::push_cooked_texture(u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)
+{
+    if (rewriting_cache) { write_cache_record(serialize_tido_cache_texture(artifact)); }
+    push_cooked_asset(ImporterTaskResult::CookedAsset{
+        .streamer_data = make_texture_streamer_data(artifact), // .tido reference; streamed in by the scene.
+        .manifest_index = image_manifest_indices.at(gltf_image_index),
+    });
+
+    if (opacity_artifact.has_value() && image_needs_opacity_split.at(gltf_image_index))
+    {
+        if (rewriting_cache) { write_cache_record(serialize_tido_cache_texture(opacity_artifact.value())); }
+        push_cooked_asset(ImporterTaskResult::CookedAsset{
+            .streamer_data = make_texture_streamer_data(opacity_artifact.value()),
+            .manifest_index = opacity_manifest_indices.at(gltf_image_index),
+        });
+    }
+    else if (image_needs_opacity_split.at(gltf_image_index))
+    {
+        DEBUG_MSG(fmt::format("[WARN] Image '{}' is Mask-sampled by a material but has no alpha channel - its opacity manifest entry will never become resident", asset.images.at(gltf_image_index).name));
+    }
+}
+
+void GltfImporter::push_cooked_mesh(u32 gltf_mesh_index, u32 gltf_primitive_index, TidoMeshCookResult const & artifact)
+{
+    if (rewriting_cache) { write_cache_record(serialize_tido_cache_mesh(artifact)); }
+    push_cooked_asset(ImporterTaskResult::CookedAsset{
+        .streamer_data = make_mesh_streamer_data(artifact), // .tido reference; streamed in by the scene.
+        .manifest_index = mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index),
+    });
+}
+
+void GltfImporter::request_texture_cook(u32 gltf_image_index, u32 manifest_index)
+{
+    image_manifest_indices.at(gltf_image_index) = manifest_index;
+}
+
+void GltfImporter::request_opacity_texture_cook(u32 gltf_image_index, u32 manifest_index)
+{
+    opacity_manifest_indices.at(gltf_image_index) = manifest_index;
+}
+
+void GltfImporter::request_mesh_cook(u32 gltf_mesh_index, u32 gltf_primitive_index, u32 manifest_index)
+{
+    mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = manifest_index;
+}
+
+void GltfImporter::begin_cooking()
+{
+    struct BeginCookingTask final : Task
+    {
+        std::shared_ptr<GltfImporter> const importer;
+        explicit BeginCookingTask(std::shared_ptr<GltfImporter> importer) : importer{std::move(importer)} { chunk_count = 1; }
+        void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override { importer->dispatch_all_cooks(); }
+    };
+    info.thread_pool->async_dispatch(std::make_shared<BeginCookingTask>(shared_from_this()), TaskPriority::LOW);
+}
+
+void GltfImporter::dispatch_all_cooks()
+{
+    dispatch_texture_cooks();
+    dispatch_mesh_cooks();
+    on_cook_chunk_finished(); // release the placeholder slot held since construction.
+}
+
+void GltfImporter::add_texture_batch_entries()
+{
+    // Second pass: add every referenced image's (+ split-off opacity's) metadata-only batch entry up front, independent of cooking.
     image_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
     opacity_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
-
-    // Records a cooked texture (fresh cook or cache hit) into the local batch and, when a cache rewrite is
-    // underway, appends its record to the open .tido_cache. Thread-safe: batch_mutex guards the batch and
-    // write_cache_record guards the cache stream, and each call writes a distinct image_manifest_indices/
-    // opacity_manifest_indices slot, so cook chunks add concurrently. cache_key is already set on the
-    // artifact. Used only by the cook task's completion callback below - the fast path (single-threaded, no
-    // cook chunks in flight) adds its batch directly further down instead of going through this per entry.
-    // opacity_artifact is only present for a DIFFUSE image that genuinely had alpha; it becomes its own
-    // OPACITY-typed manifest entry only when image_needs_opacity_split also says a Mask material uses it.
-    auto add_cooked_texture = [&](u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)
+    for (u32 image_index = 0; image_index < s_cast<u32>(asset.images.size()); ++image_index)
     {
-        if (rewriting_cache) { write_cache_record(serialize_tido_cache_texture(artifact)); }
-        std::lock_guard<std::mutex> lock{batch_mutex};
-        u32 const image_manifest_index = s_cast<u32>(batch.textures.size());
-        batch.textures.push_back(TextureManifestEntry{
-            .type = image_types.at(gltf_image_index),
-            .material_manifest_indices = {},          // Back-refs are filled by SceneRuntime when it appends materials (pass 3).
-            .name = asset.images[gltf_image_index].name.c_str(),
-            .streamer_data = make_texture_streamer_data(artifact), // .tido reference; streamed in by the scene.
-            .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = gltf_image_index},
-        });
-        image_manifest_indices.at(gltf_image_index) = image_manifest_index;
-
-        if (opacity_artifact.has_value() && image_needs_opacity_split.at(gltf_image_index))
+        if (image_types.at(image_index) == TextureMaterialType::NONE)
         {
-            if (rewriting_cache) { write_cache_record(serialize_tido_cache_texture(opacity_artifact.value())); }
-            u32 const opacity_manifest_index = s_cast<u32>(batch.textures.size());
-            batch.textures.push_back(TextureManifestEntry{
-                .type = TextureMaterialType::OPACITY,
-                .material_manifest_indices = {},
-                .name = std::string(asset.images[gltf_image_index].name.c_str()) + "_opacity",
-                .streamer_data = make_texture_streamer_data(opacity_artifact.value()),
-                .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = gltf_image_index},
-            });
-            opacity_manifest_indices.at(gltf_image_index) = opacity_manifest_index;
+            continue; // Unreferenced image - do not add or cook it.
         }
-    };
+        u32 const image_manifest_index = s_cast<u32>(batch.textures.size());
+        batch.textures.push_back(ImporterTaskResult::SceneMetadataBatch::Texture{
+            .type = image_types.at(image_index),
+            .name = asset.images[image_index].name.c_str(),
+            .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = image_index},
+        });
+        image_manifest_indices.at(image_index) = image_manifest_index;
 
+        // Entry exists whenever masked; stays un-streamed if the cook finds no real alpha (see push_cooked_texture).
+        if (image_needs_opacity_split.at(image_index))
+        {
+            u32 const opacity_manifest_index = s_cast<u32>(batch.textures.size());
+            batch.textures.push_back(ImporterTaskResult::SceneMetadataBatch::Texture{
+                .type = TextureMaterialType::OPACITY,
+                .name = std::string(asset.images[image_index].name.c_str()) + "_opacity",
+                .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = image_index},
+            });
+            opacity_manifest_indices.at(image_index) = opacity_manifest_index;
+        }
+    }
+}
+
+void GltfImporter::dispatch_texture_cooks()
+{
     struct LoadImagesTask final : Task
     {
         struct Item
@@ -779,21 +842,22 @@ void GltfImporter::load_images()
 
         // Immutable for the run of the task: set once at construction (before dispatch) and only ever read
         // from callback, which may run concurrently across chunks - nothing here is mutated after dispatch.
+        // importer keeps the parsed asset (+ cache-write state) alive for as long as any chunk is still dispatched.
         fastgltf::Asset const * const asset;
         std::filesystem::path const asset_path;
         std::filesystem::path const cache_dir; // per-import output folder for the .tido data files
         std::vector<Item> const items;
-        std::function<void(u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)> const add_cooked;
+        std::shared_ptr<GltfImporter> const importer;
 
         LoadImagesTask(fastgltf::Asset const * asset, std::filesystem::path asset_path, std::filesystem::path cache_dir,
-            std::vector<Item> items, std::function<void(u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)> add_cooked)
+            std::vector<Item> items, std::shared_ptr<GltfImporter> importer)
             : asset{asset}, asset_path{std::move(asset_path)}, cache_dir{std::move(cache_dir)},
-              items{std::move(items)}, add_cooked{std::move(add_cooked)}
+              items{std::move(items)}, importer{std::move(importer)}
         {
             chunk_count = s_cast<u32>(this->items.size());
         }
 
-        void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+        void run_cook(u32 chunk_index)
         {
             Item const & item = items.at(chunk_index);
 
@@ -819,7 +883,7 @@ void GltfImporter::load_images()
                     opacity_artifact = item.cached_opacity.value();
                     opacity_artifact->source_modified = item.current_mtime;
                 }
-                add_cooked(item.gltf_image_index, color_artifact, opacity_artifact);
+                importer->push_cooked_texture(item.gltf_image_index, color_artifact, opacity_artifact);
                 return;
             }
 
@@ -849,11 +913,7 @@ void GltfImporter::load_images()
             color_artifact.source_modified = item.current_mtime;
             color_artifact.content_hash = content_hash;
 
-            // Part 3b: if this image is Mask-sampled by some material AND the cook split off an opacity
-            // image (DIFFUSE + genuine source alpha), write its own .tido artifact too. Skipping the write
-            // entirely when needs_opacity_split is false avoids cooking + storing an artifact nothing will
-            // ever reference. A failed write here does not fail the whole cook - the color output stays
-            // usable and the material simply renders without a dedicated opacity texture.
+            // Part 3b: also write the split opacity artifact, but only if masked AND the cook found real alpha.
             std::optional<TidoTextureCookResult> opacity_artifact = {};
             if (item.needs_opacity_split && processed.opacity.has_value())
             {
@@ -874,15 +934,21 @@ void GltfImporter::load_images()
                 }
             }
 
-            add_cooked(item.gltf_image_index, color_artifact, opacity_artifact);
+            importer->push_cooked_texture(item.gltf_image_index, color_artifact, opacity_artifact);
+        }
+
+        void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+        {
+            run_cook(chunk_index);
+            importer->on_cook_chunk_finished();
         }
     };
 
     // For each referenced image (skip the unreferenced ones found in pass 1) decide:
     //   - mtime fast path: a cached color entry whose stored source mtime still matches (and whose .tido
-    //     exists) is reused WITHOUT reading the source at all - collected here and added in one batch below,
-    //     under a single lock, rather than reacquiring the scene lock per image. Its opacity counterpart (if
-    //     any - only present when a previous cook found this image had alpha) rides along on the same mtime.
+    //     exists) is reused WITHOUT reading the source at all - reported below via push_cooked_texture. Its
+    //     opacity counterpart (if any - only present when a previous cook found this image had alpha) rides
+    //     along on the same mtime.
     //   - otherwise it becomes a chunk of the cook task, which reads the source, content-hashes it, and either
     //     reuses the cached .tido(s) (bytes unchanged, refresh the mtime) or recooks the image.
     u32 fast_hits = 0;
@@ -931,105 +997,57 @@ void GltfImporter::load_images()
         });
     }
 
-    // Fast path: append every mtime-hit entry's cache record(s) first (no batch lock held - just the cache
-    // stream), then add all of them to the local batch under a single lock (no cook chunks are in
-    // flight yet, so this loop is entirely sequential and safe to batch).
-    if (rewriting_cache)
+    // Fast path: reuse the cached artifact(s) without dispatching a chunk - report them exactly like a
+    // freshly cooked artifact (push_cooked_texture already resolves the request_texture_cook'd manifest index).
+    for (auto const & entry : fast_hit_entries)
     {
-        for (auto const & entry : fast_hit_entries)
-        {
-            write_cache_record(serialize_tido_cache_texture(entry.color));
-            if (entry.opacity.has_value()) { write_cache_record(serialize_tido_cache_texture(entry.opacity.value())); }
-        }
-    }
-    if (!fast_hit_entries.empty())
-    {
-        std::lock_guard<std::mutex> lock{batch_mutex};
-        for (auto const & entry : fast_hit_entries)
-        {
-            u32 const image_manifest_index = s_cast<u32>(batch.textures.size());
-            batch.textures.push_back(TextureManifestEntry{
-                .type = image_types.at(entry.gltf_image_index),
-                .material_manifest_indices = {},          // Back-refs are filled by SceneRuntime when it appends materials (pass 3).
-                .name = asset.images[entry.gltf_image_index].name.c_str(),
-                .streamer_data = make_texture_streamer_data(entry.color), // .tido reference; streamed in by the scene.
-                .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = entry.gltf_image_index},
-            });
-            image_manifest_indices.at(entry.gltf_image_index) = image_manifest_index;
-
-            if (entry.opacity.has_value() && image_needs_opacity_split.at(entry.gltf_image_index))
-            {
-                u32 const opacity_manifest_index = s_cast<u32>(batch.textures.size());
-                batch.textures.push_back(TextureManifestEntry{
-                    .type = TextureMaterialType::OPACITY,
-                    .material_manifest_indices = {},
-                    .name = std::string(asset.images[entry.gltf_image_index].name.c_str()) + "_opacity",
-                    .streamer_data = make_texture_streamer_data(entry.opacity.value()),
-                    .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = entry.gltf_image_index},
-                });
-                opacity_manifest_indices.at(entry.gltf_image_index) = opacity_manifest_index;
-            }
-        }
+        push_cooked_texture(entry.gltf_image_index, entry.color, entry.opacity);
     }
 
-    // One task, one chunk per image that needs cooking; the caller participates as a worker until every chunk
-    // is done (blocking_dispatch, so this is safe to call from a worker thread once import runs off the main
-    // thread). Each chunk cooks its image and adds it via add_cooked on completion.
+    // One chunk per image, dispatched async and never awaited here; increment before dispatch so a
+    // chunk finishing immediately can never underrun outstanding_cook_chunks.
     u32 const cook_count = s_cast<u32>(items_to_cook.size());
     if (cook_count > 0)
     {
-        auto task = std::make_shared<LoadImagesTask>(&asset, file_path, cache_output_dir, std::move(items_to_cook), add_cooked_texture);
-        info.thread_pool->blocking_dispatch(task, TaskPriority::LOW);
+        outstanding_cook_chunks.fetch_add(cook_count, std::memory_order_relaxed);
+        auto task = std::make_shared<LoadImagesTask>(&asset, file_path, cache_output_dir, std::move(items_to_cook), shared_from_this());
+        info.thread_pool->async_dispatch(task, TaskPriority::LOW);
     }
 
-    DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': {} textures ({} mtime-hit, {} read)",
+    DEBUG_MSG(fmt::format("[GltfImporter::dispatch_texture_cooks] '{}': {} textures ({} mtime-hit, {} read)",
         info.asset_name.string(), fast_hits + cook_count, fast_hits, cook_count));
 }
 
-void GltfImporter::load_meshes()
+void GltfImporter::add_mesh_batch_entries()
 {
     /// NOTE: fastgltf::Mesh is a MeshGroup, fastgltf::Primitive is a Mesh (MeshLodGroup).
-    // Fourth pass (mirrors load_images): cook every mesh, then add each to the local batch with its cooked
-    // result in hand. A mesh is added ONLY after it is cooked, so the moment SceneRuntime appends it, it is
-    // already streamable. Each cook runs extract (importer) -> optimize_mesh (optimizer) -> write_mesh_tido
-    // (.tido on disk) - no GPU work. One task holds a chunk per mesh that needs cooking; the chunks run in
-    // parallel and each adds its own mesh on completion (add_cooked is thread-safe), so there is no separate
-    // collection pass.
-
-    // [gltf mesh-group index][in-group primitive index] -> batch-local index, INVALID until that mesh is
-    // cooked + added (so a failed cook leaves a hole that translate_mesh_groups skips).
+    // Fourth pass: add every primitive's metadata-only batch entry up front, independent of cooking.
+    // [gltf mesh-group index][in-group primitive index] -> batch-local index.
     mesh_manifest_indices.assign(asset.meshes.size(), {});
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); ++mesh_group_index)
     {
-        mesh_manifest_indices[mesh_group_index].assign(asset.meshes[mesh_group_index].primitives.size(), INVALID_MANIFEST_INDEX);
+        auto const & gltf_mesh = asset.meshes.at(mesh_group_index);
+        mesh_manifest_indices[mesh_group_index].reserve(gltf_mesh.primitives.size());
+        for (u32 primitive_index = 0; primitive_index < s_cast<u32>(gltf_mesh.primitives.size()); ++primitive_index)
+        {
+            auto const & gltf_primitive = gltf_mesh.primitives.at(primitive_index);
+            std::optional<u32> const material_index =
+                gltf_primitive.materialIndex.has_value()
+                    ? std::optional{material_manifest_indices.at(s_cast<u32>(gltf_primitive.materialIndex.value()))}
+                    : std::nullopt;
+            u32 const mesh_manifest_index = s_cast<u32>(batch.mesh_lod_groups.size());
+            batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
+                .material_index = material_index,
+                .name = gltf_mesh.name.c_str(),
+                .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = mesh_group_index, .primitive_index = primitive_index},
+            });
+            mesh_manifest_indices[mesh_group_index].push_back(mesh_manifest_index);
+        }
     }
+}
 
-    // Records a cooked mesh (fresh cook or cache hit) into the local batch and, when a cache rewrite is
-    // underway, appends its record to the open .tido_cache. Thread-safe: batch_mutex guards the batch and
-    // write_cache_record guards the cache stream, and each call writes a distinct mesh_manifest_indices
-    // slot, so cook chunks add concurrently. cache_key is already set on the artifact. Used only by the
-    // cook task's completion callback below - the fast path (single-threaded, no cook chunks in flight)
-    // adds its batch directly further down instead of going through this per entry.
-    auto add_cooked_mesh = [&](u32 gltf_mesh_index, u32 gltf_primitive_index, TidoMeshCookResult artifact)
-    {
-        if (rewriting_cache) { write_cache_record(serialize_tido_cache_mesh(artifact)); }
-        auto const & gltf_mesh = asset.meshes.at(gltf_mesh_index);
-        auto const & gltf_primitive = gltf_mesh.primitives.at(gltf_primitive_index);
-        std::optional<u32> const material_index =
-            gltf_primitive.materialIndex.has_value()
-                ? std::optional{material_manifest_indices.at(s_cast<u32>(gltf_primitive.materialIndex.value()))}
-                : std::nullopt;
-        std::lock_guard<std::mutex> lock{batch_mutex};
-        u32 const mesh_manifest_index = s_cast<u32>(batch.mesh_lod_groups.size());
-        batch.mesh_lod_groups.push_back(MeshLodGroupManifestEntry{
-            .material_index = material_index,
-            .name = gltf_mesh.name.c_str(),
-            .streamer_data = make_mesh_streamer_data(artifact),   // .tido reference; streamed in by the scene.
-            .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = gltf_mesh_index, .primitive_index = gltf_primitive_index},
-        });
-        mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = mesh_manifest_index;
-    };
-
+void GltfImporter::dispatch_mesh_cooks()
+{
     struct LoadMeshesTask final : Task
     {
         struct Item
@@ -1044,34 +1062,35 @@ void GltfImporter::load_meshes()
 
         // Immutable for the run of the task: set once at construction (before dispatch) and only ever read
         // from callback, which may run concurrently across chunks - nothing here is mutated after dispatch.
+        // importer keeps the parsed asset (+ cache-write state) alive for as long as any chunk is still dispatched.
         fastgltf::Asset const * const asset;
         std::filesystem::path const asset_path;
         std::filesystem::path const cache_dir; // per-import output folder for the .tido data files
         std::vector<Item> const items;
-        std::function<void(u32 gltf_mesh_index, u32 gltf_primitive_index, TidoMeshCookResult artifact)> const add_cooked;
+        std::shared_ptr<GltfImporter> const importer;
 
         LoadMeshesTask(fastgltf::Asset const * asset, std::filesystem::path asset_path, std::filesystem::path cache_dir,
-            std::vector<Item> items, std::function<void(u32 gltf_mesh_index, u32 gltf_primitive_index, TidoMeshCookResult artifact)> add_cooked)
+            std::vector<Item> items, std::shared_ptr<GltfImporter> importer)
             : asset{asset}, asset_path{std::move(asset_path)}, cache_dir{std::move(cache_dir)},
-              items{std::move(items)}, add_cooked{std::move(add_cooked)}
+              items{std::move(items)}, importer{std::move(importer)}
         {
             chunk_count = s_cast<u32>(this->items.size());
         }
 
-        void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+        void run_cook(u32 chunk_index)
         {
             Item const & item = items.at(chunk_index);
             std::string const mesh_name = std::string(asset->meshes[item.gltf_mesh_index].name.c_str()) + "." + std::to_string(item.gltf_primitive_index);
             // On a failed (re)cook, fall back to the last good cook (the pre-seeded cache entry, if any) and
             // refresh its stored mtime so an un-processable source is not re-flagged "out of date" every
-            // import. No fallback (first cook) -> nothing is added -> translate_mesh_groups skips the hole.
+            // import. No fallback (first cook) -> nothing is reported -> the entry stays permanently un-streamed.
             auto keep_cached_fallback = [&]
             {
                 if (item.cached.has_value())
                 {
                     TidoMeshCookResult artifact = item.cached.value();
                     artifact.source_modified = item.current_mtime;
-                    add_cooked(item.gltf_mesh_index, item.gltf_primitive_index, artifact);
+                    importer->push_cooked_mesh(item.gltf_mesh_index, item.gltf_primitive_index, artifact);
                 }
             };
 
@@ -1092,7 +1111,7 @@ void GltfImporter::load_meshes()
                 // stored mtime so the next import fast-paths without reading the source again.
                 TidoMeshCookResult artifact = item.cached.value();
                 artifact.source_modified = item.current_mtime;
-                add_cooked(item.gltf_mesh_index, item.gltf_primitive_index, artifact);
+                importer->push_cooked_mesh(item.gltf_mesh_index, item.gltf_primitive_index, artifact);
                 return;
             }
             // Part 2: cook the raw streams into the runtime form (optimizer).
@@ -1110,14 +1129,19 @@ void GltfImporter::load_meshes()
             TidoMeshCookResult artifact = tido_result.value();
             artifact.source_modified = item.current_mtime;
             artifact.content_hash = content_hash;
-            add_cooked(item.gltf_mesh_index, item.gltf_primitive_index, artifact);
+            importer->push_cooked_mesh(item.gltf_mesh_index, item.gltf_primitive_index, artifact);
+        }
+
+        void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+        {
+            run_cook(chunk_index);
+            importer->on_cook_chunk_finished();
         }
     };
 
-    // For each mesh decide per artifact (mirrors load_images):
+    // For each mesh decide per artifact:
     //   - mtime fast path: a cached entry whose stored source mtime still matches (and whose .tido exists)
-    //     is reused WITHOUT reading the source at all - collected here and added in one batch below, under
-    //     a single lock, rather than reacquiring the scene lock per mesh.
+    //     is reused WITHOUT reading the source at all - reported below via push_cooked_mesh.
     //   - otherwise it becomes a chunk of the cook task, which extracts the geometry, content-hashes it, and
     //     either reuses the cached .tido (bytes unchanged, refresh the mtime) or recooks (bytes changed / no entry).
     u32 fast_hits = 0;
@@ -1151,60 +1175,30 @@ void GltfImporter::load_meshes()
         }
     }
 
-    // Fast path: append every mtime-hit entry's cache record first (no batch lock held - just the cache
-    // stream), then add all of them to the local batch under a single lock (no cook chunks are in
-    // flight yet, so this loop is entirely sequential and safe to batch).
-    if (rewriting_cache)
+    // Fast path: reuse the cached artifact without dispatching a chunk - report it exactly like a freshly
+    // cooked artifact (push_cooked_mesh already resolves the request_mesh_cook'd manifest index and writes the cache record).
+    for (auto const & [gltf_mesh_index, gltf_primitive_index, artifact] : fast_hit_entries)
     {
-        for (auto const & [gltf_mesh_index, gltf_primitive_index, artifact] : fast_hit_entries)
-        {
-            write_cache_record(serialize_tido_cache_mesh(artifact));
-        }
-    }
-    if (!fast_hit_entries.empty())
-    {
-        std::lock_guard<std::mutex> lock{batch_mutex};
-        for (auto & [gltf_mesh_index, gltf_primitive_index, artifact] : fast_hit_entries)
-        {
-            auto const & gltf_mesh = asset.meshes.at(gltf_mesh_index);
-            auto const & gltf_primitive = gltf_mesh.primitives.at(gltf_primitive_index);
-            std::optional<u32> const material_index =
-                gltf_primitive.materialIndex.has_value()
-                    ? std::optional{material_manifest_indices.at(s_cast<u32>(gltf_primitive.materialIndex.value()))}
-                    : std::nullopt;
-            u32 const mesh_manifest_index = s_cast<u32>(batch.mesh_lod_groups.size());
-            batch.mesh_lod_groups.push_back(MeshLodGroupManifestEntry{
-                .material_index = material_index,
-                .name = gltf_mesh.name.c_str(),
-                .streamer_data = make_mesh_streamer_data(artifact),   // .tido reference; streamed in by the scene.
-                .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = gltf_mesh_index, .primitive_index = gltf_primitive_index},
-            });
-            mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = mesh_manifest_index;
-        }
+        push_cooked_mesh(gltf_mesh_index, gltf_primitive_index, artifact);
     }
 
-    // One task, one chunk per mesh that needs cooking; the caller participates as a worker until every chunk
-    // is done (blocking_dispatch, so this is safe to call from a worker thread once import runs off the main
-    // thread). Each chunk cooks its mesh and adds it via add_cooked on completion.
+    // One chunk per mesh, dispatched async and never awaited here; increment before dispatch so a
+    // chunk finishing immediately can never underrun outstanding_cook_chunks.
     u32 const cook_count = s_cast<u32>(items_to_cook.size());
     if (cook_count > 0)
     {
-        auto task = std::make_shared<LoadMeshesTask>(&asset, file_path, cache_output_dir, std::move(items_to_cook), add_cooked_mesh);
-        info.thread_pool->blocking_dispatch(task, TaskPriority::LOW);
+        outstanding_cook_chunks.fetch_add(cook_count, std::memory_order_relaxed);
+        auto task = std::make_shared<LoadMeshesTask>(&asset, file_path, cache_output_dir, std::move(items_to_cook), shared_from_this());
+        info.thread_pool->async_dispatch(task, TaskPriority::LOW);
     }
 
-    DEBUG_MSG(fmt::format("[GltfImporter::load_meshes] '{}': {} meshes ({} mtime-hit, {} read)",
+    DEBUG_MSG(fmt::format("[GltfImporter::dispatch_mesh_cooks] '{}': {} meshes ({} mtime-hit, {} read)",
         info.asset_name.string(), fast_hits + cook_count, fast_hits, cook_count));
 }
 
-
 void GltfImporter::translate_materials()
 {
-    // Images are already in the local batch; a material references them by resolving each texture to its
-    // image and looking up the image's batch-local index. SceneRuntime fills the texture -> material
-    // back-refs when it appends materials (sampler_index is a placeholder until samplers are translated).
-    // An image whose cook failed keeps INVALID_MANIFEST_INDEX, so its textures resolve to nullopt and the
-    // material renders without them rather than referencing a texture that will never become resident.
+    // Every referenced image already has a batch entry; resolve each texture to its image and look up its index.
     auto resolve_texture_info = [&](u32 const gltf_texture_index, u32 const sampler_index) -> std::optional<MaterialManifestEntry::TextureInfo>
     {
         u32 const manifest_index = image_manifest_indices.at(gltf_texture_to_image_index(gltf_texture_index).value());
@@ -1223,9 +1217,7 @@ void GltfImporter::translate_materials()
         {
             u32 const gltf_texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
             diffuse_texture_info = resolve_texture_info(gltf_texture_index, {});
-            // The split opacity texture (see image_needs_opacity_split / opacity_manifest_indices) only
-            // exists for images a Mask material actually samples, and only when the cook found real alpha
-            // to split; otherwise the material simply has no opacity texture.
+            // Exists for every Mask-sampled image (see opacity_manifest_indices); stays un-streamed if the cook found no real alpha.
             auto const gltf_image_index = gltf_texture_to_image_index(gltf_texture_index);
             if (gltf_image_index.has_value())
             {
@@ -1247,14 +1239,8 @@ void GltfImporter::translate_materials()
 
         bool const alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask && opacity_texture_info.has_value();
 
-        if(material.alphaMode == fastgltf::AlphaMode::Mask && !opacity_texture_info.has_value())
-        {
-            DEBUG_MSG(fmt::format("[WARN] Material '{}' has alphaMode=MASK but no opacity texture (diffuse image had no alpha)", material.name));
-        }
-
-
         u32 const material_manifest_index = s_cast<u32>(batch.materials.size());
-        batch.materials.push_back(MaterialManifestEntry{
+        batch.materials.push_back(ImporterTaskResult::SceneMetadataBatch::Material{
             .diffuse_info = diffuse_texture_info,
             .opacity_mask_info = opacity_texture_info,
             .normal_info = normal_texture_info,
@@ -1273,28 +1259,14 @@ void GltfImporter::translate_materials()
 void GltfImporter::translate_mesh_groups()
 {
     /// NOTE: fastgltf::Mesh is a MeshGroup, fastgltf::Primitive is a Mesh (MeshLodGroup).
-    // Mirrors translate_materials: every mesh is already cooked + added (load_meshes), so each gltf mesh
-    // (= mesh group) is simply added to the local batch over its meshes' batch-local indices. SceneRuntime
-    // resolves them + back-links the meshes when it appends the batch. Holes left by failed cooks
-    // (INVALID_MANIFEST_INDEX) are skipped so a group never references a mesh that will never become resident.
+    // Every primitive already has a batch entry; each gltf mesh becomes a group over its primitives' indices.
     mesh_group_manifest_indices.reserve(asset.meshes.size());
-    std::vector<u32> group_mesh_manifest_indices = {};
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); mesh_group_index++)
     {
         auto const & gltf_mesh = asset.meshes.at(mesh_group_index);
-
-        group_mesh_manifest_indices.clear();
-        for (u32 const mesh_manifest_index : mesh_manifest_indices.at(mesh_group_index))
-        {
-            if (mesh_manifest_index != INVALID_MANIFEST_INDEX)
-            {
-                group_mesh_manifest_indices.push_back(mesh_manifest_index);
-            }
-        }
-
         u32 const mesh_group_manifest_index = s_cast<u32>(batch.mesh_groups.size());
         batch.mesh_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshGroup{
-            .mesh_lod_group_indices = group_mesh_manifest_indices,
+            .mesh_lod_group_indices = mesh_manifest_indices.at(mesh_group_index),
             .name = gltf_mesh.name.c_str(),
         });
         mesh_group_manifest_indices.push_back(mesh_group_manifest_index);
@@ -1312,7 +1284,7 @@ auto GltfImporter::translate_light(fastgltf::Light const & light) -> u32
     {
         case fastgltf::LightType::Point:
         {
-            PointLight cpu_point_light = {};
+            ImporterTaskResult::SceneMetadataBatch::PointLight cpu_point_light = {};
             cpu_point_light.position = f32vec3{0.0f, 0.0f, 0.0f}; // Filled/updated later when processing scene graph
             cpu_point_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
             // Converting candella to watt - blender (https://projects.blender.org/blender/blender-addons/issues/91035).
@@ -1325,7 +1297,7 @@ auto GltfImporter::translate_light(fastgltf::Light const & light) -> u32
         }
         case fastgltf::LightType::Spot:
         {
-            SpotLight cpu_spot_light = {};
+            ImporterTaskResult::SceneMetadataBatch::SpotLight cpu_spot_light = {};
             cpu_spot_light.transform = {}; // Filled/updated later when processing scene graph
             cpu_spot_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
             // Converting candella to watt - https://google.github.io/filament/Filament.md.html#lighting
@@ -1387,7 +1359,7 @@ auto GltfImporter::translate_entities() -> u32
         };
 
         fastgltf::Node const & node = asset.nodes[node_index];
-        RenderEntity & r_ent = node_entities[node_index].entity;
+        ImporterTaskResult::SceneMetadataBatch::Entity & r_ent = node_entities[node_index];
         r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(mesh_group_manifest_indices.at(s_cast<u32>(node.meshIndex.value()))) : std::optional<u32>(std::nullopt);
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
@@ -1439,8 +1411,8 @@ auto GltfImporter::translate_entities() -> u32
 
     /// NOTE: Find all root render entities (aka render entities that have no parent) and store them as
     //        Child root entites under scene root node
-    RenderEntity & root_r_ent = node_entities[root_entity_index].entity;
-    root_r_ent = RenderEntity{
+    ImporterTaskResult::SceneMetadataBatch::Entity & root_r_ent = node_entities[root_entity_index];
+    root_r_ent = ImporterTaskResult::SceneMetadataBatch::Entity{
         .transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
         .type = EntityType::ROOT,
         .name = info.asset_name.filename().replace_extension("").string() + "_" + std::to_string(import_index),

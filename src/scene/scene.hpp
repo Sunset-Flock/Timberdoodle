@@ -383,8 +383,12 @@ struct Scene
     struct Locked : LockedConst
     {
         auto add_texture(TextureManifestEntry texture) -> u32;
+        // Fills in a texture entry's cooked artifact once its Import-asset task completes; marks it dirty for streaming.
+        auto set_texture_streamer_data(u32 texture_manifest_index, TidoTextureStreamerData streamer_data) -> void;
         auto add_material(MaterialManifestEntry material) -> u32;
         auto add_mesh(MeshLodGroupManifestEntry mesh) -> u32;
+        // Fills in a mesh entry's cooked artifact once its Import-asset task completes; marks it dirty for streaming.
+        auto set_mesh_streamer_data(u32 mesh_manifest_index, TidoMeshStreamerData streamer_data) -> void;
         auto add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32;
         auto add_point_light(PointLight light) -> u32;
         auto add_spot_light(SpotLight light) -> u32;

@@ -169,14 +169,19 @@ Scene::~Scene()
 
 auto Scene::Locked::add_texture(TextureManifestEntry texture) -> u32
 {
-    // Textures must be immediately streamable when they are added to the manifest, so they must have a valid cooked .tido path.
-    DBG_ASSERT_TRUE_M(!texture.streamer_data.bin_source.empty(), "Texture must have a valid cooked artifact path");
+    // Added metadata-only; set_texture_streamer_data fills the cooked artifact in once its cook lands.
     DBG_ASSERT_TRUE_M(_scene._texture_manifest.size() < MAX_TEXTURES, "Exceeded MAX_TEXTURES");
 
     u32 const index = s_cast<u32>(_scene._texture_manifest.size());
     _scene._texture_manifest.push_back(std::move(texture));
-    _scene._dirty_texture_indices.push_back(index);
     return index;
+}
+
+auto Scene::Locked::set_texture_streamer_data(u32 texture_manifest_index, TidoTextureStreamerData streamer_data) -> void
+{
+    DBG_ASSERT_TRUE_M(texture_manifest_index < _scene._texture_manifest.size(), "Invalid texture manifest index");
+    _scene._texture_manifest.at(texture_manifest_index).streamer_data = std::move(streamer_data);
+    _scene._dirty_texture_indices.push_back(texture_manifest_index);
 }
 
 void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
@@ -210,15 +215,20 @@ auto Scene::Locked::add_material(MaterialManifestEntry material) -> u32
 
 auto Scene::Locked::add_mesh(MeshLodGroupManifestEntry mesh) -> u32
 {
-    // Meshes must be immediately streamable when they are added to the manifest, so they must have a valid cooked .tido path.
-    DBG_ASSERT_TRUE_M(!mesh.streamer_data.bin_source.empty(), "Mesh must have a valid cooked artifact path");
+    // Added metadata-only; still dirtied for the GPU manifest sync (uploads a zeroed slot until resident).
     DBG_ASSERT_TRUE_M(_scene._mesh_lod_group_manifest.size() < MAX_MESH_LOD_GROUPS, "Exceeded MAX_MESH_LOD_GROUPS");
 
     u32 const index = s_cast<u32>(_scene._mesh_lod_group_manifest.size());
     _scene._mesh_lod_group_manifest.push_back(std::move(mesh));
     _scene._dirty_mesh_lod_group_indices.push_back(index);
-    _scene._dirty_mesh_lod_group_streaming_indices.push_back(index);
     return index;
+}
+
+auto Scene::Locked::set_mesh_streamer_data(u32 mesh_manifest_index, TidoMeshStreamerData streamer_data) -> void
+{
+    DBG_ASSERT_TRUE_M(mesh_manifest_index < _scene._mesh_lod_group_manifest.size(), "Invalid mesh manifest index");
+    _scene._mesh_lod_group_manifest.at(mesh_manifest_index).streamer_data = std::move(streamer_data);
+    _scene._dirty_mesh_lod_group_streaming_indices.push_back(mesh_manifest_index);
 }
 
 auto Scene::Locked::add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32

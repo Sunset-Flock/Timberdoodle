@@ -18,35 +18,75 @@ using namespace tido::types;
 /// manifests on the main thread - the only place the Scene is ever written.
 struct ImporterTaskResult
 {
-    // Every manifest entry describing one source file, applied as a single batch so a partially-linked
-    // scene is never observable. Cross-references between entries (a material's texture, a mesh-lod-
-    // group's material, an entity's mesh group / light, a mesh group's meshes) are indices local to this
-    // batch, not global manifest indices - resolve them to global indices when appending each entry.
     struct SceneMetadataBatch
     {
-        // A mesh group's member meshes, by index into `mesh_lod_groups`. Self-contained (unlike
-        // MeshGroupManifestEntry's offset into Scene's shared indices array) since the batch has no such
-        // array of its own yet.
+        struct Texture
+        {
+            TextureMaterialType type = {};
+            std::string name = {};
+            std::variant<TextureManifestEntry::GltfImporterData, TextureManifestEntry::RawImporterData> importer_data = {};
+        };
+
+        struct Material
+        {
+            std::optional<MaterialManifestEntry::TextureInfo> diffuse_info = {};
+            std::optional<MaterialManifestEntry::TextureInfo> opacity_mask_info = {};
+            std::optional<MaterialManifestEntry::TextureInfo> normal_info = {};
+            std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
+            bool alpha_discard_enabled = {};
+            bool double_sided = {};
+            bool blend_enabled = {};
+            f32vec3 base_color = {};
+            f32vec3 emissive_color = {};
+            std::string name = {};
+        };
+
+        struct MeshLodGroup
+        {
+            std::optional<u32> material_index = {};
+            std::string name = {};
+            std::variant<MeshLodGroupManifestEntry::GltfImporterData, MeshLodGroupManifestEntry::RawImporterData> importer_data = {};
+        };
+
         struct MeshGroup
         {
             std::vector<u32> mesh_lod_group_indices = {};
             std::string name = {};
         };
 
-        // One imported node. `entity` carries every field except the tree links, which are indices into
-        // this batch's own `entities` (RenderEntityId cannot be minted off the main thread, since it names
-        // a slot in Scene's slotmap).
+        struct PointLight
+        {
+            f32vec3 position = {};
+            f32vec3 color = {};
+            f32 intensity = {};
+            f32 cutoff = {};
+        };
+
+        struct SpotLight
+        {
+            f32mat4x3 transform = {};
+            f32vec3 color = {};
+            f32 intensity = {};
+            f32 cutoff = {};
+            f32 inner_cone_angle = {};
+            f32 outer_cone_angle = {};
+        };
+
         struct Entity
         {
-            RenderEntity entity = {};
+            glm::mat4x3 transform = {};
+            EntityType type = EntityType::UNKNOWN;
+            std::string name = {};
+            std::optional<u32> mesh_group_manifest_index = {};
+            std::optional<u32> light_index = {};
             std::optional<u32> parent_index = {};
             std::optional<u32> first_child_index = {};
             std::optional<u32> next_sibling_index = {};
         };
 
-        std::vector<TextureManifestEntry> textures = {};
-        std::vector<MaterialManifestEntry> materials = {};
-        std::vector<MeshLodGroupManifestEntry> mesh_lod_groups = {};
+        std::vector<Texture> textures = {};
+        std::vector<Material> materials = {};
+        std::vector<MeshLodGroup> mesh_lod_groups = {};
         std::vector<MeshGroup> mesh_groups = {};
         std::vector<PointLight> point_lights = {};
         std::vector<SpotLight> spot_lights = {};
