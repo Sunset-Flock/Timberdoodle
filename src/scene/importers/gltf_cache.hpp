@@ -52,6 +52,10 @@ auto gltf_make_cache_key(std::filesystem::path const & source_path, u32 texture_
 // within it.
 auto gltf_cache_file_name(std::filesystem::path const & source_path) -> std::string;
 
+// Sibling to gltf_cache_file_name for the raw importer: "<source stem>.raw_cache" - e.g. "clouds.vdb" ->
+// "clouds.raw_cache". Shares gltf_cache_dir (already extension-agnostic).
+auto raw_cache_file_name(std::filesystem::path const & source_path) -> std::string;
+
 // The per-source output directory: "<TIDO_ASSET_CACHE_DIR>/<source's directory relative to
 // TIDO_ASSETS_ROOT>", e.g. "<assets>/bistro/bistro.gltf" -> "tido_asset_cache/bistro/". Every artifact a
 // source produces - its .gltf_cache and all .tido_bin files - is written here, so one import's output is

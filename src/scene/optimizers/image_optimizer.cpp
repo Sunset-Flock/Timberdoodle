@@ -11,6 +11,7 @@
 #include <png.h>
 
 #include "tex_compression.hpp"
+#include "../../multithreading/thread_pool.hpp"
 #include "../../shader_shared/shared.inl" // round_up_div
 
 namespace
@@ -602,6 +603,42 @@ auto ktx_source_has_alpha(std::span<std::byte const> ktx2_bytes) -> std::optiona
     ktxTexture_Destroy(ktxTexture(texture));
     return num_components == 4;
 }
+
+// Interleave N fp16 grids into one channel-interleaved buffer, channel order = grids_data order. Mirrors
+// the repack loops LoadVDBTask's callers used to do by hand for the RAW (4-grid) and BC6 (3-grid) cases.
+auto interleave_fp16_grids(std::vector<std::vector<std::byte>> const & grids_data, i32vec3 grid_extents) -> std::vector<std::byte>
+{
+    constexpr u32 element_size = sizeof(u16);
+    u32 const channel_count = s_cast<u32>(grids_data.size());
+    u64 const entry_count = s_cast<u64>(grid_extents.x) * grid_extents.y * grid_extents.z;
+    std::vector<std::byte> interleaved(entry_count * channel_count * element_size);
+    for (u64 entry_index = 0; entry_index < entry_count; ++entry_index)
+    {
+        u64 const dst_offset = entry_index * channel_count * element_size;
+        for (u32 channel = 0; channel < channel_count; ++channel)
+        {
+            std::memcpy(&interleaved[dst_offset + channel * element_size], &grids_data[channel][entry_index * element_size], element_size);
+        }
+    }
+    return interleaved;
+}
+
+// Remap one fp32 grid's (already value_range-clamped, see VDBGridInfo) samples into [0,1] -
+// CompressBlockBC1SDF asserts its input lies in that range.
+auto normalize_f32_grid(std::vector<std::byte> const & grid_data, f32vec2 value_range) -> std::vector<std::byte>
+{
+    std::vector<std::byte> normalized(grid_data.size());
+    usize const entry_count = grid_data.size() / sizeof(f32);
+    f32 const range = value_range.y - value_range.x;
+    for (usize entry_index = 0; entry_index < entry_count; ++entry_index)
+    {
+        f32 value = {};
+        std::memcpy(&value, &grid_data[entry_index * sizeof(f32)], sizeof(f32));
+        f32 const remapped = (value - value_range.x) / range;
+        std::memcpy(&normalized[entry_index * sizeof(f32)], &remapped, sizeof(f32));
+    }
+    return normalized;
+}
 } // namespace
 
 auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>
@@ -639,4 +676,86 @@ auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimize
             DBG_ASSERT_TRUE_M(false, "process_image: unhandled ImageFileFormat");
             return ImageOptimizeError::FAILED_TO_DECODE_PNG;
     }
+}
+
+auto process_volume(OptimizeVolumeInfo const & info, ThreadPool * threadpool) -> ProcessedImage
+{
+    DBG_ASSERT_TRUE_M(info.grids_data.size() == info.grids.size(), "process_volume: grids_data must have one entry per recipe grid");
+    u32vec3 const volume_dimensions = {s_cast<u32>(info.grid_extents.x), s_cast<u32>(info.grid_extents.y), s_cast<u32>(info.grid_extents.z)};
+
+    ProcessedImage ret = {};
+    ret.mips_to_copy = 1;
+    ret.mip_copy_offsets[0] = 0;
+    ret.image_info = {
+        .dimensions = 3,
+        .size = {volume_dimensions.x, volume_dimensions.y, volume_dimensions.z},
+        .mip_level_count = 1,
+        .array_layer_count = 1,
+        .sample_count = 1,
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .name = info.name,
+    };
+
+    switch (info.target)
+    {
+        case Compression::BC1_SDF:
+        {
+            DBG_ASSERT_TRUE_M(info.grids.size() == 1, "process_volume: BC1_SDF compresses exactly one grid");
+            DBG_ASSERT_TRUE_M(!info.grids[0].convert_to_fp16, "process_volume: BC1_SDF requires its grid decoded as fp32");
+            std::vector<std::byte> const normalized = normalize_f32_grid(info.grids_data[0], info.grids[0].value_range);
+
+            u64 const block_count = s_cast<u64>(round_up_div(volume_dimensions.x, 4u)) * round_up_div(volume_dimensions.y, 4u) * volume_dimensions.z;
+            ret.src_data.resize(block_count * bc_block_bytes(Compression::BC1_SDF));
+            auto compress_task = compress_image({
+                .in_data = normalized,
+                .out_data = ret.src_data,
+                .image_dimensions = volume_dimensions,
+                .compression = Compression::BC1_SDF,
+            });
+            threadpool->blocking_dispatch(compress_task);
+            ret.image_info.format = daxa::Format::BC1_RGBA_UNORM_BLOCK;
+            break;
+        }
+        case Compression::BC6:
+        {
+            DBG_ASSERT_TRUE_M(info.grids.size() == 3, "process_volume: BC6 interleaves exactly three grids (RGB16F)");
+            for (VDBGridInfo const & grid : info.grids)
+            {
+                DBG_ASSERT_TRUE_M(grid.convert_to_fp16, "process_volume: BC6 requires its grids decoded as fp16");
+            }
+            std::vector<std::byte> const interleaved = interleave_fp16_grids(info.grids_data, info.grid_extents);
+
+            u64 const block_count = s_cast<u64>(round_up_div(volume_dimensions.x, 4u)) * round_up_div(volume_dimensions.y, 4u) * volume_dimensions.z;
+            ret.src_data.resize(block_count * bc_block_bytes(Compression::BC6));
+            auto compress_task = compress_image({
+                .in_data = interleaved,
+                .out_data = ret.src_data,
+                .image_dimensions = volume_dimensions,
+                .compression = Compression::BC6,
+            });
+            threadpool->blocking_dispatch(compress_task);
+            ret.image_info.format = daxa::Format::BC6H_UFLOAT_BLOCK;
+            break;
+        }
+        case Compression::UNDEFINED:
+        {
+            // "none" means uncompressed RGBA16F, matching the legacy RAW cloud format - exactly 4 grids.
+            DBG_ASSERT_TRUE_M(info.grids.size() == 4, "process_volume: uncompressed volumes need exactly four grids (RGBA16F)");
+            for (VDBGridInfo const & grid : info.grids)
+            {
+                DBG_ASSERT_TRUE_M(grid.convert_to_fp16, "process_volume: uncompressed volumes require their grids decoded as fp16");
+            }
+            ret.src_data = interleave_fp16_grids(info.grids_data, info.grid_extents);
+            ret.image_info.format = daxa::Format::R16G16B16A16_SFLOAT;
+            break;
+        }
+        case Compression::BC1:
+        case Compression::BC4:
+        case Compression::BC5:
+        case Compression::BC7:
+        default:
+            DBG_ASSERT_TRUE_M(false, "process_volume: unsupported volume compression target");
+            break;
+    }
+    return ret;
 }

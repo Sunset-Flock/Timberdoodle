@@ -30,6 +30,11 @@ auto gltf_cache_file_name(std::filesystem::path const & source_path) -> std::str
     return source_path.stem().string() + ".gltf_cache";
 }
 
+auto raw_cache_file_name(std::filesystem::path const & source_path) -> std::string
+{
+    return source_path.stem().string() + ".raw_cache";
+}
+
 auto gltf_cache_dir(std::filesystem::path const & source_path) -> std::filesystem::path
 {
     std::optional<std::filesystem::path> const relative = tido_relative_to_assets_root(source_path);

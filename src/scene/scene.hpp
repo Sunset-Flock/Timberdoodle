@@ -12,6 +12,8 @@
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 #include "asset_processor.hpp"
+#include "importers/openvdb_importer.hpp"
+#include "optimizers/tex_compression.hpp"
 #include "tido_format/tido_texture.hpp"
 #include "streamer.hpp"
 using namespace tido::types;
@@ -55,7 +57,19 @@ struct TextureManifestEntry
     };
     struct RawImporterData
     {
+        // Plain image file (PNG/KTX2); cook usage is the task's TextureMaterialType, as on the gltf side.
+        struct Image
+        {
+        };
+        // Named grids to extract (in channel order) and their target compression; UNDEFINED means uncompressed RGBA16F.
+        struct VdbVolume
+        {
+            std::vector<VDBGridInfo> grids = {};
+            Compression target = {};
+        };
+
         std::filesystem::path src = {};
+        std::variant<Image, VdbVolume> recipe = {};
     };
 
     // The type is determined by the materials that reference it.

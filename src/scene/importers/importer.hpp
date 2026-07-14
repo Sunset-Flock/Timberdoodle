@@ -11,6 +11,7 @@
 #include "gltf_importer.hpp"
 #include "importer_task.hpp"
 #include "importer_task_result.hpp"
+#include "raw_importer.hpp"
 using namespace tido::types;
 
 /// --- Importer ---
@@ -54,6 +55,7 @@ struct Importer
     std::vector<ImporterTaskResult> _result_queue = {};
 
     GltfImporter _gltf_importer;
+    RawImporter _raw_importer;
 
     std::thread _thread = {};
     void thread_main();

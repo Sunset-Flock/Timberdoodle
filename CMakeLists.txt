@@ -45,6 +45,8 @@ add_executable(${PROJECT_NAME}
     "src/scene/importers/importer.cpp"
     "src/scene/importers/gltf_importer.cpp"
     "src/scene/importers/gltf_cache.cpp"
+    "src/scene/importers/source_cache.cpp"
+    "src/scene/importers/raw_importer.cpp"
     "src/scene/importers/openvdb_importer.cpp"
     "src/scene/streamer.cpp"
     "src/scene/optimizers/tex_compression.cpp"

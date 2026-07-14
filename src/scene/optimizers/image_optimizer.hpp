@@ -9,7 +9,11 @@
 #include <daxa/daxa.hpp>
 
 #include "../../timberdoodle.hpp"
+#include "../importers/openvdb_importer.hpp" // VDBGridInfo
+#include "tex_compression.hpp"               // Compression
 using namespace tido::types;
+
+struct ThreadPool;
 
 /// --- Image Optimizer ---
 /// Generic image cook (part 2 of texture loading): takes raw image data from an importer (encoded PNG/KTX2
@@ -71,3 +75,24 @@ enum struct ImageOptimizeError
 // the color channels (BC7, alpha forced opaque when the source had one - the alpha's source of truth is
 // its own OPACITY artifact).
 auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>;
+
+// --- Optimizer input: one decoded VDB volume + its cook recipe ---
+// grids_data/grid_extents are LoadVDBTask's raw output (grids_data[i] holds grids[i]'s decoded samples,
+// fp16 or fp32 per its own convert_to_fp16); grids/target are the recipe: channel order and the
+// compression to cook to (BC6, BC1_SDF, or UNDEFINED for uncompressed RGBA16F).
+struct OptimizeVolumeInfo
+{
+    std::vector<std::vector<std::byte>> grids_data = {};
+    i32vec3 grid_extents = {};
+    std::vector<VDBGridInfo> grids = {};
+    Compression target = {};
+    std::string name = {};
+};
+
+// Cook decoded VDB grids into GPU-ready volume memory: interleaves grids into channels per the recipe (BC6
+// needs 3 fp16 grids, uncompressed needs 4; BC1_SDF compresses its single fp32 grid directly after
+// remapping it from value_range into [0,1], the range the BC1 scalar compressor requires), then
+// BC6/BC1_SDF-compresses via compress_image or leaves the interleave uncompressed. Compression is
+// dispatched across threadpool rather than run inline (unlike process_image's per-mip compression) since a
+// volume cook is one big task rather than one-per-image.
+auto process_volume(OptimizeVolumeInfo const & info, ThreadPool * threadpool) -> ProcessedImage;
