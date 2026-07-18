@@ -3,9 +3,9 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
-#include "../../shader_shared/shared.inl"
-#include "../../shader_shared/globals.inl"
-#include "../../shader_shared/rtgi.inl"
+#include "../../../shader_shared/shared.inl"
+#include "../../../shader_shared/globals.inl"
+#include "../../../shader_shared/rtgi.inl"
 
 #define COMPRESSED_SAMPLING_TEST_DISPATCH_X 8
 #define COMPRESSED_SAMPLING_TEST_DISPATCH_Y 8

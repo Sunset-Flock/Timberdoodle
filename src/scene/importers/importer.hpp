@@ -8,18 +8,41 @@
 
 #include "../../timberdoodle.hpp"
 #include "../../multithreading/thread_pool.hpp"
-#include "gltf_importer.hpp"
-#include "importer_task.hpp"
 #include "importer_task_result.hpp"
-#include "raw_importer.hpp"
 using namespace tido::types;
 
-/// --- Importer ---
-/// Owns the dedicated importer orchestration thread. SceneRuntime pushes ImporterTasks in; finished
-/// ImporterTaskResults come back out through pop_results. The thread itself only orchestrates - it
-/// drains the task queue, hands the tasks to the per-format importers (which group them, dispatch
-/// parse/cook work to the ThreadPool) and runs cache upkeep. It is paced by a condition variable,
-/// woken by task pushes and by notify() from finishing worker-side tasks.
+struct ImporterTask
+{
+    struct ImportScene
+    {
+        std::filesystem::path path = {};
+    };
+
+    struct ImportImageAsset
+    {
+        ImageImporterData importer_data = {};
+        u32 image_manifest_index = {};
+    };
+
+    struct ImportMeshAsset
+    {
+        MeshImporterData importer_data = {};
+        u32 mesh_manifest_index = {};
+    };
+
+    std::variant<ImportScene, ImportImageAsset, ImportMeshAsset> data = {};
+};
+
+struct Importer;
+struct GltfImporter
+{
+    explicit GltfImporter(Importer * importer);
+
+    void update(std::vector<ImporterTask> & tasks);
+
+  private:
+    Importer * _importer = {};
+};
 struct Importer
 {
     explicit Importer(ThreadPool * thread_pool);
@@ -55,7 +78,6 @@ struct Importer
     std::vector<ImporterTaskResult> _result_queue = {};
 
     GltfImporter _gltf_importer;
-    RawImporter _raw_importer;
 
     std::thread _thread = {};
     void thread_main();

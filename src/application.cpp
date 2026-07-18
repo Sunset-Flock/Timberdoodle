@@ -85,16 +85,16 @@ Application::Application()
 
     // Preallocate manifest entries for all possible textures.
     // This potentially wastes some manifest entries (in case the cloud volume does not use separate sdf texture for example)
-    // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading).
+    // but I am limited by the way the image manifest currently works (extremely dependent on gltf loading).
     // In the future this should be rewritten but for now this will work fine.
-    cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(default_scene._texture_manifest.size());
-    default_scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
+    cpu_cloud_volume.data_image_manifest_index = s_cast<u32>(default_scene._image_manifest.size());
+    default_scene._image_manifest.push_back(ImageManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
 
-    cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(default_scene._texture_manifest.size());
-    default_scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
+    cpu_cloud_volume.sdf_image_manifest_index = s_cast<u32>(default_scene._image_manifest.size());
+    default_scene._image_manifest.push_back(ImageManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
 
-    cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(default_scene._texture_manifest.size());
-    default_scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
+    cpu_cloud_volume.detail_noise_image_manifest_index = s_cast<u32>(default_scene._image_manifest.size());
+    default_scene._image_manifest.push_back(ImageManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
 
     u32 const cloud_volume_index = s_cast<u32>(default_scene._cloud_volumes.size());
     default_scene._cloud_volumes.push_back(cpu_cloud_volume);

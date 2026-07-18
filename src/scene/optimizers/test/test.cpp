@@ -1,5 +1,5 @@
 #include "test.hpp"
-#include "tex_compression.hpp"
+#include "../image_processor.hpp"
 
 #include <iostream>
 
@@ -73,7 +73,7 @@ void test_main()
         }};
 
         auto const compilation_result = test_context.pipeline_manager.add_compute_pipeline2({
-            .source = daxa::ShaderSource(daxa::ShaderFile("./src/tex_compression/test.hlsl")),
+            .source = daxa::ShaderSource(daxa::ShaderFile("./src/scene/optimizers/test/test.hlsl")),
             .entry_point = "entry_compressed_sampling_test",
             .name = "Compressed sampling test pipeline"
         });
@@ -200,7 +200,14 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
                         rgba_unorm_raw_data[in_rgb_byte_array_pixel_index + 3] = s_cast<std::byte>(z & 0xFFu);
 
                         r_unorm_raw_data[in_r_byte_array_pixel_index] = s_cast<std::byte>((x + y + z) & 0xFFu);
+                        break;
                     }
+                    case TextureContent::CHECKERBOARD:
+                    case TextureContent::BLACK:
+                    case TextureContent::UNDEFINED:
+                    default:
+                        DBG_ASSERT_TRUE_M(false, "prepare_test_textures: unhandled TextureContent");
+                        break;
                 }
             }
         }
@@ -212,15 +219,16 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
         std::array<daxa::ImageId, 3> * textures;
         u32 compressed_bytesize;
         std::vector<std::byte> * source;
-        Compression compression;
+        daxa::Format source_format;
+        bool compressed;
     };
 
     std::array per_format_data = {
-       PerFormatData{daxa::Format::R16G16B16A16_SFLOAT, &context.raw_test_images, (texel_count * 8)     ,  &half_fp_raw_data,     Compression::UNDEFINED},
-       PerFormatData{daxa::Format::BC1_RGB_UNORM_BLOCK, &context.BC1_test_images, (texel_count / 16) * 8,  &rgba_unorm_raw_data,  Compression::BC1},
-       PerFormatData{daxa::Format::BC4_UNORM_BLOCK    , &context.BC4_test_images, (texel_count / 16) * 8,  &r_unorm_raw_data,     Compression::BC4},
-       PerFormatData{daxa::Format::BC6H_UFLOAT_BLOCK  , &context.BC6_test_images, (texel_count / 16) * 16, &half_fp_raw_data,     Compression::BC6},
-       PerFormatData{daxa::Format::BC7_UNORM_BLOCK    , &context.BC7_test_images, (texel_count / 16) * 16, &rgba_unorm_raw_data,  Compression::BC7},
+       PerFormatData{daxa::Format::R16G16B16A16_SFLOAT, &context.raw_test_images, (texel_count * 8)     ,  &half_fp_raw_data,     daxa::Format::R16G16B16_SFLOAT, false},
+       PerFormatData{daxa::Format::BC1_RGB_UNORM_BLOCK, &context.BC1_test_images, (texel_count / 16) * 8,  &rgba_unorm_raw_data,  daxa::Format::R8G8B8A8_UNORM,   true},
+       PerFormatData{daxa::Format::BC4_UNORM_BLOCK    , &context.BC4_test_images, (texel_count / 16) * 8,  &r_unorm_raw_data,     daxa::Format::R8_UNORM,         true},
+       PerFormatData{daxa::Format::BC6H_UFLOAT_BLOCK  , &context.BC6_test_images, (texel_count / 16) * 16, &half_fp_raw_data,     daxa::Format::R16G16B16_SFLOAT, true},
+       PerFormatData{daxa::Format::BC7_UNORM_BLOCK    , &context.BC7_test_images, (texel_count / 16) * 16, &rgba_unorm_raw_data,  daxa::Format::R8G8B8A8_UNORM,   true},
     };
 
     for(u32 format_index = 0; format_index < per_format_data.size(); ++format_index)
@@ -229,15 +237,16 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
 
         std::vector<std::byte> compressed_data;
         auto const & format_data = per_format_data.at(format_index);
-        if (format_data.compression != Compression::UNDEFINED)
+        if (format_data.compressed)
         {
             compressed_data.resize(format_data.compressed_bytesize);
 
             auto compress_image_task = compress_image({
-                .in_data = *format_data.source,
-                .out_data = compressed_data,
+                .src_data = *format_data.source,
                 .image_dimensions = test_textures_dimensions,
-                .compression = format_data.compression
+                .target_format = format_data.format,
+                .source_format = format_data.source_format,
+                .dst_data = compressed_data,
             });
 
             context.thread_pool->blocking_dispatch(compress_image_task);
@@ -295,7 +304,7 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
         // ===================== UPLOAD TEXTURE DATA =======================
         // =================================================================
         {
-            auto const & compressed_data_ = (format_data.compression != Compression::UNDEFINED) ? compressed_data : *format_data.source;
+            auto const & compressed_data_ = format_data.compressed ? compressed_data : *format_data.source;
             daxa::BufferId staging_buffer = context.device.create_buffer({
                 .size = compressed_data_.size(),
                 .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,

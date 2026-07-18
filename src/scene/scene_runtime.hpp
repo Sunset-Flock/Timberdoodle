@@ -7,7 +7,7 @@
 
 #include "../timberdoodle.hpp"
 #include "scene.hpp"
-#include "importers/importer_task.hpp"
+#include "importers/importer.hpp"
 #include "importers/importer_task_result.hpp"
 using namespace tido::types;
 
@@ -60,12 +60,8 @@ private:
     Importer * _importer = {};
     daxa::Device _device = {};
 
-    // Texture stream jobs currently in flight.
-    std::vector<std::shared_ptr<TextureStreamTask>> _inflight_texture_streams = {};
-    // Mesh stream jobs currently in flight (spawned by update, collected once finished).
+    std::vector<std::shared_ptr<ImageStreamTask>> _inflight_image_streams = {};
     std::vector<std::shared_ptr<MeshStreamTask>> _inflight_mesh_streams = {};
-    // Mesh LODs (encoded mesh_lod_group * MAX_MESHES_PER_LOD_GROUP + lod) awaiting a BLAS build.
-    // update queues newly resident LODs here; create_mesh_acceleration_structures drains it.
     std::vector<u32> _mesh_as_build_queue = {};
 
     // Appends `batch`'s entries (metadata-only) and emits one ImportAsset task per texture/mesh entry,

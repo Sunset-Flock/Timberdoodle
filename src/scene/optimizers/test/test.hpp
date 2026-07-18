@@ -1,12 +1,12 @@
 #pragma once
 
-#include "../../timberdoodle.hpp"
+#include "../../../timberdoodle.hpp"
 using namespace tido::types;
 
-#include "../../multithreading/thread_pool.hpp"
+#include "../../../multithreading/thread_pool.hpp"
 
 #include "test.inl"
-#include "../../window.hpp"
+#include "../../../window.hpp"
 
 struct TestContext
 {

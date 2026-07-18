@@ -145,11 +145,11 @@ Scene::~Scene()
         }
     }
 
-    for (auto & texture : _texture_manifest)
+    for (auto & image : _image_manifest)
     {
-        if (texture.runtime_data.image.has_value())
+        if (image.runtime_data.has_value())
         {
-            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_data.image.value()));
+            _device.destroy_image(std::bit_cast<daxa::ImageId>(image.runtime_data.value().image));
         }
     }
 
@@ -184,8 +184,8 @@ void Scene::start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_proc
         virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override{
             {AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
                 .volumetric_data_path = std::filesystem::path(info.volume -> cloud_volume_data_path),
-                .cloud_data_texture_manifest_index = info.volume->data_texture_manifest_index,
-                .cloud_sdf_texture_manifest_index = info.volume->sdf_texture_manifest_index,
+                .cloud_data_image_manifest_index = info.volume->data_image_manifest_index,
+                .cloud_sdf_image_manifest_index = info.volume->sdf_image_manifest_index,
             };
 
         auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
@@ -203,8 +203,8 @@ void Scene::start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_proc
     {
         AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
             .volumetric_data_path = std::filesystem::path(info.volume->detail_noise_path),
-            .cloud_data_texture_manifest_index = info.volume->detail_noise_texture_manifest_index,
-            .cloud_sdf_texture_manifest_index = std::numeric_limits<u32>::max(), // Currently should be unused.
+            .cloud_data_image_manifest_index = info.volume->detail_noise_image_manifest_index,
+            .cloud_sdf_image_manifest_index = std::numeric_limits<u32>::max(), // Currently should be unused.
         };
         auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
         if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
@@ -350,14 +350,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                 cloud_volume_instance.albedo = 1.0f;
                 cloud_volume_instance.density_scale = 0.1f;
 
-                cloud_volume_instance.cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_data.image.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.cloud_sdf_texture = _texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_data.image.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.detail_noise_texture = _texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_data.image.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_data.value_or({.image = daxa::ImageId{}}).image.default_view();
+                cloud_volume_instance.cloud_sdf_texture = _image_manifest.at(cloud_volume.sdf_image_manifest_index).runtime_data.value_or({.image = daxa::ImageId{}}).image.default_view();
+                cloud_volume_instance.detail_noise_texture = _image_manifest.at(cloud_volume.detail_noise_image_manifest_index).runtime_data.value_or({.image = daxa::ImageId{}}).image.default_view();
 
                 cloud_volume_instance.texture_size = {0u, 0u, 0u};
-                if(_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
+                if(_image_manifest.at(cloud_volume.data_image_manifest_index).loaded())
                 {
-                    daxa::ImageId cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_data.image.value();
+                    daxa::ImageId cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_data.value().image;
                     daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
                     cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
                 }
@@ -609,11 +609,11 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
             }
         }
 
-        for (auto & texture : _texture_manifest)
+        for (auto & texture : _image_manifest)
         {
-            if (texture.runtime_data.image.has_value())
+            if (texture.runtime_data.has_value())
             {
-                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_data.image.value()));
+                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_data.value().image));
             }
             // if (texture.secondary_runtime_texture.has_value())
             // {
@@ -635,7 +635,7 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
         _newly_completed_mesh_groups.clear();
 
         _root_render_entities.clear();
-        _texture_manifest.clear();
+        _image_manifest.clear();
         _material_manifest.clear();
         _mesh_lod_group_manifest.clear();
         _mesh_lod_group_manifest_indices.clear();

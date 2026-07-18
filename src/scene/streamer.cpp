@@ -5,41 +5,28 @@
 
 #include "tido_format/tido_file_io.hpp"
 
-void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
+void ImageStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    // Read the cooked .tido_bin off disk and upload it to the GPU (streamer). Runs on a worker thread.
-    result = make_resident_image(device, artifact);
-    finished.store(true, std::memory_order_release);
-}
+    TidoImageDescriptor const & desc = artifact.descriptor;
 
-auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & artifact) -> daxa::ImageId
-{
-    TidoTextureDescriptor const & desc = artifact.info;
-
-    // Read the whole .tido_bin data file through a single-attempt shared-read open (a cook worker holding
-    // it exclusively for a write is an expected miss, not retried here - see tido_file_io.hpp). The
-    // subresource offsets in the artifact are absolute from byte 0 of this file, so it maps directly onto
-    // the staging buffer with no rebasing.
     std::optional<std::vector<std::byte>> file_data_opt = tido_read_file_shared(artifact.bin_source);
     DBG_ASSERT_TRUE_M(file_data_opt.has_value(), fmt::format("make_resident_image: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
     std::vector<std::byte> const & file_data = file_data_opt.value();
     std::streamsize const file_size = s_cast<std::streamsize>(file_data.size());
 
-    // 3D vs 2D/array/cube is deduced from the extents/layer count, not stored: a depth > 1 means a 3D
-    // texture; an array_layers that is a multiple of 6 is a cubemap (gets the cube-compatible flag).
-    bool const is_3d = desc.depth > 1;
-    bool const is_cube = !is_3d && desc.array_layers != 0 && (desc.array_layers % 6 == 0);
+    bool const is_3d = desc.info.size.z > 1;
+    bool const is_cube = !is_3d && desc.info.array_layer_count != 0 && (desc.info.array_layer_count % 6 == 0);
 
     daxa::ImageInfo const image_info = {
         .flags = is_cube ? daxa::ImageCreateFlagBits::COMPATIBLE_CUBE : daxa::ImageCreateFlagBits::NONE,
         .dimensions = is_3d ? 3u : 2u,
-        .format = std::bit_cast<daxa::Format>(desc.format),
-        .size = {desc.width, desc.height, desc.depth},
-        .mip_level_count = desc.mip_count,
-        .array_layer_count = desc.array_layers,
+        .format = desc.info.format,
+        .size = {desc.info.size.x, desc.info.size.y, desc.info.size.z},
+        .mip_level_count = desc.info.mip_level_count,
+        .array_layer_count = desc.info.array_layer_count,
         .sample_count = 1,
         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
-        .name = artifact.bin_source.filename().string(),
+        .name = name,
     };
     daxa::ImageId image = device.create_image(image_info);
 
@@ -58,22 +45,21 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
     cr.destroy_buffer_deferred(staging_buffer);
     std::memcpy(device.buffer_host_address(staging_buffer).value(), file_data.data(), s_cast<usize>(file_size));
 
-    // One copy per subresource. The buffer_offset is the subresource's offset within the .tido_bin (==
-    // within the staging buffer). image_extent is in texels even for block-compressed formats.
-    for (u32 mip = 0; mip < desc.mip_count; ++mip)
+    u64 const base_offset = artifact.file_data_offset;
+    for (u32 mip = 0; mip < desc.info.mip_level_count; ++mip)
     {
-        u32 const width = std::max(1u, desc.width >> mip);
-        u32 const height = std::max(1u, desc.height >> mip);
-        u32 const depth = std::max(1u, desc.depth >> mip);
-        for (u32 layer = 0; layer < desc.array_layers; ++layer)
+        u32 const width = std::max(1u, desc.info.size.x >> mip);
+        u32 const height = std::max(1u, desc.info.size.y >> mip);
+        u32 const depth = std::max(1u, desc.info.size.z >> mip);
+        for (u32 layer = 0; layer < desc.info.array_layer_count; ++layer)
         {
             // Table is in storage order (coarse-first); see TidoSubresourceEntry indexing.
-            u32 const subresource_index = (desc.mip_count - 1u - mip) * desc.array_layers + layer;
-            TidoSubresourceEntry const & entry = artifact.subresources.at(subresource_index);
-            DBG_ASSERT_TRUE_M(entry.offset + entry.byte_size <= file_data.size(), "make_resident_image: subresource out of .tido_bin bounds");
+            u32 const subresource_index = desc.layer_mip_to_subresource_index(layer, s_cast<u32>(mip));
+            TidoImageDescriptor::SubresourceEntry const & entry = desc.subresources.at(subresource_index);
+            DBG_ASSERT_TRUE_M(base_offset + entry.offset + entry.byte_size <= file_data.size(), "make_resident_image: subresource out of .tido_bin bounds");
             cr.copy_buffer_to_image({
                 .src_buffer = staging_buffer,
-                .buffer_offset = entry.offset,
+                .buffer_offset = base_offset + entry.offset,
                 .dst_image = image,
                 .image_slice = {
                     .mip_level = mip,
@@ -99,41 +85,19 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
     });
     device.collect_garbage();
 
-    return image;
+    result = image;
+    finished.store(true, std::memory_order_release);
 }
 
 void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    // Read the cooked .tido_bin off disk and upload it to the GPU (streamer).
-    result = make_resident_mesh(device, MakeResidentMeshInfo{
-        .artifact = artifact,
-        .mesh_lod_manifest_index = mesh_lod_manifest_index,
-        .material_manifest_index = material_manifest_index,
-        .name = name,
-    });
-    finished.store(true, std::memory_order_release);
-}
-
-auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info) -> MeshLodGroupUploadInfo
-{
-    TidoMeshStreamerData const & artifact = info.artifact;
-    MeshLodGroupUploadInfo ret = {};
-    ret.lod_count = artifact.descriptor.lod_count;
-    ret.mesh_lod_manifest_index = info.mesh_lod_manifest_index;
-
-    // Read the whole .tido_bin data file through a single-attempt shared-read open (see tido_file_io.hpp).
-    // Each LOD's blob offset/size in the descriptor is absolute from byte 0 of this file, so a LOD blob
-    // maps directly onto the staging upload with no rebasing.
     std::optional<std::vector<std::byte>> file_data_opt = tido_read_file_shared(artifact.bin_source);
     DBG_ASSERT_TRUE_M(file_data_opt.has_value(), fmt::format("make_resident_mesh: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
     std::vector<std::byte> const & file_data = file_data_opt.value();
 
-    // Upload each LOD into its own GPU mesh buffer. The .tido_bin blob is already laid out in GPUMesh BDA
-    // order, so the whole blob is copied in verbatim and the per-array sub-pointers are wired from the
-    // descriptor's element counts (same order write_mesh_tido packed them).
-    for (u32 lod = 0; lod < artifact.descriptor.lod_count; ++lod)
+    for (u32 lod = 0; lod < artifact.descriptor.lods.size(); ++lod)
     {
-        TidoMeshLodDescriptor const & desc = artifact.lods[lod];
+        TidoMeshDescriptor::LodDescriptor const & desc = artifact.descriptor.lods[lod];
         bool const lod_has_uv = desc.has_uv != 0;
 
         GPUMesh mesh = {};
@@ -142,20 +106,16 @@ auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info
         mesh.bounding_sphere = desc.bounding_sphere;
 
         mesh.mesh_buffer = device.create_buffer({
-            .size = s_cast<daxa::usize>(desc.blob_byte_size),
+            .size = s_cast<daxa::usize>(desc.byte_size),
             .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-            .name = info.name + "." + std::to_string(lod),
+            .name = name + "." + std::to_string(lod),
         });
         daxa::DeviceAddress const mesh_bda = device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
         auto mesh_gpu_mem_ptr = device.buffer_host_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
-        // The blob is contiguous and already in BDA order; copy it in one shot.
-        DBG_ASSERT_TRUE_M(desc.blob_offset + desc.blob_byte_size <= file_data.size(), "make_resident_mesh: LOD blob out of .tido_bin bounds");
-        std::memcpy(mesh_gpu_mem_ptr, file_data.data() + desc.blob_offset, s_cast<usize>(desc.blob_byte_size));
+        DBG_ASSERT_TRUE_M(artifact.file_data_offset + desc.offset + desc.byte_size <= file_data.size(), "make_resident_mesh: LOD blob out of .tido_bin bounds");
+        std::memcpy(mesh_gpu_mem_ptr, file_data.data() + artifact.file_data_offset + desc.offset, s_cast<usize>(desc.byte_size));
 
-        // Carve out the per-array BDA sub-pointers by walking the blob in pack order. meshlet_bounds /
-        // meshlet_aabbs share meshlet_count; vertex_positions / vertex_normals (and vertex_uvs when
-        // present) share vertex_count.
         u64 accumulated_offset = 0;
         auto sub_ptr = [&](u64 byte_size) -> daxa::DeviceAddress
         {
@@ -175,14 +135,14 @@ auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info
             mesh.vertex_uvs = sub_ptr(sizeof(daxa_f32vec2) * desc.vertex_count);
         }
         mesh.vertex_normals = sub_ptr(sizeof(daxa_f32vec3) * desc.vertex_count);
-        DBG_ASSERT_TRUE_M(accumulated_offset == desc.blob_byte_size, "make_resident_mesh: LOD sub-pointer walk did not consume the whole blob");
+        DBG_ASSERT_TRUE_M(accumulated_offset == desc.byte_size, "make_resident_mesh: LOD sub-pointer walk did not consume the whole blob");
 
-        mesh.material_index = info.material_manifest_index;
+        mesh.material_index = material_manifest_index;
         mesh.meshlet_count = desc.meshlet_count;
         mesh.vertex_count = desc.vertex_count;
         mesh.primitive_count = desc.primitive_count;
 
-        ret.lods[lod] = mesh;
+        result.push_back(mesh);
     }
-    return ret;
+    finished.store(true, std::memory_order_release);
 }

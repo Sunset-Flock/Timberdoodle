@@ -80,27 +80,25 @@ void SceneRuntime::poll()
 
 void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult::SceneMetadataBatch batch, std::vector<ImporterTask> & asset_tasks)
 {
-    std::vector<u32> texture_local_to_global(batch.textures.size());
-    for (u32 local_index = 0; local_index < s_cast<u32>(batch.textures.size()); ++local_index)
+    std::vector<u32> image_local_to_global(batch.images.size());
+    for (u32 local_index = 0; local_index < s_cast<u32>(batch.images.size()); ++local_index)
     {
-        ImporterTaskResult::SceneMetadataBatch::Texture & texture = batch.textures[local_index];
+        ImporterTaskResult::SceneMetadataBatch::Image & image = batch.images[local_index];
         // Copied, not moved - the manifest entry below consumes the original.
-        auto importer_data = texture.importer_data;
+        auto importer_data = image.importer_data;
 
         // Added metadata-only; apply_cooked_asset fills the cooked artifact in once its cook lands.
-        DBG_ASSERT_TRUE_M(scene._texture_manifest.size() < MAX_TEXTURES, "Exceeded MAX_TEXTURES");
-        u32 const texture_global_index = s_cast<u32>(scene._texture_manifest.size());
-        scene._texture_manifest.push_back(TextureManifestEntry{
-            .type = texture.type,
-            .name = std::move(texture.name),
-            .importer_data = std::move(texture.importer_data),
+        DBG_ASSERT_TRUE_M(scene._image_manifest.size() < MAX_TEXTURES, "Exceeded MAX_TEXTURES");
+        u32 const image_global_index = s_cast<u32>(scene._image_manifest.size());
+        scene._image_manifest.push_back(ImageManifestEntry{
+            .name = std::move(image.name),
+            .importer_data = std::move(image.importer_data),
         });
-        texture_local_to_global[local_index] = texture_global_index;
+        image_local_to_global[local_index] = image_global_index;
 
-        asset_tasks.push_back(ImporterTask{.data = ImporterTask::ImportTextureAsset{
+        asset_tasks.push_back(ImporterTask{.data = ImporterTask::ImportImageAsset{
             .importer_data = std::move(importer_data),
-            .type = texture.type,
-            .texture_manifest_index = texture_global_index,
+            .image_manifest_index = image_global_index,
         }});
     }
 
@@ -108,7 +106,7 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
     {
         if (info.has_value())
         {
-            info->tex_manifest_index = texture_local_to_global.at(info->tex_manifest_index);
+            info->image_manifest_index = image_local_to_global.at(info->image_manifest_index);
         }
     };
     std::vector<u32> material_local_to_global(batch.materials.size());
@@ -128,9 +126,9 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         for (auto const * info : material_texture_infos)
         {
             if (!info->has_value()) { continue; }
-            u32 const tex_index = info->value().tex_manifest_index;
-            DBG_ASSERT_TRUE_M(tex_index < scene._texture_manifest.size(), "Texture info references an invalid manifest index");
-            scene._texture_manifest.at(tex_index).material_manifest_indices.push_back({.material_manifest_index = material_global_index});
+            u32 const tex_index = info->value().image_manifest_index;
+            DBG_ASSERT_TRUE_M(tex_index < scene._image_manifest.size(), "Texture info references an invalid manifest index");
+            scene._image_manifest.at(tex_index).material_manifest_indices.push_back(material_global_index);
         }
 
         scene._material_manifest.push_back(MaterialManifestEntry{
@@ -321,13 +319,13 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
 void SceneRuntime::apply_cooked_asset(Scene & scene, ImporterTaskResult::CookedAsset cooked_asset)
 {
     // Fills in the cooked artifact and marks the entry dirty for streaming.
-    if (auto * texture_streamer_data = std::get_if<TidoTextureStreamerData>(&cooked_asset.streamer_data))
+    if (auto * image_streamer_data = std::get_if<ImageStreamerData>(&cooked_asset.streamer_data))
     {
-        DBG_ASSERT_TRUE_M(cooked_asset.manifest_index < scene._texture_manifest.size(), "Invalid texture manifest index");
-        scene._texture_manifest.at(cooked_asset.manifest_index).streamer_data = std::move(*texture_streamer_data);
+        DBG_ASSERT_TRUE_M(cooked_asset.manifest_index < scene._image_manifest.size(), "Invalid image manifest index");
+        scene._image_manifest.at(cooked_asset.manifest_index).streamer_data = std::move(*image_streamer_data);
         scene._dirty_texture_indices.push_back(cooked_asset.manifest_index);
     }
-    else if (auto * mesh_streamer_data = std::get_if<TidoMeshStreamerData>(&cooked_asset.streamer_data))
+    else if (auto * mesh_streamer_data = std::get_if<MeshStreamerData>(&cooked_asset.streamer_data))
     {
         DBG_ASSERT_TRUE_M(cooked_asset.manifest_index < scene._mesh_lod_group_manifest.size(), "Invalid mesh manifest index");
         scene._mesh_lod_group_manifest.at(cooked_asset.manifest_index).streamer_data = std::move(*mesh_streamer_data);
@@ -350,21 +348,21 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
     // --- Texture residency (async) ---
     // 1. Collect finished texture streams: publish each resident image as the texture's runtime, and
     //    re-mark the materials referencing it dirty so their GPUMaterial picks up the resolved id below.
-    for (auto it = _inflight_texture_streams.begin(); it != _inflight_texture_streams.end();)
+    for (auto it = _inflight_image_streams.begin(); it != _inflight_image_streams.end();)
     {
-        TextureStreamTask & task = **it;
+        ImageStreamTask & task = **it;
         if (!task.finished.load(std::memory_order_acquire))
         {
             ++it;
             continue;
         }
-        TextureManifestEntry & texture = _scene._texture_manifest.at(task.texture_manifest_index);
-        texture.runtime_data.image = task.result;
-        for (TextureManifestEntry::MaterialManifestIndex const & ref : texture.material_manifest_indices)
+        ImageManifestEntry & image = _scene._image_manifest.at(task.image_manifest_index);
+        image.runtime_data = ImageRuntimeData{.image = task.result};
+        for (u32 const ref : image.material_manifest_indices)
         {
-            _scene._dirty_material_indices.push_back(ref.material_manifest_index);
+            _scene._dirty_material_indices.push_back(ref);
         }
-        it = _inflight_texture_streams.erase(it);
+        it = _inflight_image_streams.erase(it);
     }
     // 2. Spawn a stream task for every newly dirtied texture. (No-op if there is no thread pool, e.g.
     //    at shutdown - those textures simply never become resident, which is fine.)
@@ -372,13 +370,13 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
     {
         for (u32 const texture_index : drain_dirty_indices(_scene._dirty_texture_indices))
         {
-            auto task = std::make_shared<TextureStreamTask>();
+            auto task = std::make_shared<ImageStreamTask>();
             task->chunk_count = 1;
             task->device = _device;
-            task->artifact = _scene._texture_manifest.at(texture_index).streamer_data;
-            task->texture_manifest_index = texture_index;
+            task->artifact = _scene._image_manifest.at(texture_index).streamer_data;
+            task->image_manifest_index = texture_index;
             info.thread_pool->async_dispatch(task, TaskPriority::LOW);
-            _inflight_texture_streams.push_back(std::move(task));
+            _inflight_image_streams.push_back(std::move(task));
         }
     }
 
@@ -394,12 +392,11 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
             ++it;
             continue;
         }
-        MeshLodGroupUploadInfo const & upload = task.result;
-        _scene._mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime_data = MeshLodGroupManifestEntry::Runtime{
-            .lods = upload.lods,
-            .lod_count = upload.lod_count,
+        _scene._mesh_lod_group_manifest.at(task.mesh_lod_manifest_index).runtime_data = MeshRuntimeData{
+            .lod_count = s_cast<u32>(task.result.size()),
         };
-        _scene._dirty_mesh_lod_group_indices.push_back(upload.mesh_lod_manifest_index);
+        std::copy(task.result.begin(), task.result.end(), _scene._mesh_lod_group_manifest.at(task.mesh_lod_manifest_index).runtime_data->lods.begin());
+        _scene._dirty_mesh_lod_group_indices.push_back(task.mesh_lod_manifest_index);
         it = _inflight_mesh_streams.erase(it);
     }
     // 2. Spawn a stream task for every newly requested mesh. (No-op without a thread pool, e.g. shutdown.)
@@ -660,7 +657,7 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
         auto resolve_texture_id = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> daxa::ImageId
         {
             if (!info.has_value()) { return {}; }
-            return _scene._texture_manifest.at(info.value().tex_manifest_index).runtime_data.image.value_or(daxa::ImageId{});
+            return _scene._image_manifest.at(info.value().image_manifest_index).runtime_data.value_or(ImageRuntimeData{daxa::ImageId{}}).image;
         };
 
         // The normal map's BC5 encoding is deduced from its cooked texture format, not tracked through
@@ -668,7 +665,8 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
         auto normal_is_bc5_rg = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> bool
         {
             if (!info.has_value()) { return false; }
-            return tido_format_is_bc5_rg(_scene._texture_manifest.at(info.value().tex_manifest_index).streamer_data.info.format);
+            auto const format = _scene._image_manifest.at(info.value().image_manifest_index).streamer_data.descriptor.info.format;
+            return format == daxa::Format::BC5_UNORM_BLOCK || format == daxa::Format::BC5_SNORM_BLOCK;
         };
 
         for (u32 i = 0; i < dirty_material_count; ++i)
@@ -702,7 +700,7 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
     // only stash their runtime image id - no material update needed.
     for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
     {
-        _scene._texture_manifest.at(texture_upload.texture_manifest_index).runtime_data.image = texture_upload.image;
+        _scene._image_manifest.at(texture_upload.image_manifest_index).runtime_data = ImageRuntimeData{texture_upload.image};
     }
 
     /// TODO: Taskgraph this shit.

@@ -7,7 +7,7 @@
 #include <png.h>
 #include <variant>
 
-#include "optimizers/tex_compression.hpp"
+#include "optimizers/image_processor.hpp"
 #include "optimizers/geometry_optimizer.hpp"
 
 #include <ktx.h>
@@ -241,9 +241,9 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
 
 // NOTE: glTF image -> texture cooking moved to importer (load) + optimizer (compress). The PNG parse
 // below remains only for the not-yet-ported non-manifest / cloud-volume paths in this file.
-static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, TextureMaterialType type, bool allow_srgb = true) -> ParsedImageRet
+static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, bool allow_srgb = true) -> ParsedImageRet
 {
-    bool load_as_srgb = type == TextureMaterialType::DIFFUSE && allow_srgb;
+    bool load_as_srgb = allow_srgb;
 
     if (png_sig_cmp((png_bytep)raw_data.raw_data.data(), 0, 8))
     {
@@ -443,10 +443,11 @@ void AssetProcessor::ConvertVDBTask::callback([[maybe_unused]] u32 chunk_index, 
                 }
 
                 auto compress_bc6_task = compress_image({
-                    .in_data = std::span(repacked_loaded_fields.data(), repacked_loaded_fields.size()),
-                    .out_data = std::span(fields_converted_data.back().data(), fields_converted_data.back().size()),
+                    .src_data = std::span(repacked_loaded_fields.data(), repacked_loaded_fields.size()),
                     .image_dimensions = header.field_extents,
-                    .compression = Compression::BC6,
+                    .target_format = daxa::Format::BC6H_UFLOAT_BLOCK,
+                    .source_format = daxa::Format::R16G16B16_UINT,
+                    .dst_data = std::span(fields_converted_data.back().data(), fields_converted_data.back().size()),
                 });
 
                 current_subtask = compress_bc6_task.get();
@@ -470,10 +471,11 @@ void AssetProcessor::ConvertVDBTask::callback([[maybe_unused]] u32 chunk_index, 
                 }
 
                 auto compress_bc1_sdf_task = compress_image({
-                    .in_data = std::span(reinterpret_cast<std::byte*>(load_task->grids_data[3].data()), load_task->grids_data[3].size()),
-                    .out_data = std::span(fields_converted_data.back().data(), fields_converted_data.back().size()),
+                    .src_data = std::span(reinterpret_cast<std::byte*>(load_task->grids_data[3].data()), load_task->grids_data[3].size()),
                     .image_dimensions = header.field_extents,
-                    .compression = Compression::BC1_SDF,
+                    .target_format = daxa::Format::BC1_RGBA_UNORM_BLOCK,
+                    .source_format = daxa::Format::R32_SFLOAT,
+                    .dst_data = std::span(fields_converted_data.back().data(), fields_converted_data.back().size()),
                 });
 
                 current_subtask = compress_bc1_sdf_task.get();
@@ -606,7 +608,7 @@ auto AssetProcessor::load_cloud_volumetric_data(LoadCloudVolumetricDataInfo cons
         daxa::Format format;
         u64 total_byte_size;
         daxa::ImageId * dst_image_id;
-        u32 texture_manifest_index;
+        u32 image_manifest_index;
         std::string name;
     };
 
@@ -627,7 +629,7 @@ auto AssetProcessor::load_cloud_volumetric_data(LoadCloudVolumetricDataInfo cons
                     .format = daxa::Format::R16G16B16A16_SFLOAT,
                     .total_byte_size = total_texels * 4 * sizeof(u16),
                     .dst_image_id = &cloud_data_image,
-                    .texture_manifest_index = info.cloud_data_texture_manifest_index,
+                    .image_manifest_index = info.cloud_data_image_manifest_index,
                     .name = "Cloud volumetric uncompressed data"},
             };
             break;
@@ -648,14 +650,14 @@ auto AssetProcessor::load_cloud_volumetric_data(LoadCloudVolumetricDataInfo cons
                     .format = daxa::Format::BC6H_UFLOAT_BLOCK,
                     .total_byte_size = total_blocks * BYTES_PER_BC6_BLOCK,
                     .dst_image_id = &cloud_data_image,
-                    .texture_manifest_index = info.cloud_data_texture_manifest_index,
+                    .image_manifest_index = info.cloud_data_image_manifest_index,
                     .name = "Cloud volumetric BC6 data" 
                 },
                 FieldImageInfo{
                     .format = daxa::Format::BC1_RGBA_UNORM_BLOCK,
                     .total_byte_size = total_blocks * BYTES_PER_BC1_BLOCK,
                     .dst_image_id = &cloud_sdf_image,
-                    .texture_manifest_index = info.cloud_sdf_texture_manifest_index,
+                    .image_manifest_index = info.cloud_sdf_image_manifest_index,
                     .name = "Cloud volumetric SDF data"
                 },
             };
@@ -699,7 +701,7 @@ auto AssetProcessor::load_cloud_volumetric_data(LoadCloudVolumetricDataInfo cons
             std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
             _upload_texture_queue.push_back(LoadedTextureInfo{
                 .image = *field_info.dst_image_id,
-                .texture_manifest_index = field_info.texture_manifest_index,
+                .image_manifest_index = field_info.image_manifest_index,
             });
         }
     }
@@ -732,7 +734,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
             return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
         }
         ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
-        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), TextureMaterialType::DIFFUSE, info.load_as_srgb);
+        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), info.load_as_srgb);
         if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
         {
             return *error;

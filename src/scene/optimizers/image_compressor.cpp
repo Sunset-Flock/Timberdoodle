@@ -1,4 +1,4 @@
-#include "tex_compression.hpp"
+#include "image_processor.hpp"
 #include "sdf_bc1_compressor.hpp"
 #include <CMP_Core.h>
 #include <algorithm>
@@ -16,13 +16,13 @@ struct CompressTask : Task
     u32 blocks_per_chunk;
 
     private:
-        typedef std::array<std::byte, PixelByteCount> Pixel;  
+        typedef std::array<std::byte, PixelByteCount> Pixel;
 
         u32 blocks_total;
         u32 blocks_per_layer;
         u32 blocks_per_row;
         u32 pixels_per_layer;
-    
+
     public:
 
     CompressTask(CreateCompressedImageInfo const & info, u32 const blocks_per_chunk = DEFAULT_BLOCKS_PER_CHUNK)
@@ -63,15 +63,12 @@ struct CompressTask : Task
             u32vec3 const block_start_image_coords = block_index_to_image_coords(block_index);
 
             DBG_ASSERT_TRUE_M(
-                block_start_image_coords.x < info.image_dimensions.x && 
-                block_start_image_coords.y < info.image_dimensions.y && 
+                block_start_image_coords.x < info.image_dimensions.x &&
+                block_start_image_coords.y < info.image_dimensions.y &&
                 block_start_image_coords.z < info.image_dimensions.z,
                 "Calculated coordinates outside of image bounds");
 
-            // Gather the 4x4 source block one texel at a time, clamping to the image bounds. Clamping
-            // (rather than a single 4-wide row memcpy) is what lets non-4-aligned extents and sub-4x4 mip
-            // levels compress: an edge / partial block replicates its last in-bounds texel instead of
-            // reading past the row or image end.
+            // Gather the 4x4 source block one texel at a time, clamping to the image bounds.
             for (u32 block_y = 0; block_y < 4; ++block_y)
             {
                 for (u32 block_x = 0; block_x < 4; ++block_x)
@@ -82,38 +79,45 @@ struct CompressTask : Task
 
                     u32 const linear_src_pixel_index = src_x + (src_y * info.image_dimensions.x) + (src_z * pixels_per_layer);
                     u32 const linear_src_data_index = linear_src_pixel_index * sizeof(Pixel);
-                    DBG_ASSERT_TRUE_M(linear_src_data_index < info.in_data.size(), "Calculated linear source data index outside of image bounds");
+                    DBG_ASSERT_TRUE_M(linear_src_data_index < info.src_data.size(), "Calculated linear source data index outside of image bounds");
 
                     u32 const block_linear_index = (block_y * 4) + block_x;
-                    std::memcpy(&data_block_to_compress[block_linear_index], &info.in_data[linear_src_data_index], sizeof(Pixel));
+                    std::memcpy(&data_block_to_compress[block_linear_index], &info.src_data[linear_src_data_index], sizeof(Pixel));
                 }
             }
 
             u32 const stride_in_bytes = 4 * sizeof(Pixel);
-            switch(info.compression)
+            switch(info.target_format)
             {
-                case Compression::BC1: 
-                { 
-                    // BC1 stores 8 byes per block.
-                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 8]);
-                    CompressBlockBC1(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination);
+                case daxa::Format::BC1_RGB_UNORM_BLOCK:
+                case daxa::Format::BC1_RGB_SRGB_BLOCK:
+                case daxa::Format::BC1_RGBA_UNORM_BLOCK:
+                case daxa::Format::BC1_RGBA_SRGB_BLOCK:
+                {
+                    // BC1 stores 8 byes per block. A single-channel fp32 source is normalized SDF data
+                    // compressed with the custom encoder; any other source is a plain BC1 colour block.
+                    if (info.source_format == daxa::Format::R32_SFLOAT)
+                    {
+                        u64 * const destination = reinterpret_cast<u64 *>(&info.dst_data[block_index * 8]);
+                        CompressBlockBC1SDF(destination, std::span<float>(reinterpret_cast<float*>(data_block_to_compress.data()), 16));
+                    }
+                    else
+                    {
+                        unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.dst_data[block_index * 8]);
+                        CompressBlockBC1(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination);
+                    }
                     break;
                 }
-                case Compression::BC1_SDF: 
-                { 
-                    // BC1 SDF stores 8 byes per block.
-                    u64 * const destination = reinterpret_cast<u64 *>(&info.out_data[block_index * 8]);
-                    CompressBlockBC1SDF(destination, std::span<float>(reinterpret_cast<float*>(data_block_to_compress.data()), 16));
-                    break;
-                }
-                case Compression::BC4:
+                case daxa::Format::BC4_UNORM_BLOCK:
+                case daxa::Format::BC4_SNORM_BLOCK:
                 {
                     // BC4 stores 8 byes per block.
-                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 8]);
+                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.dst_data[block_index * 8]);
                     CompressBlockBC4(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination);
                     break;
                 }
-                case Compression::BC5:
+                case daxa::Format::BC5_UNORM_BLOCK:
+                case daxa::Format::BC5_SNORM_BLOCK:
                 {
                     // For some reason the BC5 commpress function wants the two channels not interleaved.
                     std::array<unsigned char, 16> red_block = {};
@@ -125,23 +129,25 @@ struct CompressTask : Task
                         green_block[texel_in_block] = interleaved[texel_in_block * 2 + 1];
                     }
                     // BC5 stores 16 byes per block.
-                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 16]);
+                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.dst_data[block_index * 16]);
                     // BC5 takes stride per channel not per pixel, so the stride is half the interleaved stride since there are two channels.
                     CompressBlockBC5(red_block.data(), stride_in_bytes / 2, green_block.data(), stride_in_bytes / 2, destination);
                     break;
                 }
-                case Compression::BC6: 
-                { 
+                case daxa::Format::BC6H_UFLOAT_BLOCK:
+                case daxa::Format::BC6H_SFLOAT_BLOCK:
+                {
                     // BC6 stores 16 byes per block.
-                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 16]);
+                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.dst_data[block_index * 16]);
                     // BC6 takes stride in shorts, not bytes.
                     CompressBlockBC6(reinterpret_cast<unsigned short const* const>(data_block_to_compress.data()), stride_in_bytes / 2, destination);
                     break;
                 }
-                case Compression::BC7: 
-                { 
+                case daxa::Format::BC7_UNORM_BLOCK:
+                case daxa::Format::BC7_SRGB_BLOCK:
+                {
                     // BC1 stores 16 byes per block.
-                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 16]);
+                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.dst_data[block_index * 16]);
                     // BC6 takes stride in shorts, not bytes.
                     CompressBlockBC7(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination);
                     break;
@@ -159,59 +165,64 @@ struct CompressTask : Task
 
 auto compress_image(CreateCompressedImageInfo const & info) -> std::shared_ptr<Task>
 {
-    DBG_ASSERT_TRUE_M(info.compression != Compression::UNDEFINED, "Undefined block compression format!");
-    // Non-4-aligned extents are allowed: the block loop pads partial edge blocks by clamping (so sub-4x4
-    // mip levels compress too). The .tido_bin subresource sizes use the same ceil(dim/4) block count.
-
     u32 texel_size_in_bytes = 0;
-    switch(info.compression)
+    switch(info.target_format)
     {
-        case Compression::BC1    : { texel_size_in_bytes = 4u; break; }
-        case Compression::BC1_SDF: { texel_size_in_bytes = 4u; break; }
-        case Compression::BC4    : { texel_size_in_bytes = 1u; break; }
-        case Compression::BC5    : { texel_size_in_bytes = 2u; break; }
-        case Compression::BC6    : { texel_size_in_bytes = 6u; break; }
-        case Compression::BC7    : { texel_size_in_bytes = 4u; break; }
+        case daxa::Format::BC1_RGB_UNORM_BLOCK:
+        case daxa::Format::BC1_RGB_SRGB_BLOCK:
+        case daxa::Format::BC1_RGBA_UNORM_BLOCK:
+        case daxa::Format::BC1_RGBA_SRGB_BLOCK: { texel_size_in_bytes = 4u; break; }
+        case daxa::Format::BC4_UNORM_BLOCK:
+        case daxa::Format::BC4_SNORM_BLOCK:     { texel_size_in_bytes = 1u; break; }
+        case daxa::Format::BC5_UNORM_BLOCK:
+        case daxa::Format::BC5_SNORM_BLOCK:     { texel_size_in_bytes = 2u; break; }
+        case daxa::Format::BC6H_UFLOAT_BLOCK:
+        case daxa::Format::BC6H_SFLOAT_BLOCK:   { texel_size_in_bytes = 6u; break; }
+        case daxa::Format::BC7_UNORM_BLOCK:
+        case daxa::Format::BC7_SRGB_BLOCK:      { texel_size_in_bytes = 4u; break; }
         default:
         {
-            DBG_ASSERT_TRUE_M(false, "Undefined block compression format!");
+            DBG_ASSERT_TRUE_M(false, "compress_image: target_format is not a supported BC block format");
             return nullptr;
         }
     }
 
     [[maybe_unused]] u32 const texels_requested_for_compression = info.image_dimensions.x * info.image_dimensions.y * info.image_dimensions.z;
-    DBG_ASSERT_TRUE_M(info.in_data.size() / texel_size_in_bytes >= texels_requested_for_compression,
+    DBG_ASSERT_TRUE_M(info.src_data.size() / texel_size_in_bytes >= texels_requested_for_compression,
                       "Mismatch between image dimensions and data provided for compression");
 
-    switch(info.compression)
+    switch(info.target_format)
     {
-        case Compression::BC1: 
-        { 
+        case daxa::Format::BC1_RGB_UNORM_BLOCK:
+        case daxa::Format::BC1_RGB_SRGB_BLOCK:
+        case daxa::Format::BC1_RGBA_UNORM_BLOCK:
+        case daxa::Format::BC1_RGBA_SRGB_BLOCK:
+        {
             return std::make_shared<CompressTask<4>>(info);
         }
-        case Compression::BC1_SDF: 
-        { 
-            return std::make_shared<CompressTask<4>>(info);
-        }
-        case Compression::BC4:
+        case daxa::Format::BC4_UNORM_BLOCK:
+        case daxa::Format::BC4_SNORM_BLOCK:
         {
             return std::make_shared<CompressTask<1>>(info);
         }
-        case Compression::BC5:
+        case daxa::Format::BC5_UNORM_BLOCK:
+        case daxa::Format::BC5_SNORM_BLOCK:
         {
             return std::make_shared<CompressTask<2>>(info);
         }
-        case Compression::BC6:
-        { 
+        case daxa::Format::BC6H_UFLOAT_BLOCK:
+        case daxa::Format::BC6H_SFLOAT_BLOCK:
+        {
             return std::make_shared<CompressTask<6>>(info);
         }
-        case Compression::BC7: 
-        { 
+        case daxa::Format::BC7_UNORM_BLOCK:
+        case daxa::Format::BC7_SRGB_BLOCK:
+        {
             return std::make_shared<CompressTask<4>>(info);
         }
         default:
         {
-            DBG_ASSERT_TRUE_M(false, "Undefined block compression format!");
+            DBG_ASSERT_TRUE_M(false, "compress_image: target_format is not a supported BC block format");
             return nullptr;
         }
     }

@@ -13,8 +13,7 @@
 #include "../slot_map.hpp"
 #include "asset_processor.hpp"
 #include "importers/openvdb_importer.hpp"
-#include "optimizers/tex_compression.hpp"
-#include "tido_format/tido_texture.hpp"
+#include "tido_format/tido_format.hpp"
 #include "streamer.hpp"
 using namespace tido::types;
 
@@ -36,65 +35,75 @@ struct CPUMeshInstanceCounts
  * We store the metadata in manifest arrays.
  * The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
  */
-struct TextureManifestEntry
+
+
+/// ================================================== IMAGE ==================================================
+struct ImageRuntimeData
 {
-    struct MaterialManifestIndex
-    {
-        u32 material_manifest_index = {};
-    };
-
     // The live GPU handle for this texture; empty until the streamer has made it resident.
-    struct RuntimeData
-    {
-        std::optional<daxa::ImageId> image = {};
-    };
+    daxa::ImageId image = {};
+};
 
-    // Provenance: which importer + source can reproduce this asset (the hot-reload enabler).
-    struct GltfImporterData
-    {
-        std::filesystem::path src_gltf = {};
-        u32 image_index = {};
-    };
-    struct RawImporterData
-    {
-        // Plain image file (PNG/KTX2); cook usage is the task's TextureMaterialType, as on the gltf side.
-        struct Image
-        {
-        };
-        // Named grids to extract (in channel order) and their target compression; UNDEFINED means uncompressed RGBA16F.
-        struct VdbVolume
-        {
-            std::vector<VDBGridInfo> grids = {};
-            Compression target = {};
-        };
+struct ImageImporterData
+{
+    // source + cook recipe: everything importer needs to re-cook this image.
+    std::filesystem::path file = {};
+    u64 image_index = {};
+    std::vector<u8> channel_mapping = {};
+    daxa::Format target_format = {};
+};
 
-        std::filesystem::path src = {};
-        std::variant<Image, VdbVolume> recipe = {};
-    };
-
-    // The type is determined by the materials that reference it.
-    TextureMaterialType type = {};
-    // List of materials that use this texture and how they use it
-    // The GPUMaterial contrains ImageIds directly,
-    // So the GPUMaterial Need to be updated when the texture changes.
-    std::vector<MaterialManifestIndex> material_manifest_indices = {};  // Would prefer some other allocation scheme here.
+struct ImageManifestEntry
+{
+    // List of materials that use this texture.
+    // GPUMaterial contrains ImageIds directly.
+    // Used to update the GPUMaterial when the image is loaded/unloaded.
+    std::vector<u32> material_manifest_indices = {};
     std::string name = {};
 
-    // What the streamer needs to (re)make this texture resident from its .tido_bin data file. Kept so the
-    // texture can be re-streamed later without the source file. Empty (bin_source unset) for non-gltf
-    // textures (e.g. cloud volumes) until they are cooked.
-    TidoTextureStreamerData streamer_data = {};
-    RuntimeData runtime_data = {};
-    std::variant<GltfImporterData, RawImporterData> importer_data = {};
+    ImageStreamerData streamer_data = {};
+    ImageImporterData importer_data = {};
+    std::optional<ImageRuntimeData> runtime_data = {};
 
-    auto loaded() const -> bool{ return runtime_data.image.has_value(); }
+    auto loaded() const -> bool{ return runtime_data.has_value(); }
+};
+
+/// ================================================== MESH ==================================================
+struct MeshRuntimeData
+{
+    // The live per-LOD GPU handles; empty until the streamer has made the mesh resident.
+    std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
+    std::array<daxa::BlasId, MAX_MESHES_PER_LOD_GROUP> blas_lods = {};
+    daxa_u32 lod_count = {};
+};
+
+struct MeshImporterData
+{
+    // source + cook recipe: everything importer needs to re-cook this mesh.
+    TidoMeshDescriptor descriptor = {};
+    std::filesystem::path bin_source = {};
+    u64 mesh_index = {};
+    u64 file_data_offset = {};
+};
+
+struct MeshLodGroupManifestEntry
+{
+    std::optional<u32> mesh_group_manifest_index = {};
+    std::optional<u32> material_index = {};
+    std::string name = {};
+
+    MeshStreamerData streamer_data = {};
+    MeshImporterData importer_data = {};
+    std::optional<MeshRuntimeData> runtime_data = {};
+
+    auto loaded() const -> bool{ return runtime_data.has_value(); }
 };
 
 struct MaterialManifestEntry
 {
     struct TextureInfo
     {
-        u32 tex_manifest_index = {};
+        u32 image_manifest_index = {};
         u32 sampler_index = {};
     };
     std::optional<TextureInfo> diffuse_info = {};
@@ -108,43 +117,6 @@ struct MaterialManifestEntry
     f32vec3 base_color = {};
     f32vec3 emissive_color = {};
     std::string name = {};
-};
-
-struct MeshLodGroupManifestEntry
-{
-    // The live per-LOD GPU handles; empty until the streamer has made the mesh resident.
-    struct Runtime
-    {
-        std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
-        std::array<daxa::BlasId, MAX_MESHES_PER_LOD_GROUP> blas_lods = {};
-        daxa_u32 lod_count = {};
-    };
-
-    // Provenance: which importer + source can reproduce this asset (the hot-reload enabler).
-    struct GltfImporterData
-    {
-        std::filesystem::path src_gltf = {};
-        u32 mesh_index = {};
-        u32 primitive_index = {};
-    };
-    struct RawImporterData
-    {
-        std::filesystem::path src = {};
-    };
-
-    // Unset until a mesh group claims this mesh (add_mesh_group runs after add_mesh, so a mesh can be
-    // resident - or even become resident - before it belongs to any group).
-    std::optional<u32> mesh_group_manifest_index = {};
-    std::optional<u32> material_index = {};
-    std::string name = {}; // TODO(pahrens): fill out.
-
-    // What the streamer needs to (re)make this mesh resident from its .tido_bin data file. Kept so the mesh
-    // can be re-streamed later without the source file.
-    TidoMeshStreamerData streamer_data = {};
-    std::optional<Runtime> runtime_data = {};
-    std::variant<GltfImporterData, RawImporterData> importer_data = {};
-
-    auto loaded() const -> bool{ return runtime_data.has_value(); }
 };
 
 struct MeshGroupManifestEntry
@@ -182,9 +154,9 @@ struct CloudVolume
     std::string cloud_volume_data_path;
     std::string detail_noise_path;
 
-    u32 data_texture_manifest_index = {};
-    u32 sdf_texture_manifest_index = {};
-    u32 detail_noise_texture_manifest_index = {};
+    u32 data_image_manifest_index = {};
+    u32 sdf_image_manifest_index = {};
+    u32 detail_noise_image_manifest_index = {};
 };
 
 
@@ -344,7 +316,7 @@ struct Scene
 
     // Root entity of each imported asset's entity sub-tree.
     std::vector<RenderEntityId> _root_render_entities = {};
-    std::vector<TextureManifestEntry> _texture_manifest = {};
+    std::vector<ImageManifestEntry> _image_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
     std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
@@ -358,7 +330,7 @@ struct Scene
     // manifest sync. Every manifest that is mirrored on the GPU owns one; SceneRuntime is the only thing
     // that touches these, always from the main thread, so plain vectors are safe - SceneRuntime::update
     // drains each one to re-upload exactly those entries (instead of assuming a contiguous tail of new
-    // entries). Manifests that are not shared with the GPU (e.g. the texture manifest) do not need one.
+    // entries). Manifests that are not shared with the GPU (e.g. the image manifest) do not need one.
     std::vector<u32> _dirty_material_indices = {};
     std::vector<u32> _dirty_mesh_lod_group_indices = {};
     std::vector<u32> _dirty_mesh_group_indices = {};

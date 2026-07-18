@@ -1,9 +1,13 @@
 #include "importer.hpp"
 
+#include <cmath>
+#include <algorithm>
+
+#include "../optimizers/image_processor.hpp"
+
 Importer::Importer(ThreadPool * thread_pool)
     : thread_pool{thread_pool},
-      _gltf_importer{this},
-      _raw_importer{this}
+      _gltf_importer{this}
 {
     _thread = std::thread([this]() { thread_main(); });
 }
@@ -78,9 +82,7 @@ void Importer::thread_main()
             _task_queue.clear();
             _upkeep_requested = false;
         }
-        // An upkeep-only wake passes an empty task list; the importers still run their cache upkeep.
         _gltf_importer.update(tasks);
-        _raw_importer.update(tasks);
         DBG_ASSERT_TRUE_M(tasks.empty(), "An ImporterTask was left unconsumed - no importer handles its provenance");
     }
 }

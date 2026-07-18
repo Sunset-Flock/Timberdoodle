@@ -9,7 +9,7 @@
 #include "../gpu_context.hpp"
 #include "../shader_shared/geometry.inl"
 #include "importers/openvdb_importer.hpp"
-#include "optimizers/image_optimizer.hpp" // TextureMaterialType + image cook types (moved out of here)
+#include "optimizers/image_processor.hpp" // TextureMaterialType + image cook types (moved out of here)
 #include <ktx.h>
 
 using namespace tido::types;
@@ -157,7 +157,7 @@ struct AssetProcessor
     struct LoadedTextureInfo
     {
         daxa::ImageId image = {};
-        u32 texture_manifest_index = {};
+        u32 image_manifest_index = {};
         bool secondary_texture = {};
         bool compressed_bc5_rg = {};
     };
@@ -168,8 +168,8 @@ struct AssetProcessor
     struct LoadCloudVolumetricDataInfo
     {
         std::filesystem::path volumetric_data_path = {};
-        u32 cloud_data_texture_manifest_index = {};
-        u32 cloud_sdf_texture_manifest_index = {};
+        u32 cloud_data_image_manifest_index = {};
+        u32 cloud_sdf_image_manifest_index = {};
     };
     auto load_cloud_volumetric_data(LoadCloudVolumetricDataInfo const & info) -> AssetLoadResultCode;
 

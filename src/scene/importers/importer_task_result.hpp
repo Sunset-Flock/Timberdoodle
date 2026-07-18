@@ -8,8 +8,7 @@
 
 #include "../../timberdoodle.hpp"
 #include "../scene.hpp"
-#include "../tido_format/tido_mesh.hpp"
-#include "../tido_format/tido_texture.hpp"
+#include "../tido_format/tido_format.hpp"
 using namespace tido::types;
 
 /// --- Importer task results ---
@@ -21,11 +20,10 @@ struct ImporterTaskResult
 {
     struct SceneMetadataBatch
     {
-        struct Texture
+        struct Image
         {
-            TextureMaterialType type = {};
             std::string name = {};
-            std::variant<TextureManifestEntry::GltfImporterData, TextureManifestEntry::RawImporterData> importer_data = {};
+            ImageImporterData importer_data = {};
         };
 
         struct Material
@@ -46,7 +44,7 @@ struct ImporterTaskResult
         {
             std::optional<u32> material_index = {};
             std::string name = {};
-            std::variant<MeshLodGroupManifestEntry::GltfImporterData, MeshLodGroupManifestEntry::RawImporterData> importer_data = {};
+            MeshImporterData importer_data = {};
         };
 
         struct MeshGroup
@@ -85,7 +83,7 @@ struct ImporterTaskResult
             std::optional<u32> next_sibling_index = {};
         };
 
-        std::vector<Texture> textures = {};
+        std::vector<Image> images = {};
         std::vector<Material> materials = {};
         std::vector<MeshLodGroup> mesh_lod_groups = {};
         std::vector<MeshGroup> mesh_groups = {};
@@ -98,13 +96,10 @@ struct ImporterTaskResult
 
     struct CookedAsset
     {
-        std::variant<TidoTextureStreamerData, TidoMeshStreamerData> streamer_data = {};
+        std::variant<ImageStreamerData, MeshStreamerData> streamer_data = {};
         u32 manifest_index = {};
     };
 
-    // Generic failure scaffolding: which task kind failed for which source, with a log-friendly reason.
-    // A proper error taxonomy (specific codes + recovery) is a later pass; SceneRuntime only logs these
-    // and clears its pending-import state for a failed ImportScene.
     struct Error
     {
         enum struct TaskKind

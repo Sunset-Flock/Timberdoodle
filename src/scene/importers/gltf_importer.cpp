@@ -1,4 +1,4 @@
-#include "gltf_importer.hpp"
+#include "importer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,11 +10,9 @@
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
 
-#include "../optimizers/image_optimizer.hpp"
+#include "../optimizers/image_processor.hpp"
 #include "../optimizers/geometry_optimizer.hpp"
-#include "../tido_format/tido_mesh.hpp"
-#include "../tido_format/tido_util.hpp"
-#include "importer.hpp"
+#include "../tido_format/tido_format.hpp"
 
 // Per-kind cook versions, stamped into every .gltf_cache this importer writes. Bump the relevant one
 // whenever that pipeline's cook output or .tido_bin layout changes; on re-import a mismatching version
@@ -359,7 +357,7 @@ static auto raw_image_data_from_buffer_view(fastgltf::sources::BufferView const 
 
 // Part 1 entry point: read an image's source bytes out of the glTF and tag their format, ready to be
 // handed to the optimizer. Does NOT decode/transcode - that is the optimizer's job.
-static auto load_raw_image(fastgltf::Asset const & asset, u32 gltf_image_index, std::filesystem::path const & asset_path, TextureMaterialType type) -> std::optional<OptimizeImageInfo>
+static auto load_raw_image(fastgltf::Asset const & asset, u32 gltf_image_index, std::filesystem::path const & asset_path) -> std::optional<RawImage>
 {
     fastgltf::Image const & fgltf_image = asset.images.at(gltf_image_index);
     std::filesystem::path const scene_dir_path = std::filesystem::path(asset_path).remove_filename();
@@ -397,10 +395,9 @@ static auto load_raw_image(fastgltf::Asset const & asset, u32 gltf_image_index, 
         return std::nullopt; // Unsupported source format.
     }
 
-    return OptimizeImageInfo{
+    return RawImage{
         .data = std::move(raw_image_data.raw_data),
         .format = format,
-        .type = type,
         .name = raw_image_data.image_path.filename().string(),
     };
 }
@@ -478,27 +475,25 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
     }
 }
 
-static auto texture_recipe_tag(TextureMaterialType type) -> std::string
-{
-    switch (type)
-    {
-        case TextureMaterialType::DIFFUSE:             return "diffuse";
-        case TextureMaterialType::OPACITY:              return "opacity";
-        case TextureMaterialType::NORMAL:               return "normal";
-        case TextureMaterialType::ROUGHNESS_METALNESS:  return "roughness_metalness";
-        case TextureMaterialType::NONE:
-        default:
-            DBG_ASSERT_TRUE_M(false, "texture_recipe_tag: unhandled TextureMaterialType");
-            return "none";
-    }
-}
-
 // Stable per-image-artifact source-identity key.
 // The recipe tag joins the gltf image index in the disambiguator so two artifacts sharing a source image under different recipes get distinct keys.
-static auto image_cache_key(fastgltf::Asset const & asset, std::filesystem::path const & file_path, u32 gltf_image_index, TextureMaterialType type) -> u64
+static auto texture_identity_key(TextureImporterData const & importer_data) -> u64
 {
-    return tido_source_identity_key(file_path, asset.images[gltf_image_index].name.c_str(),
-        fmt::format("{}#{}", gltf_image_index, texture_recipe_tag(type)));
+    std::vector<std::byte> importer_data_as_bytes;
+    std::string const & generic_path_string = importer_data.file.generic_string();
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(), generic_path_string.begin(), generic_path_string.end());
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(), 
+        r_cast<std::byte const *>(&importer_data.image_index),
+        r_cast<std::byte const *>(&importer_data.image_index) + sizeof(importer_data.image_index));
+    for(auto const & mapped_channel : importer_data.channel_mapping)
+    {
+        importer_data_as_bytes.push_back(static_cast<std::byte>(mapped_channel));
+    }
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
+        r_cast<std::byte const *>(&importer_data.target_format),
+        r_cast<std::byte const *>(&importer_data.target_format) + sizeof(importer_data.target_format));
+
+    return tido_fnv1a(importer_data_as_bytes, 0);
 }
 
 // Stable per-primitive source-identity key.
@@ -512,6 +507,7 @@ static auto mesh_cache_key(fastgltf::Asset const & asset, std::filesystem::path 
 // ====================== ImportScene: parse -> SceneMetadataBatch (no cooking) =====================
 namespace
 {
+
 // Parses one glTF/GLB file on a ThreadPool worker and translates it into a single SceneMetadataBatch
 // result - manifest metadata only, with importer_data provenance filled and streamer/runtime data empty.
 // Never touches the Scene or the cache; SceneRuntime applies the batch on the main thread and pushes
@@ -526,6 +522,7 @@ namespace
 //      metadata-only batch entry.
 //   3. translate_materials / translate_mesh_groups / translate_entities - a material's/group's leaves
 //      already have batch entries -> wire up the batch's own cross-references.
+
 struct SceneParseTask final : Task
 {
     SceneParseTask(std::filesystem::path file_path, Importer * importer)
@@ -542,33 +539,12 @@ struct SceneParseTask final : Task
 
     fastgltf::Asset asset;
 
-    // gltf image index -> batch-local index into batch.textures; INVALID_MANIFEST_INDEX if unreferenced.
-    std::vector<u32> image_manifest_indices = {};
-    // Parallel to image_manifest_indices, for the split-off opacity texture (see image_needs_opacity_split).
-    std::vector<u32> opacity_manifest_indices = {};
-    std::vector<u32> material_manifest_indices = {};
-    std::vector<u32> mesh_group_manifest_indices = {};
-    // [gltf mesh index][primitive index] -> batch-local index into batch.mesh_lod_groups.
-    std::vector<std::vector<u32>> mesh_manifest_indices = {};
-    // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
-    std::vector<TextureMaterialType> image_types = {};
-    // Parallel to image_types: whether a Mask-mode material samples this image as an alpha cutoff.
-    std::vector<bool> image_needs_opacity_split = {};
-
-    // Every manifest entry's metadata, built purely from parsing; pushed to the result queue once complete.
     ImporterTaskResult::SceneMetadataBatch batch = {};
 
-    void collect_referenced_images();
-    // Adds every referenced image's (+ split-off opacity's) metadata-only batch entry.
-    void add_texture_batch_entries();
-    void add_mesh_batch_entries();
     void translate_materials();
     void translate_mesh_groups();
-    // Returns the batch-local index (into batch.entities) of the imported subtree's synthetic root entity.
     auto translate_entities() -> u32;
     auto translate_light(fastgltf::Light const & light) -> u32;
-
-    auto gltf_texture_to_image_index(u32 gltf_texture_index) -> std::optional<u32>;
 };
 
 void SceneParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
@@ -586,156 +562,76 @@ void SceneParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
     }
     asset = std::move(std::get<fastgltf::Asset>(parse_result));
 
-    // The scene-metadata batch is built purely from parsing, independent of cooking. Cooking is driven by
-    // the ImportAsset tasks SceneRuntime pushes back once it has applied this batch - see the header's Flow note.
-    collect_referenced_images(); // pass 1: resolve each used texture to its image (+ type); skip unreferenced.
-    add_texture_batch_entries(); // pass 2: add every referenced image's batch entry.
-    translate_materials();       // pass 3: a material's images already have batch entries -> add it.
-    add_mesh_batch_entries();    // pass 4: add every mesh's batch entry.
-    translate_mesh_groups();     // pass 5: a group's meshes already have batch entries -> add the group over them.
-    batch.root_entity_index = translate_entities(); // pass 6: entities reference mesh groups.
+    translate_materials();
+    translate_mesh_groups();
+    batch.root_entity_index = translate_entities();
 
     importer->push_result(ImporterTaskResult{.data = std::move(batch)});
 }
 
-void SceneParseTask::collect_referenced_images()
-{
-    // First pass: walk every material, resolve each referenced texture to its IMAGE, and record the
-    // image's type. An image left as NONE is unreferenced and will be skipped (not added/loaded). The
-    // resolved type is also what the cook uses to pick a BC format, so it must be known before load.
-    // Keying on images (not textures) means an image shared by several textures is loaded only once.
-    image_types.assign(asset.images.size(), TextureMaterialType::NONE);
-    image_needs_opacity_split.assign(asset.images.size(), false);
-    auto set_image_type = [&](u32 const gltf_texture_index, TextureMaterialType const type)
-    {
-        auto const gltf_image_idx_opt = gltf_texture_to_image_index(gltf_texture_index);
-        if (!gltf_image_idx_opt.has_value())
-        {
-            return; // Texture references no supported image - nothing to load.
-        }
-        TextureMaterialType & current = image_types.at(gltf_image_idx_opt.value());
-        if (current != type)
-        {
-            DBG_ASSERT_TRUE_M(current == TextureMaterialType::NONE, "ERROR: Found an image used by different materials as DIFFERENT types!");
-            current = type;
-        }
-    };
-    for (auto const & material : asset.materials)
-    {
-        if (material.pbrData.baseColorTexture.has_value())
-        {
-            u32 const gltf_texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
-            set_image_type(gltf_texture_index, TextureMaterialType::DIFFUSE);
-            // A material samples this image as a Mask-mode alpha cutoff, not merely for its color -
-            // only masked usage earns a dedicated opacity artifact (an image with a real alpha channel
-            // that no material actually masks against stays diffuse-only; see image_needs_opacity_split).
-            if (material.alphaMode == fastgltf::AlphaMode::Mask)
-            {
-                auto const gltf_image_idx_opt = gltf_texture_to_image_index(gltf_texture_index);
-                if (gltf_image_idx_opt.has_value())
-                {
-                    image_needs_opacity_split.at(gltf_image_idx_opt.value()) = true;
-                }
-            }
-        }
-        if (material.normalTexture.has_value())
-        {
-            set_image_type(s_cast<u32>(material.normalTexture.value().textureIndex), TextureMaterialType::NORMAL);
-        }
-        if (material.pbrData.metallicRoughnessTexture.has_value())
-        {
-            set_image_type(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex), TextureMaterialType::ROUGHNESS_METALNESS);
-        }
-    }
-}
-
-auto SceneParseTask::gltf_texture_to_image_index(u32 const gltf_texture_index) -> std::optional<u32>
-{
-    auto const & texture = asset.textures.at(gltf_texture_index);
-    if (texture.basisuImageIndex.has_value())
-    {
-        return s_cast<u32>(texture.basisuImageIndex.value());
-    }
-    else if (texture.imageIndex.has_value())
-    {
-        return s_cast<u32>(texture.imageIndex.value());
-    }
-    return std::nullopt;
-}
-
-void SceneParseTask::add_texture_batch_entries()
-{
-    // Second pass: add every referenced image's (+ split-off opacity's) metadata-only batch entry up front, independent of cooking.
-    image_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
-    opacity_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
-    for (u32 image_index = 0; image_index < s_cast<u32>(asset.images.size()); ++image_index)
-    {
-        if (image_types.at(image_index) == TextureMaterialType::NONE)
-        {
-            continue; // Unreferenced image - do not add or cook it.
-        }
-        u32 const image_manifest_index = s_cast<u32>(batch.textures.size());
-        batch.textures.push_back(ImporterTaskResult::SceneMetadataBatch::Texture{
-            .type = image_types.at(image_index),
-            .name = asset.images[image_index].name.c_str(),
-            .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = image_index},
-        });
-        image_manifest_indices.at(image_index) = image_manifest_index;
-
-        // Entry exists whenever masked; stays un-streamed if the cook finds no real alpha (its own
-        // OPACITY ImportAsset task fails with SOURCE_HAS_NO_ALPHA - the entry sharing a source image
-        // with the diffuse entry is deliberately not exploited, each cooks independently).
-        if (image_needs_opacity_split.at(image_index))
-        {
-            u32 const opacity_manifest_index = s_cast<u32>(batch.textures.size());
-            batch.textures.push_back(ImporterTaskResult::SceneMetadataBatch::Texture{
-                .type = TextureMaterialType::OPACITY,
-                .name = std::string(asset.images[image_index].name.c_str()) + "_opacity",
-                .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = image_index},
-            });
-            opacity_manifest_indices.at(image_index) = opacity_manifest_index;
-        }
-    }
-}
-
-void SceneParseTask::add_mesh_batch_entries()
-{
-    /// NOTE: fastgltf::Mesh is a MeshGroup, fastgltf::Primitive is a Mesh (MeshLodGroup).
-    // Fourth pass: add every primitive's metadata-only batch entry up front, independent of cooking.
-    // [gltf mesh-group index][in-group primitive index] -> batch-local index.
-    mesh_manifest_indices.assign(asset.meshes.size(), {});
-    for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); ++mesh_group_index)
-    {
-        auto const & gltf_mesh = asset.meshes.at(mesh_group_index);
-        mesh_manifest_indices[mesh_group_index].reserve(gltf_mesh.primitives.size());
-        for (u32 primitive_index = 0; primitive_index < s_cast<u32>(gltf_mesh.primitives.size()); ++primitive_index)
-        {
-            auto const & gltf_primitive = gltf_mesh.primitives.at(primitive_index);
-            std::optional<u32> const material_index =
-                gltf_primitive.materialIndex.has_value()
-                    ? std::optional{material_manifest_indices.at(s_cast<u32>(gltf_primitive.materialIndex.value()))}
-                    : std::nullopt;
-            u32 const mesh_manifest_index = s_cast<u32>(batch.mesh_lod_groups.size());
-            batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
-                .material_index = material_index,
-                .name = gltf_mesh.name.c_str(),
-                .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = mesh_group_index, .primitive_index = primitive_index},
-            });
-            mesh_manifest_indices[mesh_group_index].push_back(mesh_manifest_index);
-        }
-    }
-}
-
 void SceneParseTask::translate_materials()
 {
-    // Every referenced image already has a batch entry; resolve each texture to its image and look up its index.
-    auto resolve_texture_info = [&](u32 const gltf_texture_index, u32 const sampler_index) -> std::optional<MaterialManifestEntry::TextureInfo>
+    // image_source_key -> image_manifest_index
+    std::unordered_map<u64, u32> image_manifest_map = {};
+
+    auto gltf_texture_to_image_index = [&](u32 const gltf_texture_index) -> std::optional<u32>
     {
-        u32 const manifest_index = image_manifest_indices.at(gltf_texture_to_image_index(gltf_texture_index).value());
-        if (manifest_index == INVALID_MANIFEST_INDEX) { return std::nullopt; }
-        return MaterialManifestEntry::TextureInfo{.tex_manifest_index = manifest_index, .sampler_index = sampler_index};
+        auto const & texture = asset.textures.at(gltf_texture_index);
+        if (texture.basisuImageIndex.has_value())
+        {
+            return s_cast<u32>(texture.basisuImageIndex.value());
+        }
+        else if (texture.imageIndex.has_value())
+        {
+            return s_cast<u32>(texture.imageIndex.value());
+        }
+        DBG_ASSERT_TRUE_M(false, "Texture type does not have image index nor basisu image index - we do not support dds or webp textures currently");
+        return std::nullopt;
     };
-    material_manifest_indices.reserve(asset.materials.size());
+
+    enum struct GLTFTextureMaterialType
+    {
+        NONE,
+        DIFFUSE,
+        OPACITY,
+        NORMAL,
+        ROUGHNESS_METALNESS,
+    };
+
+    auto default_texture_import_info = [&](GLTFTextureMaterialType const texture_type, u32 const image_index) -> TextureImporterData
+    {
+        switch(texture_type)
+        {
+            case GLTFTextureMaterialType::DIFFUSE:
+                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
+            case GLTFTextureMaterialType::OPACITY:
+                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
+            case GLTFTextureMaterialType::NORMAL:
+                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
+            case GLTFTextureMaterialType::ROUGHNESS_METALNESS:
+                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
+            default:
+                DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_texture_import_info");
+                return {};
+        }
+    };
+
+    auto resolve_texture_info = [&](ImporterTaskResult::SceneMetadataBatch::Texture const & texture_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::TextureInfo>
+    {
+        u64 const identity_key = texture_identity_key(texture_data.importer_data);
+        auto const [iterator, inserted] = image_manifest_map.try_emplace(identity_key, s_cast<u32>(batch.textures.size()));
+        u32 const manifest_index = iterator->second;
+        if (inserted)
+        {
+            batch.textures.push_back(texture_data);
+        }
+
+        // Sanity check: the same image under the same recipe must always resolve to the same manifest entry.
+        DBG_ASSERT_TRUE_M(texture_identity_key(batch.textures.at(manifest_index).importer_data) == identity_key, "Texture manifest entry mismatch");
+
+        return MaterialManifestEntry::TextureInfo{.image_manifest_index = manifest_index, .sampler_index = sampler_index};
+    };
+
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
     {
         auto const & material = asset.materials.at(material_index);
@@ -745,31 +641,32 @@ void SceneParseTask::translate_materials()
         std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
         if (material.pbrData.baseColorTexture.has_value())
         {
-            u32 const gltf_texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
-            diffuse_texture_info = resolve_texture_info(gltf_texture_index, {});
-            // Exists for every Mask-sampled image (see opacity_manifest_indices); stays un-streamed if the cook found no real alpha.
-            auto const gltf_image_index = gltf_texture_to_image_index(gltf_texture_index);
-            if (gltf_image_index.has_value())
-            {
-                u32 const opacity_manifest_index = opacity_manifest_indices.at(gltf_image_index.value());
-                if (opacity_manifest_index != INVALID_MANIFEST_INDEX)
-                {
-                    opacity_texture_info = MaterialManifestEntry::TextureInfo{.tex_manifest_index = opacity_manifest_index, .sampler_index = {}};
-                }
-            }
+            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
+            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
+            diffuse_texture_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::DIFFUSE, gltf_image_index.value())}, 0);
+        }
+        if(material.alphaMode == fastgltf::AlphaMode::Mask && material.pbrData.baseColorTexture.has_value())
+        {
+            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
+            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
+            opacity_texture_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::OPACITY, gltf_image_index.value())}, 0);
         }
         if (material.normalTexture.has_value())
         {
-            normal_texture_info = resolve_texture_info(s_cast<u32>(material.normalTexture.value().textureIndex), 0);
+            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.normalTexture.value().textureIndex));
+            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
+            normal_texture_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::NORMAL, gltf_image_index.value())}, 0);
         }
         if (material.pbrData.metallicRoughnessTexture.has_value())
         {
-            roughness_metalness_info = resolve_texture_info(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex), 0);
+            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex));
+            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
+            roughness_metalness_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::ROUGHNESS_METALNESS, gltf_image_index.value())}, 0);
         }
 
         bool const alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask && opacity_texture_info.has_value();
+        DBG_ASSERT_TRUE_M(!alpha_discard_enabled || opacity_texture_info.has_value(), "Alpha discard enabled but no opacity texture info");
 
-        u32 const material_manifest_index = s_cast<u32>(batch.materials.size());
         batch.materials.push_back(ImporterTaskResult::SceneMetadataBatch::Material{
             .diffuse_info = diffuse_texture_info,
             .opacity_mask_info = opacity_texture_info,
@@ -782,24 +679,31 @@ void SceneParseTask::translate_materials()
             .emissive_color = f32vec3(material.emissiveFactor[0] * material.emissiveStrength, material.emissiveFactor[1] * material.emissiveStrength, material.emissiveFactor[2] * material.emissiveStrength),
             .name = material.name.c_str(),
         });
-        material_manifest_indices.push_back(material_manifest_index);
     }
 }
 
 void SceneParseTask::translate_mesh_groups()
 {
     /// NOTE: fastgltf::Mesh is a MeshGroup, fastgltf::Primitive is a Mesh (MeshLodGroup).
-    // Every primitive already has a batch entry; each gltf mesh becomes a group over its primitives' indices.
-    mesh_group_manifest_indices.reserve(asset.meshes.size());
-    for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); mesh_group_index++)
+    batch.mesh_groups.reserve(asset.meshes.size());
+    for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); ++mesh_group_index)
     {
         auto const & gltf_mesh = asset.meshes.at(mesh_group_index);
-        u32 const mesh_group_manifest_index = s_cast<u32>(batch.mesh_groups.size());
-        batch.mesh_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshGroup{
-            .mesh_lod_group_indices = mesh_manifest_indices.at(mesh_group_index),
-            .name = gltf_mesh.name.c_str(),
-        });
-        mesh_group_manifest_indices.push_back(mesh_group_manifest_index);
+        auto & mesh_group = batch.mesh_groups.emplace_back( std::vector<u32>{}, gltf_mesh.name.c_str());
+        mesh_group.mesh_lod_group_indices.reserve(gltf_mesh.primitives.size());
+
+        for (u32 primitive_index = 0; primitive_index < s_cast<u32>(gltf_mesh.primitives.size()); ++primitive_index)
+        {
+            auto const & gltf_primitive = gltf_mesh.primitives.at(primitive_index);
+
+            u32 const mesh_manifest_index = s_cast<u32>(batch.mesh_lod_groups.size());
+            batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
+                .material_index = std::optional<u32>(gltf_primitive.materialIndex.value_or(std::nullopt)),
+                .name = gltf_mesh.name.c_str(),
+                .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = mesh_group_index, .primitive_index = primitive_index},
+            });
+            mesh_group.mesh_lod_group_indices.push_back(mesh_manifest_index);
+        }
     }
 }
 
@@ -890,7 +794,7 @@ auto SceneParseTask::translate_entities() -> u32
 
         fastgltf::Node const & node = asset.nodes[node_index];
         ImporterTaskResult::SceneMetadataBatch::Entity & r_ent = node_entities[node_index];
-        r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(mesh_group_manifest_indices.at(s_cast<u32>(node.meshIndex.value()))) : std::optional<u32>(std::nullopt);
+        r_ent.mesh_group_manifest_index = std::optional<u32>(node.meshIndex.value_or(std::nullopt));
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
 
@@ -982,7 +886,6 @@ struct TextureCookTask final : Task
     struct Item
     {
         u32 gltf_image_index = {};
-        TextureMaterialType type = {};
         u64 cache_key = {};
         u32 manifest_index = {};
         i64 current_mtime = {}; // current max source mtime, stamped onto the (re)cooked or refreshed artifact
@@ -1014,7 +917,7 @@ struct TextureCookTask final : Task
         Item const & item = items.at(chunk_index);
 
         // Part 1: read the raw image bytes (+ tag their source format).
-        auto raw = load_raw_image(*asset, item.gltf_image_index, asset_path, item.type);
+        auto raw = load_raw_image(*asset, item.gltf_image_index, asset_path);
         if (!raw.has_value())
         {
             DEBUG_MSG(fmt::format("[ERROR] Failed to load image index {} name {}", item.gltf_image_index, asset->images.at(item.gltf_image_index).name));
@@ -1037,7 +940,8 @@ struct TextureCookTask final : Task
         }
 
         // Part 2: process the raw bytes into GPU-ready cooked CPU memory (decode/transcode/compress).
-        auto processed_ret = process_image(raw.value());
+        OptimizeTextureInfo const optimize_info = {};
+        auto processed_ret = process_image(raw.value(), optimize_info);
         if (auto const * error = std::get_if<ImageOptimizeError>(&processed_ret))
         {
             if (*error == ImageOptimizeError::SOURCE_HAS_NO_ALPHA)
@@ -1197,7 +1101,6 @@ struct GltfAssetImportTask final : Task, std::enable_shared_from_this<GltfAssetI
     struct TextureItem
     {
         u32 gltf_image_index = {};
-        TextureMaterialType type = {};
         u32 manifest_index = {};
     };
     struct MeshItem
@@ -1275,7 +1178,6 @@ struct GltfAssetImportTask final : Task, std::enable_shared_from_this<GltfAssetI
             }
             items_to_cook.push_back(TextureCookTask::Item{
                 .gltf_image_index = item.gltf_image_index,
-                .type = item.type,
                 .cache_key = key,
                 .manifest_index = item.manifest_index,
                 .current_mtime = src_mtime.value_or(0),
@@ -1387,12 +1289,12 @@ void GltfImporter::update(std::vector<ImporterTask> & tasks)
         }
         if (auto * import_texture = std::get_if<ImporterTask::ImportTextureAsset>(&task.data))
         {
-            auto const * gltf_data = std::get_if<TextureManifestEntry::GltfImporterData>(&import_texture->importer_data);
+            auto const * gltf_data = std::get_if<ImageManifestEntry::GltfImporterData>(&import_texture->importer_data);
             if (gltf_data == nullptr) { return false; } // Not glTF provenance - another importer's task.
             batch_for(gltf_data->src_gltf).texture_items.push_back(GltfAssetImportTask::TextureItem{
                 .gltf_image_index = gltf_data->image_index,
                 .type = import_texture->type,
-                .manifest_index = import_texture->texture_manifest_index,
+                .manifest_index = import_texture->image_manifest_index,
             });
             return true;
         }
