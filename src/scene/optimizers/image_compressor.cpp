@@ -165,27 +165,10 @@ struct CompressTask : Task
 
 auto compress_image(CreateCompressedImageInfo const & info) -> std::shared_ptr<Task>
 {
-    u32 texel_size_in_bytes = 0;
-    switch(info.target_format)
-    {
-        case daxa::Format::BC1_RGB_UNORM_BLOCK:
-        case daxa::Format::BC1_RGB_SRGB_BLOCK:
-        case daxa::Format::BC1_RGBA_UNORM_BLOCK:
-        case daxa::Format::BC1_RGBA_SRGB_BLOCK: { texel_size_in_bytes = 4u; break; }
-        case daxa::Format::BC4_UNORM_BLOCK:
-        case daxa::Format::BC4_SNORM_BLOCK:     { texel_size_in_bytes = 1u; break; }
-        case daxa::Format::BC5_UNORM_BLOCK:
-        case daxa::Format::BC5_SNORM_BLOCK:     { texel_size_in_bytes = 2u; break; }
-        case daxa::Format::BC6H_UFLOAT_BLOCK:
-        case daxa::Format::BC6H_SFLOAT_BLOCK:   { texel_size_in_bytes = 6u; break; }
-        case daxa::Format::BC7_UNORM_BLOCK:
-        case daxa::Format::BC7_SRGB_BLOCK:      { texel_size_in_bytes = 4u; break; }
-        default:
-        {
-            DBG_ASSERT_TRUE_M(false, "compress_image: target_format is not a supported BC block format");
-            return nullptr;
-        }
-    }
+    FormatInfo const source_format_info = get_format_info(info.source_format);
+    u32 const texel_size_in_bytes = source_format_info.block_byte_size;
+    DBG_ASSERT_TRUE_M(source_format_info.channel_count != 0 && texel_size_in_bytes != 0,
+        "compress_image: source_format is not a supported uncompressed compression source");
 
     [[maybe_unused]] u32 const texels_requested_for_compression = info.image_dimensions.x * info.image_dimensions.y * info.image_dimensions.z;
     DBG_ASSERT_TRUE_M(info.src_data.size() / texel_size_in_bytes >= texels_requested_for_compression,

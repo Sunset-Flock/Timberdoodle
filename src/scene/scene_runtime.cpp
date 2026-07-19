@@ -102,7 +102,7 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         }});
     }
 
-    auto remap_texture_info = [&](std::optional<MaterialManifestEntry::TextureInfo> & info)
+    auto remap_texture_info = [&](std::optional<MaterialManifestEntry::ImageInfo> & info)
     {
         if (info.has_value())
         {
@@ -121,7 +121,7 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         DBG_ASSERT_TRUE_M(scene._material_manifest.size() < MAX_MATERIALS, "Exceeded MAX_MATERIALS");
         u32 const material_global_index = s_cast<u32>(scene._material_manifest.size());
 
-        std::array<std::optional<MaterialManifestEntry::TextureInfo> const *, 4> const material_texture_infos =
+        std::array<std::optional<MaterialManifestEntry::ImageInfo> const *, 4> const material_texture_infos =
             { &material.diffuse_info, &material.opacity_mask_info, &material.normal_info, &material.roughness_metalness_info};
         for (auto const * info : material_texture_infos)
         {
@@ -654,7 +654,7 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
         recorder.destroy_buffer_deferred(material_staging_buffer);
         GPUMaterial * staging_ptr = _device.buffer_host_address_as<GPUMaterial>(material_staging_buffer).value();
 
-        auto resolve_texture_id = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> daxa::ImageId
+        auto resolve_texture_id = [&](std::optional<MaterialManifestEntry::ImageInfo> const & info) -> daxa::ImageId
         {
             if (!info.has_value()) { return {}; }
             return _scene._image_manifest.at(info.value().image_manifest_index).runtime_data.value_or(ImageRuntimeData{daxa::ImageId{}}).image;
@@ -662,7 +662,7 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
 
         // The normal map's BC5 encoding is deduced from its cooked texture format, not tracked through
         // the import: the shader needs to know whether to reconstruct Z from a two-channel normal map.
-        auto normal_is_bc5_rg = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> bool
+        auto normal_is_bc5_rg = [&](std::optional<MaterialManifestEntry::ImageInfo> const & info) -> bool
         {
             if (!info.has_value()) { return false; }
             auto const format = _scene._image_manifest.at(info.value().image_manifest_index).streamer_data.descriptor.info.format;

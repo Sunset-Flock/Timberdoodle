@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <cstddef>
+#include <array>
 #include <vector>
 #include <optional>
 
@@ -20,6 +21,35 @@ struct TidoMetadataHash
     u64 content_hash = {};
     u32 version = {};
 };
+
+// Fixed-size binary preamble at byte 0 of every .tido_bin, before the JSON header region.
+struct TidoFilePreamble
+{
+    static constexpr u32 CURRENT_VERSION = 1;
+    std::array<char, 8> magic = {'T', 'I', 'D', 'O', 'B', 'I', 'N', '\0'};
+    u32 version = CURRENT_VERSION;
+    u32 _reserved = 0;
+    u64 header_byte_length = {}; // byte length of the JSON header region immediately following this preamble
+};
+
+constexpr static u32 TIDO_FILE_PREAMBLE_SIZE = sizeof(TidoFilePreamble);
+static_assert(TIDO_FILE_PREAMBLE_SIZE == 24, "TidoFilePreamble must stay tightly packed with no padding");
+
+struct FormatInfo
+{
+    static constexpr u32 UNSUPPORTED_FORMAT = 0;
+
+    u32 channel_count = {};
+    u32 channel_byte_size = {};
+    bool is_srgb = {};
+    u32 block_width = 1;
+    u32 block_height = 1;
+
+    // 1x1 block (uncompressed) or 4x4 block (BC compressed) byte size.
+    u32 block_byte_size = UNSUPPORTED_FORMAT;
+};
+
+auto get_format_info(daxa::Format format) -> FormatInfo;
 
 // ================================= TIDO IMAGE =================================
 
@@ -89,3 +119,7 @@ struct MeshStreamerData;
 
 auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const & descriptor) -> std::optional<ImageStreamerData>;
 auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & descriptor) -> std::optional<MeshStreamerData>;
+
+// Validates the fixed preamble at the start of a .tido_bin and returns just the JSON header region that
+// follows it. nullopt if the file is too small or the preamble's magic/version does not match.
+auto tido_header_region(std::span<std::byte const> file_data) -> std::optional<std::span<std::byte const>>;

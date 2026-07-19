@@ -94,10 +94,7 @@ auto read_floats(simdjson::ondemand::object & obj, char const * key, f32 * out, 
 
 } // namespace
 
-// Custom (de)serializers live in namespace simdjson so ADL finds them (the CPO tags serialize_tag /
-// deserialize_tag are members of simdjson). Serializers are templated on the builder type so they match
-// whichever implementation-specific string_builder simdjson::to_json instantiates. Deserializers are
-// templated on the value type so document::get<T> (which passes a document, not an object) resolves them.
+// Custom (de)serializers live in namespace simdjson so ADL finds them.
 namespace simdjson
 {
 template <typename value_type>

@@ -13,6 +13,7 @@
 #include "../optimizers/image_processor.hpp"
 #include "../optimizers/geometry_optimizer.hpp"
 #include "../tido_format/tido_format.hpp"
+#include "../tido_format/tido_util.hpp"
 
 // Per-kind cook versions, stamped into every .gltf_cache this importer writes. Bump the relevant one
 // whenever that pipeline's cook output or .tido_bin layout changes; on re-import a mismatching version
@@ -477,7 +478,7 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
 
 // Stable per-image-artifact source-identity key.
 // The recipe tag joins the gltf image index in the disambiguator so two artifacts sharing a source image under different recipes get distinct keys.
-static auto texture_identity_key(TextureImporterData const & importer_data) -> u64
+static auto image_identity_key(ImageImporterData const & importer_data) -> u64
 {
     std::vector<std::byte> importer_data_as_bytes;
     std::string const & generic_path_string = importer_data.file.generic_string();
@@ -598,70 +599,70 @@ void SceneParseTask::translate_materials()
         ROUGHNESS_METALNESS,
     };
 
-    auto default_texture_import_info = [&](GLTFTextureMaterialType const texture_type, u32 const image_index) -> TextureImporterData
+    auto default_image_import_info = [&](GLTFTextureMaterialType const texture_type, u32 const image_index) -> ImageImporterData
     {
         switch(texture_type)
         {
             case GLTFTextureMaterialType::DIFFUSE:
-                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
+                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
             case GLTFTextureMaterialType::OPACITY:
-                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
+                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
             case GLTFTextureMaterialType::NORMAL:
-                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
+                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
             case GLTFTextureMaterialType::ROUGHNESS_METALNESS:
-                return TextureImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
+                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
             default:
-                DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_texture_import_info");
+                DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_image_import_info");
                 return {};
         }
     };
 
-    auto resolve_texture_info = [&](ImporterTaskResult::SceneMetadataBatch::Texture const & texture_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::TextureInfo>
+    auto resolve_image_info = [&](ImporterTaskResult::SceneMetadataBatch::Image const & image_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::ImageInfo>
     {
-        u64 const identity_key = texture_identity_key(texture_data.importer_data);
-        auto const [iterator, inserted] = image_manifest_map.try_emplace(identity_key, s_cast<u32>(batch.textures.size()));
+        u64 const identity_key = image_identity_key(image_data.importer_data);
+        auto const [iterator, inserted] = image_manifest_map.try_emplace(identity_key, s_cast<u32>(batch.images.size()));
         u32 const manifest_index = iterator->second;
         if (inserted)
         {
-            batch.textures.push_back(texture_data);
+            batch.images.push_back(image_data);
         }
 
         // Sanity check: the same image under the same recipe must always resolve to the same manifest entry.
-        DBG_ASSERT_TRUE_M(texture_identity_key(batch.textures.at(manifest_index).importer_data) == identity_key, "Texture manifest entry mismatch");
+        DBG_ASSERT_TRUE_M(image_identity_key(batch.images.at(manifest_index).importer_data) == identity_key, "Image manifest entry mismatch");
 
-        return MaterialManifestEntry::TextureInfo{.image_manifest_index = manifest_index, .sampler_index = sampler_index};
+        return MaterialManifestEntry::ImageInfo{.image_manifest_index = manifest_index, .sampler_index = sampler_index};
     };
 
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
     {
         auto const & material = asset.materials.at(material_index);
-        std::optional<MaterialManifestEntry::TextureInfo> diffuse_texture_info = {};
-        std::optional<MaterialManifestEntry::TextureInfo> opacity_texture_info = {};
-        std::optional<MaterialManifestEntry::TextureInfo> normal_texture_info = {};
-        std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
+        std::optional<MaterialManifestEntry::ImageInfo> diffuse_texture_info = {};
+        std::optional<MaterialManifestEntry::ImageInfo> opacity_texture_info = {};
+        std::optional<MaterialManifestEntry::ImageInfo> normal_texture_info = {};
+        std::optional<MaterialManifestEntry::ImageInfo> roughness_metalness_info = {};
         if (material.pbrData.baseColorTexture.has_value())
         {
             auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
             auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            diffuse_texture_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::DIFFUSE, gltf_image_index.value())}, 0);
+            diffuse_texture_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::DIFFUSE, gltf_image_index.value())}, 0);
         }
         if(material.alphaMode == fastgltf::AlphaMode::Mask && material.pbrData.baseColorTexture.has_value())
         {
             auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
             auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            opacity_texture_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::OPACITY, gltf_image_index.value())}, 0);
+            opacity_texture_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::OPACITY, gltf_image_index.value())}, 0);
         }
         if (material.normalTexture.has_value())
         {
             auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.normalTexture.value().textureIndex));
             auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            normal_texture_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::NORMAL, gltf_image_index.value())}, 0);
+            normal_texture_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::NORMAL, gltf_image_index.value())}, 0);
         }
         if (material.pbrData.metallicRoughnessTexture.has_value())
         {
             auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex));
             auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            roughness_metalness_info = resolve_texture_info({.importer_data = default_texture_import_info(GLTFTextureMaterialType::ROUGHNESS_METALNESS, gltf_image_index.value())}, 0);
+            roughness_metalness_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::ROUGHNESS_METALNESS, gltf_image_index.value())}, 0);
         }
 
         bool const alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask && opacity_texture_info.has_value();

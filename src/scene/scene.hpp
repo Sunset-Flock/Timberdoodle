@@ -101,15 +101,15 @@ struct MeshLodGroupManifestEntry
 
 struct MaterialManifestEntry
 {
-    struct TextureInfo
+    struct ImageInfo
     {
         u32 image_manifest_index = {};
         u32 sampler_index = {};
     };
-    std::optional<TextureInfo> diffuse_info = {};
-    std::optional<TextureInfo> opacity_mask_info = {};
-    std::optional<TextureInfo> normal_info = {};
-    std::optional<TextureInfo> roughness_metalness_info = {};
+    std::optional<ImageInfo> diffuse_info = {};
+    std::optional<ImageInfo> opacity_mask_info = {};
+    std::optional<ImageInfo> normal_info = {};
+    std::optional<ImageInfo> roughness_metalness_info = {};
     bool alpha_discard_enabled = {};
     bool double_sided = {};
     bool blend_enabled = {};

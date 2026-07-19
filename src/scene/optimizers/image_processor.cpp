@@ -265,53 +265,6 @@ inline void write_normalized(std::byte * sample_ptr, u32 channel_byte_size, f32 
     }
 }
 
-struct FormatInfo
-{
-    u32 channel_count = {};
-    u32 channel_byte_size = {};
-    bool is_srgb = {};
-    u32 block_width = {};
-    u32 block_height = {};
-
-    // 1x1 block (uncompressed) or 4x4 block (BC compressed) byte size.
-    u32 block_byte_size = {};
-};
-
-auto get_format_info(daxa::Format format) -> FormatInfo
-{
-    switch (format)
-    {
-        case daxa::Format::R8_UNORM:           return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 1};
-        case daxa::Format::R8_SRGB:            return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = true,  .block_width = 1, .block_height = 1, .block_byte_size = 1};
-        case daxa::Format::R8G8_UNORM:         return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R8G8_SRGB:          return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = true,  .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R8G8B8A8_UNORM:     return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R8G8B8A8_SRGB:      return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R16_UINT:           return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R16G16_UINT:        return {.channel_count = 2, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R16G16B16A16_UINT:  return {.channel_count = 4, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 8};
-        case daxa::Format::BC1_RGB_UNORM_BLOCK:
-        case daxa::Format::BC1_RGB_SRGB_BLOCK:
-        case daxa::Format::BC1_RGBA_UNORM_BLOCK:
-        case daxa::Format::BC1_RGBA_SRGB_BLOCK:
-        case daxa::Format::BC4_UNORM_BLOCK:
-        case daxa::Format::BC4_SNORM_BLOCK:    return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 8};
-        case daxa::Format::BC2_UNORM_BLOCK:
-        case daxa::Format::BC2_SRGB_BLOCK:
-        case daxa::Format::BC3_UNORM_BLOCK:
-        case daxa::Format::BC3_SRGB_BLOCK:
-        case daxa::Format::BC5_UNORM_BLOCK:
-        case daxa::Format::BC5_SNORM_BLOCK:
-        case daxa::Format::BC6H_UFLOAT_BLOCK:
-        case daxa::Format::BC6H_SFLOAT_BLOCK:
-        case daxa::Format::BC7_UNORM_BLOCK:
-        case daxa::Format::BC7_SRGB_BLOCK:     return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 16};
-        default:
-            DBG_ASSERT_TRUE_M(false, "get_format_info: Unhandled format");
-            return {};
-    }
-}
-
 struct DownsampleImageTask final : Task
 {
     static constexpr u32 TARGET_TEXELS_PER_CHUNK = 8192;

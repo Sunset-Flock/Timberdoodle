@@ -28,10 +28,10 @@ struct ImporterTaskResult
 
         struct Material
         {
-            std::optional<MaterialManifestEntry::TextureInfo> diffuse_info = {};
-            std::optional<MaterialManifestEntry::TextureInfo> opacity_mask_info = {};
-            std::optional<MaterialManifestEntry::TextureInfo> normal_info = {};
-            std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
+            std::optional<MaterialManifestEntry::ImageInfo> diffuse_info = {};
+            std::optional<MaterialManifestEntry::ImageInfo> opacity_mask_info = {};
+            std::optional<MaterialManifestEntry::ImageInfo> normal_info = {};
+            std::optional<MaterialManifestEntry::ImageInfo> roughness_metalness_info = {};
             bool alpha_discard_enabled = {};
             bool double_sided = {};
             bool blend_enabled = {};
