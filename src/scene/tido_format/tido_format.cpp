@@ -5,9 +5,33 @@
 #include <cstring>
 #include <vector>
 
+#include <chrono>
+#include <thread>
+
 #include "tido_util.hpp"
-#include "tido_file_io.hpp"
+#include "../../io/file_io.hpp"
 #include "../../json_utils/tido_format.hpp"
+
+namespace
+{
+auto write_file_exclusive_retry(std::filesystem::path const & path, void const * data, usize size) -> bool
+{
+    static constexpr u32 WRITE_RETRY_DELAY_MS = 1;
+    while (true)
+    {
+        std::variant<std::monostate, FileIoResult> const result = write_file_exclusive(path, data, size);
+        if (std::holds_alternative<std::monostate>(result)) { return true; }
+        if (std::get<FileIoResult>(result) != FileIoResult::LOCKED) { return false; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(WRITE_RETRY_DELAY_MS));
+    }
+}
+
+void append_string_bytes(std::vector<std::byte> & dst, std::string const & src)
+{
+    std::byte const * const begin = r_cast<std::byte const *>(src.data());
+    dst.insert(dst.end(), begin, begin + src.size());
+}
+}
 
 auto get_format_info(daxa::Format format) -> FormatInfo
 {
@@ -128,10 +152,10 @@ auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const 
     std::string const serialized_tido_metadata_hash = serialize_tido_metadata_hash(info.metadata_hash);
     std::string const serialized_tido_image_descriptor = serialize_tido_image_descriptor(dst_descriptor);
     std::string const separator = "\n";
-    header_payload.insert(header_payload.end(), serialized_tido_metadata_hash.begin(), serialized_tido_metadata_hash.end());
-    header_payload.insert(header_payload.end(), separator.begin(), separator.end());
-    header_payload.insert(header_payload.end(), serialized_tido_image_descriptor.begin(), serialized_tido_image_descriptor.end());
-    header_payload.insert(header_payload.end(), separator.begin(), separator.end());
+    append_string_bytes(header_payload, serialized_tido_metadata_hash);
+    append_string_bytes(header_payload, separator);
+    append_string_bytes(header_payload, serialized_tido_image_descriptor);
+    append_string_bytes(header_payload, separator);
 
     // A fixed preamble precedes the json metadata headers, which precede the raw image data.
     u64 const file_data_offset = header_payload.size();
@@ -139,11 +163,11 @@ auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const 
     preamble.header_byte_length = header_payload.size() - TIDO_FILE_PREAMBLE_SIZE;
     std::copy(r_cast<std::byte *>(&preamble), r_cast<std::byte *>(&preamble) + TIDO_FILE_PREAMBLE_SIZE, header_payload.begin());
 
-    // TODO(saky): still one copy of data_payload here; a scatter/gather tido_write_file_exclusive would avoid it.
+    // TODO(saky): still one copy of data_payload here; a scatter/gather write_file_exclusive would avoid it.
     header_payload.reserve(header_payload.size() + data_payload.size());
     header_payload.insert(header_payload.end(), data_payload.begin(), data_payload.end());
 
-    if (!tido_write_file_exclusive(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+    if (!write_file_exclusive_retry(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
 
     ImageStreamerData result = {};
     result.descriptor = dst_descriptor;
@@ -188,10 +212,10 @@ auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & 
     std::string const serialized_tido_mesh_descriptor = serialize_tido_mesh_descriptor(dst_descriptor);
 
     std::string const separator = "\n";
-    header_payload.insert(header_payload.end(), serialized_tido_metadata_hash.begin(), serialized_tido_metadata_hash.end());
-    header_payload.insert(header_payload.end(), separator.begin(), separator.end());
-    header_payload.insert(header_payload.end(), serialized_tido_mesh_descriptor.begin(), serialized_tido_mesh_descriptor.end());
-    header_payload.insert(header_payload.end(), separator.begin(), separator.end());
+    append_string_bytes(header_payload, serialized_tido_metadata_hash);
+    append_string_bytes(header_payload, separator);
+    append_string_bytes(header_payload, serialized_tido_mesh_descriptor);
+    append_string_bytes(header_payload, separator);
 
     // A fixed preamble precedes the json metadata headers, which precede the raw mesh data.
     u64 const file_data_offset = header_payload.size();
@@ -199,11 +223,11 @@ auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & 
     preamble.header_byte_length = header_payload.size() - TIDO_FILE_PREAMBLE_SIZE;
     std::copy(r_cast<std::byte *>(&preamble), r_cast<std::byte *>(&preamble) + TIDO_FILE_PREAMBLE_SIZE, header_payload.begin());
 
-    // TODO(saky): still one copy of data_payload here; a scatter/gather tido_write_file_exclusive would avoid it.
+    // TODO(saky): still one copy of data_payload here; a scatter/gather write_file_exclusive would avoid it.
     header_payload.reserve(header_payload.size() + data_payload.size());
     header_payload.insert(header_payload.end(), data_payload.begin(), data_payload.end());
 
-    if (!tido_write_file_exclusive(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+    if (!write_file_exclusive_retry(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
 
     MeshStreamerData result = {};
     result.descriptor = dst_descriptor;

@@ -1,17 +1,18 @@
 #include "streamer.hpp"
 
 #include <cstring>
+#include <variant>
 #include <vector>
 
-#include "tido_format/tido_file_io.hpp"
+#include "../io/file_io.hpp"
 
 void ImageStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
     TidoImageDescriptor const & desc = artifact.descriptor;
 
-    std::optional<std::vector<std::byte>> file_data_opt = tido_read_file_shared(artifact.bin_source);
-    DBG_ASSERT_TRUE_M(file_data_opt.has_value(), fmt::format("make_resident_image: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
-    std::vector<std::byte> const & file_data = file_data_opt.value();
+    std::variant<std::vector<std::byte>, FileIoResult> file_data_result = read_file_shared(artifact.bin_source);
+    DBG_ASSERT_TRUE_M(std::holds_alternative<std::vector<std::byte>>(file_data_result), fmt::format("make_resident_image: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
+    std::vector<std::byte> const & file_data = std::get<std::vector<std::byte>>(file_data_result);
     std::streamsize const file_size = s_cast<std::streamsize>(file_data.size());
 
     bool const is_3d = desc.info.size.z > 1;
@@ -91,9 +92,9 @@ void ImageStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]
 
 void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    std::optional<std::vector<std::byte>> file_data_opt = tido_read_file_shared(artifact.bin_source);
-    DBG_ASSERT_TRUE_M(file_data_opt.has_value(), fmt::format("make_resident_mesh: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
-    std::vector<std::byte> const & file_data = file_data_opt.value();
+    std::variant<std::vector<std::byte>, FileIoResult> file_data_result = read_file_shared(artifact.bin_source);
+    DBG_ASSERT_TRUE_M(std::holds_alternative<std::vector<std::byte>>(file_data_result), fmt::format("make_resident_mesh: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
+    std::vector<std::byte> const & file_data = std::get<std::vector<std::byte>>(file_data_result);
 
     for (u32 lod = 0; lod < artifact.descriptor.lods.size(); ++lod)
     {
