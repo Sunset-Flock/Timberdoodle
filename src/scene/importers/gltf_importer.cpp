@@ -276,6 +276,88 @@ static auto mesh_source_paths(fastgltf::Asset const & asset, std::filesystem::pa
     }
     return paths;
 }
+
+// Byte range an accessor's tightly-packed data occupies in its external buffer file. nullopt if the buffer
+// is embedded/unsupported or the accessor has no buffer view. Asserts the source is tightly packed - the
+// generic cook reads a contiguous range and reinterprets it as a tight array, so interleaved sources aren't
+// supported.
+static auto locate_accessor_range(fastgltf::Asset const & asset, std::filesystem::path const & root_path, fastgltf::Accessor const & accessor) -> std::optional<FileByteRange>
+{
+    if (!accessor.bufferViewIndex.has_value()) { return std::nullopt; }
+    fastgltf::BufferView const & view = asset.bufferViews.at(accessor.bufferViewIndex.value());
+    fastgltf::Buffer const & buffer = asset.buffers.at(view.bufferIndex);
+    if (!std::holds_alternative<fastgltf::sources::URI>(buffer.data)) { return std::nullopt; }
+    fastgltf::sources::URI const & uri = std::get<fastgltf::sources::URI>(buffer.data);
+
+    u64 const element_byte_size = fastgltf::getElementByteSize(accessor.type, accessor.componentType);
+    DBG_ASSERT_TRUE_M(!view.byteStride.has_value() || view.byteStride.value() == element_byte_size, "Mesh accessor source is not tightly packed");
+    return FileByteRange{
+        .file = root_path / uri.uri.fspath(),
+        .byte_offset = view.byteOffset + accessor.byteOffset + uri.fileByteOffset,
+        .byte_length = accessor.count * element_byte_size,
+    };
+}
+
+// Resolve where one primitive's tightly-packed vertex/index streams live without reading them. Mirrors
+// extract_raw_mesh's accessor validation (F32 vec3 positions/normals, F32 vec2 uvs, U16|U32 scalar indices).
+// nullopt if a required stream is missing/invalid or a source is embedded/unsupported. cache_path is left
+// defaulted (routing-only, set by the caller).
+static auto resolve_mesh_source(fastgltf::Asset const & asset, std::filesystem::path const & asset_path, u32 gltf_mesh_index, u32 gltf_primitive_index) -> std::optional<MeshImporterData>
+{
+    std::filesystem::path const root_path = std::filesystem::path{asset_path}.remove_filename();
+    fastgltf::Mesh const & gltf_mesh = asset.meshes.at(gltf_mesh_index);
+    fastgltf::Primitive const & gltf_prim = gltf_mesh.primitives.at(gltf_primitive_index);
+
+    // Indices (required): U16 or U32 scalar.
+    if (!gltf_prim.indicesAccessor.has_value()) { return std::nullopt; }
+    fastgltf::Accessor const & index_accessor = asset.accessors.at(gltf_prim.indicesAccessor.value());
+    if (index_accessor.type != fastgltf::AccessorType::Scalar) { return std::nullopt; }
+    ComponentType index_component_type = {};
+    if (index_accessor.componentType == fastgltf::ComponentType::UnsignedShort) { index_component_type = ComponentType::U16; }
+    else if (index_accessor.componentType == fastgltf::ComponentType::UnsignedInt) { index_component_type = ComponentType::U32; }
+    else { return std::nullopt; }
+    auto const index_range = locate_accessor_range(asset, root_path, index_accessor);
+    if (!index_range.has_value()) { return std::nullopt; }
+
+    // Positions (required): F32 vec3.
+    auto const pos_iter = gltf_prim.findAttribute(VERT_ATTRIB_POSITION_NAME);
+    if (pos_iter == gltf_prim.attributes.end()) { return std::nullopt; }
+    fastgltf::Accessor const & pos_accessor = asset.accessors.at(pos_iter->accessorIndex);
+    if (pos_accessor.componentType != fastgltf::ComponentType::Float || pos_accessor.type != fastgltf::AccessorType::Vec3) { return std::nullopt; }
+    auto const pos_range = locate_accessor_range(asset, root_path, pos_accessor);
+    if (!pos_range.has_value()) { return std::nullopt; }
+
+    // Normals (required): F32 vec3.
+    auto const normal_iter = gltf_prim.findAttribute(VERT_ATTRIB_NORMAL_NAME);
+    if (normal_iter == gltf_prim.attributes.end()) { return std::nullopt; }
+    fastgltf::Accessor const & normal_accessor = asset.accessors.at(normal_iter->accessorIndex);
+    if (normal_accessor.componentType != fastgltf::ComponentType::Float || normal_accessor.type != fastgltf::AccessorType::Vec3) { return std::nullopt; }
+    auto const normal_range = locate_accessor_range(asset, root_path, normal_accessor);
+    if (!normal_range.has_value()) { return std::nullopt; }
+    DBG_ASSERT_TRUE_M(normal_accessor.count == pos_accessor.count, "Mismatched position and normal count");
+
+    // UVs (optional): F32 vec2.
+    std::optional<MeshAttribSource> uvs = {};
+    auto const uv_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
+    if (uv_iter != gltf_prim.attributes.end())
+    {
+        fastgltf::Accessor const & uv_accessor = asset.accessors.at(uv_iter->accessorIndex);
+        if (uv_accessor.componentType != fastgltf::ComponentType::Float || uv_accessor.type != fastgltf::AccessorType::Vec2) { return std::nullopt; }
+        auto const uv_range = locate_accessor_range(asset, root_path, uv_accessor);
+        if (!uv_range.has_value()) { return std::nullopt; }
+        DBG_ASSERT_TRUE_M(uv_accessor.count == pos_accessor.count, "Mismatched position and uv count");
+        uvs = MeshAttribSource{.range = uv_range.value(), .component_type = ComponentType::F32};
+    }
+
+    return MeshImporterData{
+        .indices = MeshAttribSource{.range = index_range.value(), .component_type = index_component_type},
+        .positions = MeshAttribSource{.range = pos_range.value(), .component_type = ComponentType::F32},
+        .normals = MeshAttribSource{.range = normal_range.value(), .component_type = ComponentType::F32},
+        .uvs = uvs,
+        .vertex_count = s_cast<u32>(pos_accessor.count),
+        .index_count = s_cast<u32>(index_accessor.count),
+    };
+}
 } // namespace
 
 // =================== Texture loading, part 1: load + decode the raw image data ===================
@@ -424,6 +506,82 @@ static auto image_source_path(fastgltf::Asset const & asset, u32 gltf_image_inde
         }
     }
     return {};
+}
+
+static auto mime_type_to_image_format(fastgltf::MimeType mime_type) -> std::optional<ImageFileFormat>
+{
+    if (mime_type == fastgltf::MimeType::KTX2) { return ImageFileFormat::KTX2; }
+    if (mime_type == fastgltf::MimeType::PNG) { return ImageFileFormat::PNG; }
+    return std::nullopt; // Unsupported source format.
+}
+
+struct ImageSourceLocate
+{
+    FileByteRange range = {};
+    ImageFileFormat format = {};
+};
+
+// Resolve where an image's encoded bytes live without reading them: the whole URI image file, or a
+// bufferView slice (even into a .glb's embedded buffer). nullopt if the source is embedded/unsupported.
+static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_index, std::filesystem::path const & asset_path) -> std::optional<ImageSourceLocate>
+{
+    fastgltf::Image const & image = asset.images.at(gltf_image_index);
+    std::filesystem::path const scene_dir_path = std::filesystem::path(asset_path).remove_filename();
+
+    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&image.data))
+    {
+        if (!uri->uri.isLocalPath() || uri->fileByteOffset != 0)
+        {
+            return std::nullopt;
+        }
+        std::filesystem::path const full_image_path = scene_dir_path / uri->uri.fspath();
+        std::error_code size_error = {};
+        u64 const file_byte_length = std::filesystem::file_size(full_image_path, size_error);
+        if (size_error)
+        {
+            return std::nullopt;
+        }
+        fastgltf::MimeType mime_type = uri->mimeType;
+        // The URI mime is often unset; the .ktx2 extension is authoritative for basisu textures.
+        if (uri->uri.string().ends_with(".ktx2"))
+        {
+            mime_type = fastgltf::MimeType::KTX2;
+        }
+        auto const format = mime_type_to_image_format(mime_type);
+        if (!format.has_value())
+        {
+            return std::nullopt;
+        }
+        return ImageSourceLocate{
+            .range = FileByteRange{.file = full_image_path, .byte_offset = 0, .byte_length = file_byte_length},
+            .format = format.value(),
+        };
+    }
+    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+    {
+        fastgltf::BufferView const & gltf_buffer_view = asset.bufferViews.at(buffer_view->bufferViewIndex);
+        fastgltf::Buffer const & gltf_buffer = asset.buffers.at(gltf_buffer_view.bufferIndex);
+        if (!std::holds_alternative<fastgltf::sources::URI>(gltf_buffer.data))
+        {
+            return std::nullopt;
+        }
+        fastgltf::sources::URI const & uri = std::get<fastgltf::sources::URI>(gltf_buffer.data);
+        std::filesystem::path const full_buffer_path = scene_dir_path / uri.uri.fspath();
+        auto const format = mime_type_to_image_format(buffer_view->mimeType);
+        if (!format.has_value())
+        {
+            return std::nullopt;
+        }
+        return ImageSourceLocate{
+            .range = FileByteRange{
+                .file = full_buffer_path,
+                .byte_offset = gltf_buffer_view.byteOffset + uri.fileByteOffset,
+                .byte_length = gltf_buffer_view.byteLength,
+            },
+            .format = format.value(),
+        };
+    }
+    return std::nullopt;
 }
 } // namespace
 
@@ -609,16 +767,21 @@ void SceneParseTask::translate_materials()
 
     auto default_image_import_info = [&](GLTFTextureMaterialType const texture_type, u32 const image_index) -> ImageImporterData
     {
+        auto const source = resolve_image_source(asset, image_index, file_path);
+        DBG_ASSERT_TRUE_M(source.has_value(), "Unsupported or unresolvable image source");
+        FileByteRange const source_bytes = source.has_value() ? source->range : FileByteRange{};
+        ImageFileFormat const container_format = source.has_value() ? source->format : ImageFileFormat{};
+
         switch(texture_type)
         {
             case GLTFTextureMaterialType::DIFFUSE:
-                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
             case GLTFTextureMaterialType::OPACITY:
-                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
             case GLTFTextureMaterialType::NORMAL:
-                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
             case GLTFTextureMaterialType::ROUGHNESS_METALNESS:
-                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
             default:
                 DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_image_import_info");
                 return {};
@@ -706,10 +869,14 @@ void SceneParseTask::translate_mesh_groups()
             auto const & gltf_primitive = gltf_mesh.primitives.at(primitive_index);
 
             u32 const mesh_manifest_index = s_cast<u32>(batch.mesh_lod_groups.size());
+            auto mesh_importer_data_opt = resolve_mesh_source(asset, file_path, mesh_group_index, primitive_index);
+            DBG_ASSERT_TRUE_M(mesh_importer_data_opt.has_value(), "Unresolvable or unsupported mesh primitive source");
+            MeshImporterData mesh_importer_data = mesh_importer_data_opt.value_or(MeshImporterData{});
+            mesh_importer_data.cache_path = file_path;
             batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
                 .material_index = std::optional<u32>(gltf_primitive.materialIndex.value_or(std::nullopt)),
                 .name = gltf_mesh.name.c_str(),
-                .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = mesh_group_index, .primitive_index = primitive_index},
+                .importer_data = std::move(mesh_importer_data),
             });
             mesh_group.mesh_lod_group_indices.push_back(mesh_manifest_index);
         }

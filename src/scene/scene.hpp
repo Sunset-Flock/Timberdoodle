@@ -82,11 +82,15 @@ struct MeshRuntimeData
 
 struct MeshImporterData
 {
-    // source + cook recipe: everything importer needs to re-cook this mesh.
-    TidoMeshDescriptor descriptor = {};
-    std::filesystem::path bin_source = {};
-    u64 mesh_index = {};
-    u64 file_data_offset = {};
+    // Owning .gltf; selects the per-source cache dir only - never read or parsed.
+    std::filesystem::path cache_path = {};
+    // Resolved at scene-parse: tightly-packed byte ranges for each vertex/index stream.
+    MeshAttribSource indices = {};
+    MeshAttribSource positions = {};
+    MeshAttribSource normals = {};
+    std::optional<MeshAttribSource> uvs = {};
+    u32 vertex_count = {};   // shared by positions/normals/uvs
+    u32 index_count = {};
 };
 
 struct MeshLodGroupManifestEntry
