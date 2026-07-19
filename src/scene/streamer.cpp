@@ -1,7 +1,7 @@
 #include "streamer.hpp"
 
 #include <cstring>
-#include <variant>
+#include <utility>
 #include <vector>
 
 #include "../io/file_io.hpp"
@@ -10,9 +10,9 @@ void ImageStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]
 {
     TidoImageDescriptor const & desc = artifact.descriptor;
 
-    std::variant<std::vector<std::byte>, FileIoResult> file_data_result = read_file_shared(artifact.bin_source);
-    DBG_ASSERT_TRUE_M(std::holds_alternative<std::vector<std::byte>>(file_data_result), fmt::format("make_resident_image: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
-    std::vector<std::byte> const & file_data = std::get<std::vector<std::byte>>(file_data_result);
+    std::pair<FileIoResult, std::vector<std::byte>> file_data_result = read_file_shared(artifact.bin_source);
+    DBG_ASSERT_TRUE_M(file_data_result.first == FileIoResult::SUCCESS, fmt::format("make_resident_image: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
+    std::vector<std::byte> const & file_data = file_data_result.second;
     std::streamsize const file_size = s_cast<std::streamsize>(file_data.size());
 
     bool const is_3d = desc.info.size.z > 1;
@@ -92,9 +92,9 @@ void ImageStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]
 
 void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    std::variant<std::vector<std::byte>, FileIoResult> file_data_result = read_file_shared(artifact.bin_source);
-    DBG_ASSERT_TRUE_M(std::holds_alternative<std::vector<std::byte>>(file_data_result), fmt::format("make_resident_mesh: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
-    std::vector<std::byte> const & file_data = std::get<std::vector<std::byte>>(file_data_result);
+    std::pair<FileIoResult, std::vector<std::byte>> file_data_result = read_file_shared(artifact.bin_source);
+    DBG_ASSERT_TRUE_M(file_data_result.first == FileIoResult::SUCCESS, fmt::format("make_resident_mesh: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
+    std::vector<std::byte> const & file_data = file_data_result.second;
 
     for (u32 lod = 0; lod < artifact.descriptor.lods.size(); ++lod)
     {

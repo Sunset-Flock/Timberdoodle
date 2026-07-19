@@ -11,6 +11,7 @@
 #include "../shader_shared/geometry_pipeline.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
+#include "importer_types.hpp"
 #include "asset_processor.hpp"
 #include "importers/openvdb_importer.hpp"
 #include "tido_format/tido_format.hpp"
@@ -46,11 +47,13 @@ struct ImageRuntimeData
 
 struct ImageImporterData
 {
-    // source + cook recipe: everything importer needs to re-cook this image.
-    std::filesystem::path file = {};
-    u64 image_index = {};
-    std::vector<u8> channel_mapping = {};
-    daxa::Format target_format = {};
+    // Owning .gltf; selects the per-source cache dir only - never read or parsed.
+    std::filesystem::path cache_path = {};
+    // Resolved at scene-parse: the URI image file, or a bufferView slice (even into a .glb).
+    FileByteRange source_bytes = {};
+    ImageFileFormat container_format = {};   // PNG | KTX2
+    std::vector<u8> channel_mapping = {};    // cook recipe
+    daxa::Format target_format = {};         // cook recipe
 };
 
 struct ImageManifestEntry

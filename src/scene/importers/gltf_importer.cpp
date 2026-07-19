@@ -477,15 +477,23 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
 }
 
 // Stable per-image-artifact source-identity key.
-// The recipe tag joins the gltf image index in the disambiguator so two artifacts sharing a source image under different recipes get distinct keys.
 static auto image_identity_key(ImageImporterData const & importer_data) -> u64
 {
     std::vector<std::byte> importer_data_as_bytes;
-    std::string const & generic_path_string = importer_data.file.generic_string();
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(), generic_path_string.begin(), generic_path_string.end());
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(), 
-        r_cast<std::byte const *>(&importer_data.image_index),
-        r_cast<std::byte const *>(&importer_data.image_index) + sizeof(importer_data.image_index));
+    // Location: the resolved source byte range (path + offset + length); cache_path is routing-only and excluded.
+    std::string const source_path_string = importer_data.source_bytes.file.generic_string();
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(), source_path_string.begin(), source_path_string.end());
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
+        r_cast<std::byte const *>(&importer_data.source_bytes.byte_offset),
+        r_cast<std::byte const *>(&importer_data.source_bytes.byte_offset) + sizeof(importer_data.source_bytes.byte_offset));
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
+        r_cast<std::byte const *>(&importer_data.source_bytes.byte_length),
+        r_cast<std::byte const *>(&importer_data.source_bytes.byte_length) + sizeof(importer_data.source_bytes.byte_length));
+    // Recipe: container format joins the channel mapping and target format so one source blob used under
+    // different recipes gets distinct keys.
+    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
+        r_cast<std::byte const *>(&importer_data.container_format),
+        r_cast<std::byte const *>(&importer_data.container_format) + sizeof(importer_data.container_format));
     for(auto const & mapped_channel : importer_data.channel_mapping)
     {
         importer_data_as_bytes.push_back(static_cast<std::byte>(mapped_channel));
@@ -604,13 +612,13 @@ void SceneParseTask::translate_materials()
         switch(texture_type)
         {
             case GLTFTextureMaterialType::DIFFUSE:
-                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
             case GLTFTextureMaterialType::OPACITY:
-                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
             case GLTFTextureMaterialType::NORMAL:
-                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
             case GLTFTextureMaterialType::ROUGHNESS_METALNESS:
-                return ImageImporterData{ .file = file_path, .image_index = image_index, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
+                return ImageImporterData{ .cache_path = file_path, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
             default:
                 DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_image_import_info");
                 return {};

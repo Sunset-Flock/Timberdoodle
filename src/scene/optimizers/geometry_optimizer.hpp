@@ -1,12 +1,15 @@
 #pragma once
 
 #include <array>
+#include <optional>
+#include <span>
 #include <vector>
 #include <glm/glm.hpp>
 
 #include "../../timberdoodle.hpp"
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/geometry.inl"
+#include "../importer_types.hpp"
 using namespace tido::types;
 
 /// --- Geometry Optimizer ---
@@ -51,5 +54,26 @@ struct ProcessedMesh
     std::array<ProcessedMeshLod, MAX_MESHES_PER_LOD_GROUP> lods = {};
     u32 lod_count = {};
 };
+
+// Raw byte view of one attribute stream plus how to interpret its scalars.
+struct MeshAttribData
+{
+    std::span<std::byte const> data = {};
+    ComponentType component_type = {};
+};
+
+struct MeshParseInfo
+{
+    MeshAttribData indices = {};
+    MeshAttribData positions = {};
+    MeshAttribData normals = {};
+    MeshAttribData uvs = {};   // data empty => mesh has no uvs
+    u32 vertex_count = {};
+    u32 index_count = {};
+};
+
+// Sole mesh interpret step (mirrors image_parse): validates F32 vec3 positions/normals, F32 vec2 uvs and
+// U16|U32 scalar indices, widening u16 indices to u32. nullopt on unsupported component_type / size mismatch.
+auto mesh_parse(MeshParseInfo const & info) -> std::optional<RawMesh>;
 
 auto optimize_mesh(RawMesh const & raw) -> ProcessedMesh;

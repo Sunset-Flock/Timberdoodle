@@ -19,9 +19,9 @@ auto write_file_exclusive_retry(std::filesystem::path const & path, void const *
     static constexpr u32 WRITE_RETRY_DELAY_MS = 1;
     while (true)
     {
-        std::variant<std::monostate, FileIoResult> const result = write_file_exclusive(path, data, size);
-        if (std::holds_alternative<std::monostate>(result)) { return true; }
-        if (std::get<FileIoResult>(result) != FileIoResult::LOCKED) { return false; }
+        FileIoResult const result = write_file_exclusive(path, data, size);
+        if (result == FileIoResult::SUCCESS) { return true; }
+        if (result != FileIoResult::LOCKED) { return false; }
         std::this_thread::sleep_for(std::chrono::milliseconds(WRITE_RETRY_DELAY_MS));
     }
 }

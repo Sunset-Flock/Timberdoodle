@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <bit>
+#include <cstring>
 #include <limits>
 #include <array>
 
@@ -78,6 +79,67 @@ static auto compute_bounding_sphere(glm::vec3 const * points, size_t count) -> B
     ret.center.z = center[2];
     ret.radius = radius;
     return ret;
+}
+
+auto mesh_parse(MeshParseInfo const & info) -> std::optional<RawMesh>
+{
+    // Indices must be an integral scalar stream; positions/normals/uvs must be F32.
+    u64 index_element_size = 0;
+    switch (info.indices.component_type)
+    {
+        case ComponentType::U16: index_element_size = sizeof(u16); break;
+        case ComponentType::U32: index_element_size = sizeof(u32); break;
+        case ComponentType::F32: return std::nullopt;
+    }
+    if (info.positions.component_type != ComponentType::F32 || info.normals.component_type != ComponentType::F32)
+    {
+        return std::nullopt;
+    }
+
+    // Tightly-packed streams: byte length must match the shared counts times the element size.
+    bool const has_uvs = !info.uvs.data.empty();
+    if (info.indices.data.size() != info.index_count * index_element_size ||
+        info.positions.data.size() != info.vertex_count * sizeof(glm::vec3) ||
+        info.normals.data.size() != info.vertex_count * sizeof(glm::vec3))
+    {
+        return std::nullopt;
+    }
+    if (has_uvs && (info.uvs.component_type != ComponentType::F32 || info.uvs.data.size() != info.vertex_count * sizeof(glm::vec2)))
+    {
+        return std::nullopt;
+    }
+
+    RawMesh raw = {};
+
+    raw.indices.resize(info.index_count);
+    if (info.indices.component_type == ComponentType::U16)
+    {
+        // memcpy through a narrow buffer first - the source bytes are not guaranteed u16-aligned.
+        std::vector<u16> narrow_indices(info.index_count);
+        std::memcpy(narrow_indices.data(), info.indices.data.data(), info.indices.data.size());
+        for (u32 index = 0; index < info.index_count; ++index)
+        {
+            raw.indices[index] = s_cast<u32>(narrow_indices[index]);
+        }
+    }
+    else
+    {
+        std::memcpy(raw.indices.data(), info.indices.data.data(), info.indices.data.size());
+    }
+
+    raw.positions.resize(info.vertex_count);
+    std::memcpy(raw.positions.data(), info.positions.data.data(), info.positions.data.size());
+
+    raw.normals.resize(info.vertex_count);
+    std::memcpy(raw.normals.data(), info.normals.data.data(), info.normals.data.size());
+
+    if (has_uvs)
+    {
+        raw.uvs.resize(info.vertex_count);
+        std::memcpy(raw.uvs.data(), info.uvs.data.data(), info.uvs.data.size());
+    }
+
+    return raw;
 }
 
 auto optimize_mesh(RawMesh const & raw) -> ProcessedMesh
