@@ -11,7 +11,6 @@ namespace
 {
 auto hex_u64(u64 value) -> std::string { return fmt::format("0x{:016x}", value); }
 auto dec_u64(u64 value) -> std::string { return fmt::format("{}", value); }
-auto dec_i64(i64 value) -> std::string { return fmt::format("{}", value); }
 
 auto parse_hex_u64(std::string_view text) -> std::optional<u64>
 {
@@ -61,14 +60,6 @@ auto read_u32(simdjson::ondemand::object & obj, char const * key, u32 & out) -> 
     return simdjson::SUCCESS;
 }
 
-auto read_i64(simdjson::ondemand::object & obj, char const * key, i64 & out) -> simdjson::error_code
-{
-    i64 value = 0;
-    SIMDJSON_TRY(obj[key].get_int64().get(value));
-    out = value;
-    return simdjson::SUCCESS;
-}
-
 auto read_path(simdjson::ondemand::object & obj, char const * key, std::filesystem::path & out) -> simdjson::error_code
 {
     std::string_view text;
@@ -103,7 +94,9 @@ auto tag_invoke(deserialize_tag, value_type & value, TidoMetadataHash & hash) ->
     ondemand::object obj;
     SIMDJSON_TRY(value.get_object().get(obj));
     SIMDJSON_TRY(read_hex(obj, "cache_key", hash.cache_key));
-    SIMDJSON_TRY(read_i64(obj, "source_mtime_at_bake", hash.source_mtime_at_bake));
+    u64 source_mtime_bits = 0;
+    SIMDJSON_TRY(read_hex(obj, "source_mtime_at_bake", source_mtime_bits));
+    hash.source_mtime_at_bake = static_cast<i64>(source_mtime_bits);
     SIMDJSON_TRY(read_hex(obj, "content_hash", hash.content_hash));
     SIMDJSON_TRY(read_u32(obj, "version", hash.version));
     return SUCCESS;
@@ -192,7 +185,7 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoMetadataHash const & 
     builder.append_comma();
     builder.append_key_value("cache_key", hex_u64(header.cache_key));
     builder.append_comma();
-    builder.append_key_value("source_mtime_at_bake", static_cast<i64>(header.source_mtime_at_bake));
+    builder.append_key_value("source_mtime_at_bake", hex_u64(static_cast<u64>(header.source_mtime_at_bake)));
     builder.append_comma();
     builder.append_key_value("content_hash", hex_u64(header.content_hash));
     builder.append_comma();
@@ -312,57 +305,44 @@ auto serialize_record(Record const & record) -> std::string
     return pretty.empty() ? std::move(compact) : std::move(pretty);
 }
 
-// A .tido header stores its metadata objects back-to-back followed by the raw binary payload. Each object
-// is pretty-printed (so it contains newlines) and the payload is not valid UTF-8, so the boundary can only
-// be found structurally: advance cursor past leading whitespace and one brace/bracket-balanced value,
-// skipping over string literals, and return that value's text.
-auto next_json_object(std::string_view text, usize & cursor) -> std::optional<std::string_view>
+// A .tido header is a single JSON array [metadata_hash, descriptor] immediately followed by the raw binary
+// payload. The array's two elements are pretty-printed independently and stitched together with literal
+// wrapper bytes (see write_tido_file), so the whole header region parses as one simdjson document - no
+// structural scanning is needed to find where one element ends and the next begins.
+template <typename DescriptorRecord>
+auto parse_tido_header_array(std::span<std::byte const> data, char const * context) -> std::optional<std::pair<TidoMetadataHash, DescriptorRecord>>
 {
-    while (cursor < text.size() && (text[cursor] == ' ' || text[cursor] == '\n' || text[cursor] == '\r' || text[cursor] == '\t')) { ++cursor; }
-    usize const start = cursor;
-    if (start >= text.size() || (text[start] != '{' && text[start] != '[')) { return std::nullopt; }
-
-    i32 depth = 0;
-    bool in_string = false;
-    bool escaped = false;
-    for (usize index = start; index < text.size(); ++index)
-    {
-        char const character = text[index];
-        if (in_string)
-        {
-            if (escaped) { escaped = false; }
-            else if (character == '\\') { escaped = true; }
-            else if (character == '"') { in_string = false; }
-            continue;
-        }
-        switch (character)
-        {
-            case '"': in_string = true; break;
-            case '{': case '[': ++depth; break;
-            case '}': case ']':
-                --depth;
-                if (depth == 0) { cursor = index + 1; return text.substr(start, cursor - start); }
-                break;
-            default: break;
-        }
-    }
-    return std::nullopt;
-}
-
-template <typename Record>
-auto parse_json_block(std::string_view block, char const * context) -> std::optional<Record>
-{
-    simdjson::padded_string json(block.data(), block.size());
+    simdjson::padded_string json(r_cast<char const *>(data.data()), data.size());
     simdjson::ondemand::parser parser;
     simdjson::ondemand::document doc;
     if (parser.iterate(json).get(doc)) { return std::nullopt; }
-    Record record = {};
-    if (auto const error = doc.get<Record>().get(record); error != simdjson::SUCCESS)
+
+    simdjson::ondemand::array array;
+    if (auto const error = doc.get_array().get(array); error != simdjson::SUCCESS)
     {
         DEBUG_MSG(fmt::format("[{}] corrupt tido header: {}", context, simdjson::error_message(error)));
         return std::nullopt;
     }
-    return record;
+
+    auto iterator = array.begin();
+    if (iterator == array.end()) { return std::nullopt; }
+    TidoMetadataHash hash = {};
+    if (auto const error = (*iterator).get<TidoMetadataHash>().get(hash); error != simdjson::SUCCESS)
+    {
+        DEBUG_MSG(fmt::format("[{}] corrupt tido header metadata hash: {}", context, simdjson::error_message(error)));
+        return std::nullopt;
+    }
+
+    ++iterator;
+    if (iterator == array.end()) { return std::nullopt; }
+    DescriptorRecord descriptor = {};
+    if (auto const error = (*iterator).get<DescriptorRecord>().get(descriptor); error != simdjson::SUCCESS)
+    {
+        DEBUG_MSG(fmt::format("[{}] corrupt tido header descriptor: {}", context, simdjson::error_message(error)));
+        return std::nullopt;
+    }
+
+    return std::make_optional(std::make_pair(std::move(hash), std::move(descriptor)));
 }
 } // namespace
 
@@ -384,32 +364,10 @@ auto serialize_tido_mesh_descriptor(TidoMeshDescriptor const & mesh) -> std::str
 
 auto read_tido_image_header_data(std::span<std::byte const> data) -> std::optional<std::pair<TidoMetadataHash, TidoImageDescriptor>>
 {
-    std::string_view const text(r_cast<char const *>(data.data()), data.size());
-    usize cursor = 0;
-
-    auto const hash_block = next_json_object(text, cursor);
-    auto const image_block = next_json_object(text, cursor);
-    if (!hash_block.has_value() || !image_block.has_value()) { return std::nullopt; }
-
-    auto hash = parse_json_block<TidoMetadataHash>(hash_block.value(), "read_tido_image_header_data");
-    auto image = parse_json_block<TidoImageDescriptor>(image_block.value(), "read_tido_image_header_data");
-    if (!hash.has_value() || !image.has_value()) { return std::nullopt; }
-
-    return std::make_optional(std::make_pair(std::move(hash.value()), std::move(image.value())));
+    return parse_tido_header_array<TidoImageDescriptor>(data, "read_tido_image_header_data");
 }
 
 auto read_tido_mesh_header_data(std::span<std::byte const> data) -> std::optional<std::pair<TidoMetadataHash, TidoMeshDescriptor>>
 {
-    std::string_view const text(r_cast<char const *>(data.data()), data.size());
-    usize cursor = 0;
-
-    auto const hash_block = next_json_object(text, cursor);
-    auto const mesh_block = next_json_object(text, cursor);
-    if (!hash_block.has_value() || !mesh_block.has_value()) { return std::nullopt; }
-
-    auto hash = parse_json_block<TidoMetadataHash>(hash_block.value(), "read_tido_mesh_header_data");
-    auto mesh = parse_json_block<TidoMeshDescriptor>(mesh_block.value(), "read_tido_mesh_header_data");
-    if (!hash.has_value() || !mesh.has_value()) { return std::nullopt; }
-
-    return std::make_optional(std::make_pair(std::move(hash.value()), std::move(mesh.value())));
+    return parse_tido_header_array<TidoMeshDescriptor>(data, "read_tido_mesh_header_data");
 }

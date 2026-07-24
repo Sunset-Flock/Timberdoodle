@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <cstddef>
+#include <type_traits>
 
 #include "../../timberdoodle.hpp"
 using namespace tido::types;
@@ -22,10 +23,14 @@ auto tido_sanitize_stem(std::string const & name) -> std::string;
 
 auto tido_stem(std::string const & name, u64 identity_key) -> std::string;
 
+// Full path of an artifact's .tido_bin file: <cache_dir>/<stem>.tido_bin.
+auto tido_artifact_path(std::filesystem::path const & cache_dir, std::string const & name, u64 identity_key) -> std::filesystem::path;
+
 // Append the raw bytes of a single POD to an in-memory byte buffer.
 template <typename T>
 void tido_append_pod(std::vector<std::byte> & buf, T const & value)
 {
+    static_assert(std::is_trivially_copyable_v<T>, "tido_append_pod: T must be trivially copyable");
     auto const * bytes = r_cast<std::byte const *>(&value);
     buf.insert(buf.end(), bytes, bytes + sizeof(T));
 }

@@ -3,7 +3,6 @@
 #include <CMP_Core.h>
 #include <algorithm>
 #include <array>
-#include <iostream>
 
 #include "../../shader_shared/shared.inl" // round_up_div
 
@@ -22,13 +21,30 @@ struct CompressTask : Task
         u32 blocks_per_layer;
         u32 blocks_per_row;
         u32 pixels_per_layer;
+        // Bytes per source texel; may be narrower than PixelByteCount (the codec's block texel), in which
+        // case each gathered texel is opaque-padded up to the block width.
+        u32 source_texel_bytes;
+
+        // Non-null only for BC7 targets; carries the encoder's opaque/alpha mode restriction.
+        void * bc7_options = nullptr;
 
     public:
 
-    CompressTask(CreateCompressedImageInfo const & info, u32 const blocks_per_chunk = DEFAULT_BLOCKS_PER_CHUNK)
+    CompressTask(CreateCompressedImageInfo const & info)
         :  info{info}
          , blocks_per_chunk{DEFAULT_BLOCKS_PER_CHUNK}
     {
+        FormatInfo const source_format_info = get_format_info(info.source_format);
+        source_texel_bytes = source_format_info.block_byte_size;
+        if (info.target_format == daxa::Format::BC7_UNORM_BLOCK || info.target_format == daxa::Format::BC7_SRGB_BLOCK)
+        {
+            CreateOptionsBC7(&bc7_options);
+            // A source with fewer than 4 channels carries no alpha, so it is opaque-padded into the block;
+            // imageNeedsAlpha=false then frees BC7 to use its opaque-only modes for better colour quality.
+            // Colour/alpha restrict are left at their defaults.
+            bool const image_needs_alpha = source_format_info.channel_count >= 4;
+            SetAlphaOptionsBC7(bc7_options, image_needs_alpha, false, false);
+        }
         // Ceil-based block counts so non-4-aligned extents (and sub-4x4 mip levels) still produce a full
         // set of blocks - the partial edge blocks are padded by clamping in the gather loop below. This
         // matches write_texture_tido, which sizes every mip with ceil(dim/4) blocks.
@@ -39,6 +55,11 @@ struct CompressTask : Task
         pixels_per_layer = info.image_dimensions.x * info.image_dimensions.y;
 
         chunk_count = round_up_div(blocks_total, blocks_per_chunk);
+    }
+
+    ~CompressTask() override
+    {
+        if (bc7_options != nullptr) { DestroyOptionsBC7(bc7_options); }
     }
 
     virtual void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
@@ -78,11 +99,17 @@ struct CompressTask : Task
                     u32 const src_z = block_start_image_coords.z;
 
                     u32 const linear_src_pixel_index = src_x + (src_y * info.image_dimensions.x) + (src_z * pixels_per_layer);
-                    u32 const linear_src_data_index = linear_src_pixel_index * sizeof(Pixel);
-                    DBG_ASSERT_TRUE_M(linear_src_data_index < info.src_data.size(), "Calculated linear source data index outside of image bounds");
+                    u32 const linear_src_data_index = linear_src_pixel_index * source_texel_bytes;
+                    DBG_ASSERT_TRUE_M(linear_src_data_index + source_texel_bytes <= info.src_data.size(), "Calculated linear source data index outside of image bounds");
 
                     u32 const block_linear_index = (block_y * 4) + block_x;
-                    std::memcpy(&data_block_to_compress[block_linear_index], &info.src_data[linear_src_data_index], sizeof(Pixel));
+                    Pixel & block_texel = data_block_to_compress[block_linear_index];
+                    std::memcpy(block_texel.data(), &info.src_data[linear_src_data_index], source_texel_bytes);
+                    // Opaque-pad any channels the source lacks (e.g. an RGB source into a 4-channel BC7 block).
+                    for (u32 pad_byte = source_texel_bytes; pad_byte < PixelByteCount; ++pad_byte)
+                    {
+                        block_texel[pad_byte] = std::byte{0xFF};
+                    }
                 }
             }
 
@@ -146,10 +173,10 @@ struct CompressTask : Task
                 case daxa::Format::BC7_UNORM_BLOCK:
                 case daxa::Format::BC7_SRGB_BLOCK:
                 {
-                    // BC1 stores 16 byes per block.
+                    // BC7 stores 16 bytes per block. bc7_options restricts the encoder to opaque modes when
+                    // the source carries no alpha (see CompressTask ctor); null selects the codec defaults.
                     unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.dst_data[block_index * 16]);
-                    // BC6 takes stride in shorts, not bytes.
-                    CompressBlockBC7(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination);
+                    CompressBlockBC7(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination, bc7_options);
                     break;
                 }
                 default:

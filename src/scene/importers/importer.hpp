@@ -11,6 +11,16 @@
 #include "importer_task_result.hpp"
 using namespace tido::types;
 
+// Stable per-image-artifact source-identity key: a hash of the resolved source byte range (location) folded
+// with the cook recipe (container format, channel mapping, target format). Shared by scene-parse (to dedup
+// images into one manifest entry) and the image cook (as the artifact's cache key and file stem).
+auto image_identity_key(ImageImporterData const & importer_data) -> u64;
+
+// Stable per-mesh-artifact source-identity key: a hash of the resolved attribute-source byte ranges
+// (location). Meshes have no cook recipe, so location alone keys the artifact. Shared by scene-parse (to
+// dedup meshes into one manifest entry) and the mesh cook (as the artifact's cache key and file stem).
+auto mesh_identity_key(MeshImporterData const & importer_data) -> u64;
+
 struct ImporterTask
 {
     struct ImportScene
@@ -34,15 +44,10 @@ struct ImporterTask
 };
 
 struct Importer;
-struct GltfImporter
-{
-    explicit GltfImporter(Importer * importer);
 
-    void update(std::vector<ImporterTask> & tasks);
+// Consumes ImportScene tasks, dispatching one gltf scene-parse per source; other task kinds are left in place.
+void dispatch_scene_parses(Importer & importer, std::vector<ImporterTask> & tasks);
 
-  private:
-    Importer * _importer = {};
-};
 struct Importer
 {
     explicit Importer(ThreadPool * thread_pool);
@@ -76,8 +81,6 @@ struct Importer
 
     std::mutex _result_queue_mutex = {};
     std::vector<ImporterTaskResult> _result_queue = {};
-
-    GltfImporter _gltf_importer;
 
     std::thread _thread = {};
     void thread_main();

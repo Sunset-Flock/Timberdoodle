@@ -1,9 +1,6 @@
 #include "importer.hpp"
 
-#include <algorithm>
 #include <cmath>
-#include <fstream>
-#include <span>
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
@@ -11,271 +8,12 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include "../optimizers/image_processor.hpp"
-#include "../optimizers/geometry_optimizer.hpp"
-#include "../tido_format/tido_format.hpp"
-#include "../tido_format/tido_util.hpp"
-
-// Per-kind cook versions, stamped into every .gltf_cache this importer writes. Bump the relevant one
-// whenever that pipeline's cook output or .tido_bin layout changes; on re-import a mismatching version
-// marks all of that kind's cached artifacts stale and recooks them. Versioned independently so a
-// texture-cook change does not needlessly recook meshes and vice versa.
-static constexpr u32 GLTF_TEXTURE_COOK_VERSION = 1;
-static constexpr u32 GLTF_MESH_COOK_VERSION = 1;
-
-// =================== Mesh extraction: glTF accessors -> format-neutral RawMesh ====================
-// The only place that reads glTF vertex/index accessors. Mirrors the texture part-1 (load_raw_image):
-// glTF-specific extraction producing the generic input the optimizer (optimize_mesh) consumes. No
-// cooking, no GPU work.
-
-/// NOTE: Overload ElementTraits for glm vecs so fastgltf understands the types.
-template <>
-struct fastgltf::ElementTraits<glm::vec4> : fastgltf::ElementTraitsBase<float, fastgltf::AccessorType::Vec4>
-{
-};
-template <>
-struct fastgltf::ElementTraits<glm::vec3> : fastgltf::ElementTraitsBase<float, fastgltf::AccessorType::Vec3>
-{
-};
-template <>
-struct fastgltf::ElementTraits<glm::vec2> : fastgltf::ElementTraitsBase<float, fastgltf::AccessorType::Vec2>
-{
-};
 
 namespace
 {
 static constexpr std::string_view VERT_ATTRIB_POSITION_NAME = "POSITION";
 static constexpr std::string_view VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
 static constexpr std::string_view VERT_ATTRIB_NORMAL_NAME = "NORMAL";
-
-template <typename ElemT, bool IS_INDEX_BUFFER>
-static auto load_accessor_data_from_file(
-    std::filesystem::path const & root_path,
-    fastgltf::Asset const & gltf_asset,
-    fastgltf::Accessor const & accesor)
-    -> std::optional<std::vector<ElemT>>
-{
-    static_assert(!IS_INDEX_BUFFER || std::is_same_v<ElemT, u32>, "Index Buffer must be u32");
-    fastgltf::BufferView const & gltf_buffer_view = gltf_asset.bufferViews.at(accesor.bufferViewIndex.value());
-    fastgltf::Buffer const & gltf_buffer = gltf_asset.buffers.at(gltf_buffer_view.bufferIndex);
-    if (!std::holds_alternative<fastgltf::sources::URI>(gltf_buffer.data))
-    {
-        return std::nullopt;
-    }
-    fastgltf::sources::URI uri = std::get<fastgltf::sources::URI>(gltf_buffer.data);
-
-    /// NOTE: load the section of the file containing the buffer for the mesh index buffer.
-    std::filesystem::path const full_buffer_path = root_path / uri.uri.fspath();
-    std::ifstream ifs{full_buffer_path, std::ios::binary};
-    if (!ifs)
-    {
-        return std::nullopt;
-    }
-    /// NOTE: Only load the relevant part of the file containing the view of the buffer we actually need.
-    ifs.seekg(gltf_buffer_view.byteOffset + accesor.byteOffset + uri.fileByteOffset);
-    std::vector<u16> raw = {};
-    size_t const elem_byte_size = fastgltf::getElementByteSize(accesor.type, accesor.componentType);
-    raw.resize((accesor.count * elem_byte_size) / 2);
-    if (!ifs.read(r_cast<char *>(raw.data()), accesor.count * elem_byte_size))
-    {
-        return std::nullopt;
-    }
-    auto buffer_adapter = [&]([[maybe_unused]] fastgltf::Asset const & asset, [[maybe_unused]] u32 asset_index) -> fastgltf::span<std::byte const>
-    {
-        /// NOTE:   We only have a ptr to the loaded data to the accessors section of the buffer.
-        ///         Fastgltf expects a ptr to the begin of the buffer VIEW, so we just subtract the offsets.
-        ///         Fastgltf adds these on in the accessor tool, so in the end it gets the right ptr.
-        return fastgltf::span<std::byte const>(reinterpret_cast<std::byte const *>(raw.data()) - accesor.byteOffset, accesor.count * elem_byte_size);
-    };
-
-    std::vector<ElemT> ret(accesor.count);
-    if constexpr (IS_INDEX_BUFFER)
-    {
-        /// NOTE: Transform the loaded file section into a 32 bit index buffer.
-        if (accesor.componentType == fastgltf::ComponentType::UnsignedShort)
-        {
-            std::vector<u16> u16_index_buffer(accesor.count);
-            fastgltf::copyFromAccessor<u16>(gltf_asset, accesor, u16_index_buffer.data(), buffer_adapter);
-            for (size_t i = 0; i < u16_index_buffer.size(); ++i)
-            {
-                ret[i] = s_cast<u32>(u16_index_buffer[i]);
-            }
-        }
-        else
-        {
-            fastgltf::copyFromAccessor<u32>(gltf_asset, accesor, ret.data(), buffer_adapter);
-        }
-    }
-    else
-    {
-        fastgltf::copyFromAccessor<ElemT>(gltf_asset, accesor, ret.data(), buffer_adapter);
-    }
-    return ret;
-}
-
-// Extract one primitive's index/position/normal/uv streams into the format-neutral RawMesh. Returns
-// nullopt (with a logged reason) if the glTF primitive is missing or has invalid required attributes.
-static auto extract_raw_mesh(
-    fastgltf::Asset const & asset,
-    std::filesystem::path const & asset_path,
-    u32 gltf_mesh_index,
-    u32 gltf_primitive_index) -> std::optional<RawMesh>
-{
-    std::filesystem::path const root_path = std::filesystem::path{asset_path}.remove_filename();
-    fastgltf::Mesh const & gltf_mesh = asset.meshes[gltf_mesh_index];
-    fastgltf::Primitive const & gltf_prim = gltf_mesh.primitives[gltf_primitive_index];
-
-    // Indices (required).
-    if (!gltf_prim.indicesAccessor.has_value())
-    {
-        DEBUG_MSG("[GltfImporter::extract_raw_mesh] missing index buffer");
-        return std::nullopt;
-    }
-    fastgltf::Accessor const & index_accessor = asset.accessors.at(gltf_prim.indicesAccessor.value());
-    bool const index_accessor_valid =
-        (index_accessor.componentType == fastgltf::ComponentType::UnsignedInt ||
-            index_accessor.componentType == fastgltf::ComponentType::UnsignedShort) &&
-        index_accessor.type == fastgltf::AccessorType::Scalar &&
-        index_accessor.bufferViewIndex.has_value();
-    if (!index_accessor_valid)
-    {
-        DEBUG_MSG("[GltfImporter::extract_raw_mesh] faulty index buffer accessor");
-        return std::nullopt;
-    }
-    auto indices = load_accessor_data_from_file<u32, true>(root_path, asset, index_accessor);
-    if (!indices.has_value())
-    {
-        return std::nullopt;
-    }
-
-    // Vertex positions (required).
-    auto pos_iter = gltf_prim.findAttribute(VERT_ATTRIB_POSITION_NAME);
-    if (pos_iter == gltf_prim.attributes.end())
-    {
-        DEBUG_MSG("[GltfImporter::extract_raw_mesh] missing vertex positions");
-        return std::nullopt;
-    }
-    fastgltf::Accessor const & pos_accessor = asset.accessors.at(pos_iter->accessorIndex);
-    if (pos_accessor.componentType != fastgltf::ComponentType::Float || pos_accessor.type != fastgltf::AccessorType::Vec3)
-    {
-        DEBUG_MSG("[GltfImporter::extract_raw_mesh] faulty vertex positions");
-        return std::nullopt;
-    }
-    auto positions = load_accessor_data_from_file<glm::vec3, false>(root_path, asset, pos_accessor);
-    if (!positions.has_value())
-    {
-        return std::nullopt;
-    }
-
-    // Vertex UVs (optional).
-    auto uv_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
-    bool const has_uv = uv_iter != gltf_prim.attributes.end();
-    std::vector<glm::vec2> uvs = {};
-    if (has_uv)
-    {
-        fastgltf::Accessor const & uv_accessor = asset.accessors.at(uv_iter->accessorIndex);
-        if (uv_accessor.componentType != fastgltf::ComponentType::Float || uv_accessor.type != fastgltf::AccessorType::Vec2)
-        {
-            DEBUG_MSG("[GltfImporter::extract_raw_mesh] faulty vertex texcoord0");
-            return std::nullopt;
-        }
-        auto uvs_opt = load_accessor_data_from_file<glm::vec2, false>(root_path, asset, uv_accessor);
-        if (!uvs_opt.has_value())
-        {
-            return std::nullopt;
-        }
-        uvs = std::move(uvs_opt.value());
-        DBG_ASSERT_TRUE_M(uvs.size() == positions.value().size(), "[GltfImporter::extract_raw_mesh] Mismatched position and uv count");
-    }
-
-    // Vertex normals (required).
-    auto normal_iter = gltf_prim.findAttribute(VERT_ATTRIB_NORMAL_NAME);
-    if (normal_iter == gltf_prim.attributes.end())
-    {
-        DEBUG_MSG("[GltfImporter::extract_raw_mesh] missing vertex normals");
-        return std::nullopt;
-    }
-    fastgltf::Accessor const & normal_accessor = asset.accessors.at(normal_iter->accessorIndex);
-    if (normal_accessor.componentType != fastgltf::ComponentType::Float || normal_accessor.type != fastgltf::AccessorType::Vec3)
-    {
-        DEBUG_MSG("[GltfImporter::extract_raw_mesh] faulty vertex normals");
-        return std::nullopt;
-    }
-    auto normals = load_accessor_data_from_file<glm::vec3, false>(root_path, asset, normal_accessor);
-    if (!normals.has_value())
-    {
-        return std::nullopt;
-    }
-    DBG_ASSERT_TRUE_M(normals.value().size() == positions.value().size(), "[GltfImporter::extract_raw_mesh] Mismatched position and normal count");
-
-    return RawMesh{
-        .indices = std::move(indices.value()),
-        .positions = std::move(positions.value()),
-        .normals = std::move(normals.value()),
-        .uvs = std::move(uvs),
-    };
-}
-
-// Last-write-time of a single file in filesystem-clock ticks; nullopt if it can't be stat'd (missing /
-// unresolved). A nullopt means "unknown", so callers must NOT fast-path a cache hit on it. Read cheaply -
-// no file contents. The per-artifact staleness timestamp is built from this (any touched source bumps it).
-static auto file_mtime(std::filesystem::path const & path) -> std::optional<i64>
-{
-    std::error_code ec = {};
-    auto const write_time = std::filesystem::last_write_time(path, ec);
-    if (ec) { return std::nullopt; }
-    return write_time.time_since_epoch().count();
-}
-
-// Max file_mtime over `paths` (a mesh's geometry can span several buffer files); nullopt if none stat'd.
-static auto max_source_mtime(std::span<std::filesystem::path const> paths) -> std::optional<i64>
-{
-    std::optional<i64> newest = std::nullopt;
-    for (auto const & path : paths)
-    {
-        if (auto const mtime = file_mtime(path)) { newest = newest.has_value() ? std::max(newest.value(), mtime.value()) : mtime.value(); }
-    }
-    return newest;
-}
-
-// FNV-1a over a primitive's extracted (raw, unoptimized) geometry - all four arrays hashed as one stream.
-// This is the authoritative change detector: identical bytes => identical cook, so the .tido_bin is reused.
-static auto raw_mesh_content_hash(RawMesh const & raw) -> u64
-{
-    u64 hash = tido_fnv1a(std::as_bytes(std::span{raw.indices}));
-    hash = tido_fnv1a(std::as_bytes(std::span{raw.positions}), hash);
-    hash = tido_fnv1a(std::as_bytes(std::span{raw.normals}), hash);
-    hash = tido_fnv1a(std::as_bytes(std::span{raw.uvs}), hash);
-    return hash;
-}
-
-// The distinct external buffer files a primitive's accessors (index / position / uv / normal) read from -
-// the mesh's staleness is the max mtime over these. Mirrors extract_raw_mesh's accessor set so the mtime
-// tracks exactly the files the cook consumes. Empty if a source is embedded/unsupported (mtime unknown).
-static auto mesh_source_paths(fastgltf::Asset const & asset, std::filesystem::path const & asset_path, u32 gltf_mesh_index, u32 gltf_primitive_index) -> std::vector<std::filesystem::path>
-{
-    std::filesystem::path const root_path = std::filesystem::path{asset_path}.remove_filename();
-    std::vector<std::filesystem::path> paths = {};
-    auto add_accessor_source = [&](fastgltf::Accessor const & accessor)
-    {
-        if (!accessor.bufferViewIndex.has_value()) { return; }
-        fastgltf::BufferView const & view = asset.bufferViews.at(accessor.bufferViewIndex.value());
-        fastgltf::Buffer const & buffer = asset.buffers.at(view.bufferIndex);
-        if (auto const * uri = std::get_if<fastgltf::sources::URI>(&buffer.data))
-        {
-            std::filesystem::path p = root_path / uri->uri.fspath();
-            if (std::find(paths.begin(), paths.end(), p) == paths.end()) { paths.push_back(std::move(p)); }
-        }
-    };
-    fastgltf::Mesh const & mesh = asset.meshes.at(gltf_mesh_index);
-    fastgltf::Primitive const & prim = mesh.primitives.at(gltf_primitive_index);
-    if (prim.indicesAccessor.has_value()) { add_accessor_source(asset.accessors.at(prim.indicesAccessor.value())); }
-    for (std::string_view const attr : {VERT_ATTRIB_POSITION_NAME, VERT_ATTRIB_TEXCOORD0_NAME, VERT_ATTRIB_NORMAL_NAME})
-    {
-        auto const it = prim.findAttribute(attr);
-        if (it != prim.attributes.end()) { add_accessor_source(asset.accessors.at(it->accessorIndex)); }
-    }
-    return paths;
-}
 
 // Byte range an accessor's tightly-packed data occupies in its external buffer file. nullopt if the buffer
 // is embedded/unsupported or the accessor has no buffer view. Asserts the source is tightly packed - the
@@ -298,216 +36,95 @@ static auto locate_accessor_range(fastgltf::Asset const & asset, std::filesystem
     };
 }
 
-// Resolve where one primitive's tightly-packed vertex/index streams live without reading them. Mirrors
-// extract_raw_mesh's accessor validation (F32 vec3 positions/normals, F32 vec2 uvs, U16|U32 scalar indices).
-// nullopt if a required stream is missing/invalid or a source is embedded/unsupported. cache_path is left
-// defaulted (routing-only, set by the caller).
+// A resolved mesh stream plus its element count, kept so callers can cross-check vertex/index counts.
+struct ResolvedMeshStream
+{
+    MeshAttribSource source = {};
+    u32 element_count = {};
+};
+
+// Resolve where one primitive's tightly-packed vertex/index streams live without reading them. The accepted
+// formats match extract_raw_mesh's accessor validation (F32 vec3 positions/normals, F32 vec2 uvs, U16|U32
+// scalar indices). nullopt if a required stream is missing/invalid or a source is embedded/unsupported.
+// cache_path is left defaulted (routing-only, set by the caller).
 static auto resolve_mesh_source(fastgltf::Asset const & asset, std::filesystem::path const & asset_path, u32 gltf_mesh_index, u32 gltf_primitive_index) -> std::optional<MeshImporterData>
 {
     std::filesystem::path const root_path = std::filesystem::path{asset_path}.remove_filename();
     fastgltf::Mesh const & gltf_mesh = asset.meshes.at(gltf_mesh_index);
     fastgltf::Primitive const & gltf_prim = gltf_mesh.primitives.at(gltf_primitive_index);
 
-    // Indices (required): U16 or U32 scalar.
-    if (!gltf_prim.indicesAccessor.has_value()) { return std::nullopt; }
-    fastgltf::Accessor const & index_accessor = asset.accessors.at(gltf_prim.indicesAccessor.value());
-    if (index_accessor.type != fastgltf::AccessorType::Scalar) { return std::nullopt; }
-    ComponentType index_component_type = {};
-    if (index_accessor.componentType == fastgltf::ComponentType::UnsignedShort) { index_component_type = ComponentType::U16; }
-    else if (index_accessor.componentType == fastgltf::ComponentType::UnsignedInt) { index_component_type = ComponentType::U32; }
-    else { return std::nullopt; }
-    auto const index_range = locate_accessor_range(asset, root_path, index_accessor);
-    if (!index_range.has_value()) { return std::nullopt; }
-
-    // Positions (required): F32 vec3.
-    auto const pos_iter = gltf_prim.findAttribute(VERT_ATTRIB_POSITION_NAME);
-    if (pos_iter == gltf_prim.attributes.end()) { return std::nullopt; }
-    fastgltf::Accessor const & pos_accessor = asset.accessors.at(pos_iter->accessorIndex);
-    if (pos_accessor.componentType != fastgltf::ComponentType::Float || pos_accessor.type != fastgltf::AccessorType::Vec3) { return std::nullopt; }
-    auto const pos_range = locate_accessor_range(asset, root_path, pos_accessor);
-    if (!pos_range.has_value()) { return std::nullopt; }
-
-    // Normals (required): F32 vec3.
-    auto const normal_iter = gltf_prim.findAttribute(VERT_ATTRIB_NORMAL_NAME);
-    if (normal_iter == gltf_prim.attributes.end()) { return std::nullopt; }
-    fastgltf::Accessor const & normal_accessor = asset.accessors.at(normal_iter->accessorIndex);
-    if (normal_accessor.componentType != fastgltf::ComponentType::Float || normal_accessor.type != fastgltf::AccessorType::Vec3) { return std::nullopt; }
-    auto const normal_range = locate_accessor_range(asset, root_path, normal_accessor);
-    if (!normal_range.has_value()) { return std::nullopt; }
-    DBG_ASSERT_TRUE_M(normal_accessor.count == pos_accessor.count, "Mismatched position and normal count");
-
-    // UVs (optional): F32 vec2.
-    std::optional<MeshAttribSource> uvs = {};
-    auto const uv_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
-    if (uv_iter != gltf_prim.attributes.end())
+    // Resolve one accessor of expected_type, mapping its glTF component type to ours (nullopt rejects the
+    // stream). nullopt if the accessor is absent, the wrong type, or backed by an embedded/unsupported source.
+    auto resolve_stream = [&](std::optional<std::size_t> accessor_index, fastgltf::AccessorType expected_type) -> std::optional<ResolvedMeshStream>
     {
-        fastgltf::Accessor const & uv_accessor = asset.accessors.at(uv_iter->accessorIndex);
-        if (uv_accessor.componentType != fastgltf::ComponentType::Float || uv_accessor.type != fastgltf::AccessorType::Vec2) { return std::nullopt; }
-        auto const uv_range = locate_accessor_range(asset, root_path, uv_accessor);
-        if (!uv_range.has_value()) { return std::nullopt; }
-        DBG_ASSERT_TRUE_M(uv_accessor.count == pos_accessor.count, "Mismatched position and uv count");
-        uvs = MeshAttribSource{.range = uv_range.value(), .component_type = ComponentType::F32};
-    }
+        if (!accessor_index.has_value()) { return std::nullopt; }
+        fastgltf::Accessor const & accessor = asset.accessors.at(accessor_index.value());
+
+        std::optional<ComponentType> const component_type = [&]() -> std::optional<ComponentType>
+        {
+            switch(accessor.componentType)
+            {
+                case fastgltf::ComponentType::UnsignedShort: return ComponentType::U16;
+                case fastgltf::ComponentType::UnsignedInt: return ComponentType::U32;
+                case fastgltf::ComponentType::Float: return ComponentType::F32;
+                default: return std::nullopt;
+            }
+        }();
+
+        if (accessor.type != expected_type || !component_type.has_value()) { return std::nullopt; }
+
+        auto const range = locate_accessor_range(asset, root_path, accessor);
+        if (!range.has_value()) { return std::nullopt; }
+        return ResolvedMeshStream{
+            .source = MeshAttribSource{.range = range.value(), .component_type = component_type.value()},
+            .element_count = s_cast<u32>(accessor.count),
+        };
+    };
+
+    auto attribute_index = [&](std::string_view attrib_name) -> std::optional<std::size_t>
+    {
+        auto const attrib_iter = gltf_prim.findAttribute(attrib_name);
+        if (attrib_iter == gltf_prim.attributes.end()) { return std::nullopt; }
+        return attrib_iter->accessorIndex;
+    };
+
+    auto const position_accessor_index = attribute_index(VERT_ATTRIB_POSITION_NAME);
+    auto const normal_accessor_index = attribute_index(VERT_ATTRIB_NORMAL_NAME);
+    auto const uv_accessor_index = attribute_index(VERT_ATTRIB_TEXCOORD0_NAME);
+    auto const indices_accessor_index = gltf_prim.indicesAccessor;
+
+    auto const indices = resolve_stream(indices_accessor_index, fastgltf::AccessorType::Scalar);
+    if (!indices.has_value()) { return std::nullopt; }
+    DBG_ASSERT_TRUE_M(indices->source.component_type == ComponentType::U16 || indices->source.component_type == ComponentType::U32, "Mesh indices must be U16 or U32");
+
+    auto const positions = resolve_stream(position_accessor_index, fastgltf::AccessorType::Vec3);
+    if (!positions.has_value()) { return std::nullopt; }
+    DBG_ASSERT_TRUE_M(positions->source.component_type == ComponentType::F32, "Mesh positions must be F32");
+
+    auto const normals = resolve_stream(normal_accessor_index, fastgltf::AccessorType::Vec3);
+    if (!normals.has_value()) { return std::nullopt; }
+    DBG_ASSERT_TRUE_M(normals->source.component_type == ComponentType::F32, "Mesh normals must be F32");
+    DBG_ASSERT_TRUE_M(normals->element_count == positions->element_count, "Mesh normals must have the same element count as positions");
+
+    auto const uvs = resolve_stream(uv_accessor_index, fastgltf::AccessorType::Vec2);
+    if (uv_accessor_index.has_value() && !uvs.has_value()) { DEBUG_MSG("Mesh uvs found but failed to parse - dropping uvs"); }
+    DBG_ASSERT_TRUE_M(!uvs.has_value() || uvs->source.component_type == ComponentType::F32, "Mesh uvs must be F32");
+    DBG_ASSERT_TRUE_M(!uvs.has_value() || uvs->element_count == positions->element_count, "Mesh uvs must have the same element count as positions");
+
 
     return MeshImporterData{
-        .indices = MeshAttribSource{.range = index_range.value(), .component_type = index_component_type},
-        .positions = MeshAttribSource{.range = pos_range.value(), .component_type = ComponentType::F32},
-        .normals = MeshAttribSource{.range = normal_range.value(), .component_type = ComponentType::F32},
-        .uvs = uvs,
-        .vertex_count = s_cast<u32>(pos_accessor.count),
-        .index_count = s_cast<u32>(index_accessor.count),
+        .indices = indices->source,
+        .positions = positions->source,
+        .normals = normals->source,
+        .uvs = uvs.has_value() ? std::optional<MeshAttribSource>{uvs->source} : std::nullopt,
+        .vertex_count = positions->element_count,
+        .index_count = indices->element_count,
     };
 }
 } // namespace
 
-// =================== Texture loading, part 1: load + decode the raw image data ===================
-// Reads an image's source bytes out of the glTF (URI / embedded buffer view) and decodes them into
-// the format-neutral RawImageData the optimizer understands. This is the only place that knows about
-// the glTF image sources and the PNG/KTX2 container formats. No GPU work, no BC compression.
 namespace
 {
-struct ImageFromRawInfo
-{
-    std::vector<std::byte> raw_data;
-    std::filesystem::path image_path;
-    fastgltf::MimeType mime_type;
-};
-using RawDataRet = std::variant<std::monostate, bool, ImageFromRawInfo>; // bool == failure
-
-static auto raw_image_data_from_path(std::filesystem::path const & image_path) -> RawDataRet
-{
-    std::ifstream ifs{image_path, std::ios::binary};
-    if (!ifs)
-    {
-        return false;
-    }
-    ifs.seekg(0, ifs.end);
-    i64 const filesize = ifs.tellg();
-    ifs.seekg(0, ifs.beg);
-    std::vector<std::byte> raw(filesize);
-    if (!ifs.read(r_cast<char *>(raw.data()), filesize))
-    {
-        return false;
-    }
-    return ImageFromRawInfo{.raw_data = std::move(raw), .image_path = image_path, .mime_type = {}};
-}
-
-static auto raw_image_data_from_URI(fastgltf::sources::URI const & uri, std::filesystem::path const & scene_dir_path) -> RawDataRet
-{
-    if (!uri.uri.isLocalPath() || uri.fileByteOffset != 0)
-    {
-        return false;
-    }
-    std::filesystem::path const full_image_path = scene_dir_path / uri.uri.fspath();
-    RawDataRet raw_image_data_ret = raw_image_data_from_path(full_image_path);
-    if (!std::holds_alternative<ImageFromRawInfo>(raw_image_data_ret))
-    {
-        return raw_image_data_ret;
-    }
-    ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_image_data_ret);
-    raw_data.mime_type = uri.mimeType;
-    if (uri.uri.string().ends_with(".ktx2"))
-    {
-        raw_data.mime_type = fastgltf::MimeType::KTX2;
-    }
-    return raw_data;
-}
-
-static auto raw_image_data_from_buffer_view(fastgltf::sources::BufferView const & buffer_view, fastgltf::Asset const & asset, std::filesystem::path const & scene_dir_path) -> RawDataRet
-{
-    fastgltf::BufferView const & gltf_buffer_view = asset.bufferViews.at(buffer_view.bufferViewIndex);
-    fastgltf::Buffer const & gltf_buffer = asset.buffers.at(gltf_buffer_view.bufferIndex);
-    if (!std::holds_alternative<fastgltf::sources::URI>(gltf_buffer.data))
-    {
-        return false;
-    }
-    fastgltf::sources::URI uri = std::get<fastgltf::sources::URI>(gltf_buffer.data);
-    std::filesystem::path const full_buffer_path = scene_dir_path / uri.uri.fspath();
-    std::ifstream ifs{full_buffer_path, std::ios::binary};
-    if (!ifs)
-    {
-        return false;
-    }
-    ifs.seekg(gltf_buffer_view.byteOffset + uri.fileByteOffset);
-    std::vector<std::byte> raw = {};
-    raw.resize(gltf_buffer_view.byteLength);
-    if (!ifs.read(r_cast<char *>(raw.data()), gltf_buffer_view.byteLength))
-    {
-        return false;
-    }
-    return ImageFromRawInfo{.raw_data = std::move(raw), .image_path = full_buffer_path, .mime_type = buffer_view.mimeType};
-}
-
-// Part 1 entry point: read an image's source bytes out of the glTF and tag their format, ready to be
-// handed to the optimizer. Does NOT decode/transcode - that is the optimizer's job.
-static auto load_raw_image(fastgltf::Asset const & asset, u32 gltf_image_index, std::filesystem::path const & asset_path) -> std::optional<RawImage>
-{
-    fastgltf::Image const & fgltf_image = asset.images.at(gltf_image_index);
-    std::filesystem::path const scene_dir_path = std::filesystem::path(asset_path).remove_filename();
-
-    RawDataRet ret = {};
-    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&fgltf_image.data))
-    {
-        ret = raw_image_data_from_URI(*uri, scene_dir_path);
-    }
-    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&fgltf_image.data))
-    {
-        ret = raw_image_data_from_buffer_view(*buffer_view, asset, scene_dir_path);
-    }
-    else
-    {
-        return std::nullopt;
-    }
-    if (!std::holds_alternative<ImageFromRawInfo>(ret))
-    {
-        return std::nullopt;
-    }
-    ImageFromRawInfo & raw_image_data = std::get<ImageFromRawInfo>(ret);
-
-    ImageFileFormat format = {};
-    if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
-    {
-        format = ImageFileFormat::KTX2;
-    }
-    else if (raw_image_data.mime_type == fastgltf::MimeType::PNG)
-    {
-        format = ImageFileFormat::PNG;
-    }
-    else
-    {
-        return std::nullopt; // Unsupported source format.
-    }
-
-    return RawImage{
-        .data = std::move(raw_image_data.raw_data),
-        .format = format,
-        .name = raw_image_data.image_path.filename().string(),
-    };
-}
-
-// The external source file an image reads from: the URI image file, or the .bin behind a buffer-view
-// image. Empty if the source is embedded/unsupported (mtime unknown). The image's staleness keys off this
-// single file (unlike a mesh, whose geometry can span several buffers - see mesh_source_paths).
-static auto image_source_path(fastgltf::Asset const & asset, u32 gltf_image_index, std::filesystem::path const & asset_path) -> std::filesystem::path
-{
-    fastgltf::Image const & image = asset.images.at(gltf_image_index);
-    std::filesystem::path const scene_dir_path = std::filesystem::path(asset_path).remove_filename();
-    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&image.data))
-    {
-        if (uri->uri.isLocalPath()) { return {scene_dir_path / uri->uri.fspath()}; }
-    }
-    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&image.data))
-    {
-        fastgltf::BufferView const & view = asset.bufferViews.at(buffer_view->bufferViewIndex);
-        fastgltf::Buffer const & buffer = asset.buffers.at(view.bufferIndex);
-        if (auto const * uri = std::get_if<fastgltf::sources::URI>(&buffer.data))
-        {
-            return {scene_dir_path / uri->uri.fspath()};
-        }
-    }
-    return {};
-}
-
 static auto mime_type_to_image_format(fastgltf::MimeType mime_type) -> std::optional<ImageFileFormat>
 {
     if (mime_type == fastgltf::MimeType::KTX2) { return ImageFileFormat::KTX2; }
@@ -565,8 +182,8 @@ static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_i
         {
             return std::nullopt;
         }
-        fastgltf::sources::URI const & uri = std::get<fastgltf::sources::URI>(gltf_buffer.data);
-        std::filesystem::path const full_buffer_path = scene_dir_path / uri.uri.fspath();
+        fastgltf::sources::URI const & buffer_uri = std::get<fastgltf::sources::URI>(gltf_buffer.data);
+        std::filesystem::path const full_buffer_path = scene_dir_path / buffer_uri.uri.fspath();
         auto const format = mime_type_to_image_format(buffer_view->mimeType);
         if (!format.has_value())
         {
@@ -575,7 +192,7 @@ static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_i
         return ImageSourceLocate{
             .range = FileByteRange{
                 .file = full_buffer_path,
-                .byte_offset = gltf_buffer_view.byteOffset + uri.fileByteOffset,
+                .byte_offset = gltf_buffer_view.byteOffset + buffer_uri.fileByteOffset,
                 .byte_length = gltf_buffer_view.byteLength,
             },
             .format = format.value(),
@@ -588,9 +205,8 @@ static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_i
 // ============================ Shared parse + per-artifact identity keys ===========================
 namespace
 {
-// Parses a .gltf/.glb into a fastgltf::Asset. Both the scene-parse task and the asset-import batch call
-// this - the two task kinds are fully decoupled, so an asset batch re-parses its source rather than
-// sharing the scene parse's asset.
+// Parses a .gltf/.glb into a fastgltf::Asset. Only SceneParseTask calls this - fastgltf is touched at
+// scene-parse only; asset cooks run off the resolved ImporterData and never re-parse.
 static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::variant<Scene::LoadManifestErrorCode, fastgltf::Asset>
 {
     fastgltf::Parser parser{
@@ -601,11 +217,19 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
         fastgltf::Options::DontRequireValidAssetMember |
         fastgltf::Options::AllowDouble;
 
-    auto data_opt = fastgltf::GltfDataBuffer::FromPath(file_path);
-    if (data_opt.error() != fastgltf::Error::None)
+    auto [io_result, file_bytes] = read_file(file_path);
+    if (io_result != FileIoResult::SUCCESS)
     {
-        return Scene::LoadManifestErrorCode::FILE_NOT_FOUND;
+        return io_result == FileIoResult::NOT_FOUND ? Scene::LoadManifestErrorCode::FILE_NOT_FOUND : Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
     }
+    if (file_bytes.empty()) { return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET; }
+
+    auto data_opt = fastgltf::GltfDataBuffer::FromBytes(file_bytes.data(), file_bytes.size());
+    if (data_opt.error() != fastgltf::Error::None) { return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET; }
+
+    // Free the file bytes now that fastgltf has copied them into its own padded buffer.
+    file_bytes.clear();
+
     fastgltf::GltfDataBuffer data = std::move(data_opt.get());
     auto const type = fastgltf::determineGltfFileType(data);
 
@@ -634,41 +258,7 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
     }
 }
 
-// Stable per-image-artifact source-identity key.
-static auto image_identity_key(ImageImporterData const & importer_data) -> u64
-{
-    std::vector<std::byte> importer_data_as_bytes;
-    // Location: the resolved source byte range (path + offset + length); cache_path is routing-only and excluded.
-    std::string const source_path_string = importer_data.source_bytes.file.generic_string();
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(), source_path_string.begin(), source_path_string.end());
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
-        r_cast<std::byte const *>(&importer_data.source_bytes.byte_offset),
-        r_cast<std::byte const *>(&importer_data.source_bytes.byte_offset) + sizeof(importer_data.source_bytes.byte_offset));
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
-        r_cast<std::byte const *>(&importer_data.source_bytes.byte_length),
-        r_cast<std::byte const *>(&importer_data.source_bytes.byte_length) + sizeof(importer_data.source_bytes.byte_length));
-    // Recipe: container format joins the channel mapping and target format so one source blob used under
-    // different recipes gets distinct keys.
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
-        r_cast<std::byte const *>(&importer_data.container_format),
-        r_cast<std::byte const *>(&importer_data.container_format) + sizeof(importer_data.container_format));
-    for(auto const & mapped_channel : importer_data.channel_mapping)
-    {
-        importer_data_as_bytes.push_back(static_cast<std::byte>(mapped_channel));
-    }
-    importer_data_as_bytes.insert(importer_data_as_bytes.end(),
-        r_cast<std::byte const *>(&importer_data.target_format),
-        r_cast<std::byte const *>(&importer_data.target_format) + sizeof(importer_data.target_format));
 
-    return tido_fnv1a(importer_data_as_bytes, 0);
-}
-
-// Stable per-primitive source-identity key.
-static auto mesh_cache_key(fastgltf::Asset const & asset, std::filesystem::path const & file_path, u32 gltf_mesh_index, u32 gltf_primitive_index) -> u64
-{
-    return tido_source_identity_key(file_path, asset.meshes[gltf_mesh_index].name.c_str(),
-        fmt::format("{}.{}", gltf_mesh_index, gltf_primitive_index));
-}
 } // namespace
 
 // ====================== ImportScene: parse -> SceneMetadataBatch (no cooking) =====================
@@ -769,23 +359,30 @@ void SceneParseTask::translate_materials()
     {
         auto const source = resolve_image_source(asset, image_index, file_path);
         DBG_ASSERT_TRUE_M(source.has_value(), "Unsupported or unresolvable image source");
-        FileByteRange const source_bytes = source.has_value() ? source->range : FileByteRange{};
-        ImageFileFormat const container_format = source.has_value() ? source->format : ImageFileFormat{};
+        ImageSourceLocate const resolved_source = source.value_or(ImageSourceLocate{});
 
+        // Shared location; only the recipe (channel_mapping + target_format) varies per material slot.
+        ImageImporterData import_info = {
+            .cache_path = file_path,
+            .source_bytes = resolved_source.range,
+            .container_format = resolved_source.format,
+        };
         switch(texture_type)
         {
             case GLTFTextureMaterialType::DIFFUSE:
-                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC7_SRGB_BLOCK, };
+                import_info.channel_mapping = {0, 1, 2};    import_info.target_format = daxa::Format::BC7_SRGB_BLOCK;   break;
             case GLTFTextureMaterialType::OPACITY:
-                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {3},  .target_format = daxa::Format::BC4_UNORM_BLOCK, };
+                import_info.channel_mapping = {3};          import_info.target_format = daxa::Format::BC4_UNORM_BLOCK;  break;
             case GLTFTextureMaterialType::NORMAL:
-                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {0, 1, 2},  .target_format = daxa::Format::BC5_UNORM_BLOCK, };
+                import_info.channel_mapping = {0, 1};       import_info.target_format = daxa::Format::BC5_UNORM_BLOCK;  break;
             case GLTFTextureMaterialType::ROUGHNESS_METALNESS:
-                return ImageImporterData{ .cache_path = file_path, .source_bytes = source_bytes, .container_format = container_format, .channel_mapping = {0, 1, 2, 3}, .target_format = daxa::Format::BC7_UNORM_BLOCK, };
+                import_info.channel_mapping = {0, 1, 2, 3}; import_info.target_format = daxa::Format::BC7_UNORM_BLOCK;  break;
+            case GLTFTextureMaterialType::NONE:
             default:
                 DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_image_import_info");
-                return {};
+                break;
         }
+        return import_info;
     };
 
     auto resolve_image_info = [&](ImporterTaskResult::SceneMetadataBatch::Image const & image_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::ImageInfo>
@@ -804,6 +401,14 @@ void SceneParseTask::translate_materials()
         return MaterialManifestEntry::ImageInfo{.image_manifest_index = manifest_index, .sampler_index = sampler_index};
     };
 
+    // Resolve one material texture slot: gltf texture -> image -> deduped manifest image tagged with its name.
+    auto resolve_material_texture = [&](u32 const gltf_texture_index, GLTFTextureMaterialType const texture_type) -> std::optional<MaterialManifestEntry::ImageInfo>
+    {
+        auto const gltf_image_index = gltf_texture_to_image_index(gltf_texture_index);
+        auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
+        return resolve_image_info({.name = gltf_texture_name.c_str(), .importer_data = default_image_import_info(texture_type, gltf_image_index.value())}, 0);
+    };
+
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
     {
         auto const & material = asset.materials.at(material_index);
@@ -813,28 +418,20 @@ void SceneParseTask::translate_materials()
         std::optional<MaterialManifestEntry::ImageInfo> roughness_metalness_info = {};
         if (material.pbrData.baseColorTexture.has_value())
         {
-            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
-            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            diffuse_texture_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::DIFFUSE, gltf_image_index.value())}, 0);
+            diffuse_texture_info = resolve_material_texture(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex), GLTFTextureMaterialType::DIFFUSE);
         }
         if(material.alphaMode == fastgltf::AlphaMode::Mask && material.pbrData.baseColorTexture.has_value())
         {
-            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
-            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            opacity_texture_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::OPACITY, gltf_image_index.value())}, 0);
+            opacity_texture_info = resolve_material_texture(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex), GLTFTextureMaterialType::OPACITY);
         }
         if (material.normalTexture.has_value())
         {
-            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.normalTexture.value().textureIndex));
-            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            normal_texture_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::NORMAL, gltf_image_index.value())}, 0);
+            normal_texture_info = resolve_material_texture(s_cast<u32>(material.normalTexture.value().textureIndex), GLTFTextureMaterialType::NORMAL);
         }
-        if (material.pbrData.metallicRoughnessTexture.has_value())
-        {
-            auto const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex));
-            auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-            roughness_metalness_info = resolve_image_info({.importer_data = default_image_import_info(GLTFTextureMaterialType::ROUGHNESS_METALNESS, gltf_image_index.value())}, 0);
-        }
+        // if (material.pbrData.metallicRoughnessTexture.has_value())
+        // {
+        //     roughness_metalness_info = resolve_material_texture(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex), GLTFTextureMaterialType::ROUGHNESS_METALNESS);
+        // }
 
         bool const alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask && opacity_texture_info.has_value();
         DBG_ASSERT_TRUE_M(!alpha_discard_enabled || opacity_texture_info.has_value(), "Alpha discard enabled but no opacity texture info");
@@ -874,7 +471,7 @@ void SceneParseTask::translate_mesh_groups()
             MeshImporterData mesh_importer_data = mesh_importer_data_opt.value_or(MeshImporterData{});
             mesh_importer_data.cache_path = file_path;
             batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
-                .material_index = std::optional<u32>(gltf_primitive.materialIndex.value_or(std::nullopt)),
+                .material_index = gltf_primitive.materialIndex.has_value() ? std::optional<u32>(s_cast<u32>(gltf_primitive.materialIndex.value())) : std::nullopt,
                 .name = gltf_mesh.name.c_str(),
                 .importer_data = std::move(mesh_importer_data),
             });
@@ -970,7 +567,7 @@ auto SceneParseTask::translate_entities() -> u32
 
         fastgltf::Node const & node = asset.nodes[node_index];
         ImporterTaskResult::SceneMetadataBatch::Entity & r_ent = node_entities[node_index];
-        r_ent.mesh_group_manifest_index = std::optional<u32>(node.meshIndex.value_or(std::nullopt));
+        r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(s_cast<u32>(node.meshIndex.value())) : std::nullopt;
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
 
@@ -1022,8 +619,6 @@ auto SceneParseTask::translate_entities() -> u32
     /// NOTE: Find all root render entities (aka render entities that have no parent) and store them as
     //        Child root entites under scene root node
     ImporterTaskResult::SceneMetadataBatch::Entity & root_r_ent = node_entities[root_entity_index];
-    // Named after the source file only; SceneRuntime appends the running import count when it applies
-    // the batch, keeping repeat imports distinguishable.
     root_r_ent = ImporterTaskResult::SceneMetadataBatch::Entity{
         .transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
         .type = EntityType::ROOT,
@@ -1053,455 +648,21 @@ auto SceneParseTask::translate_entities() -> u32
 }
 } // namespace
 
-// =================== ImportAsset: per-source batch, cook chunks, cache writes ====================
-namespace
+
+// ==================================== Scene-parse dispatch =======================================
+
+void dispatch_scene_parses(Importer & importer, std::vector<ImporterTask> & tasks)
 {
-// Cooks a batch's cache-missed texture artifacts, one chunk per artifact.
-struct TextureCookTask final : Task
-{
-    struct Item
-    {
-        u32 gltf_image_index = {};
-        u64 cache_key = {};
-        u32 manifest_index = {};
-        i64 current_mtime = {}; // current max source mtime, stamped onto the (re)cooked or refreshed artifact
-        // Pre-seeded cache entry that failed the mtime fast path; reused if its content hash still matches.
-        std::optional<TidoTextureCookResult> cached = {};
-    };
-
-    // Immutable for the run of the task: set once at construction (before dispatch) and only ever read
-    // from callback, which may run concurrently across chunks - nothing here is mutated after dispatch.
-    // keep_alive holds the batch task owning the parsed asset for as long as any chunk is still dispatched.
-    fastgltf::Asset const * const asset;
-    std::filesystem::path const asset_path;
-    std::filesystem::path const cache_dir; // per-import output folder for the .tido_bin data files
-    std::vector<Item> const items;
-    std::shared_ptr<SourceContext> const context;
-    Importer * const importer;
-    std::shared_ptr<Task> const keep_alive;
-
-    TextureCookTask(fastgltf::Asset const * asset, std::filesystem::path asset_path, std::vector<Item> items,
-        std::shared_ptr<SourceContext> context, Importer * importer, std::shared_ptr<Task> keep_alive)
-        : asset{asset}, asset_path{std::move(asset_path)}, cache_dir{context->cache_dir},
-          items{std::move(items)}, context{std::move(context)}, importer{importer}, keep_alive{std::move(keep_alive)}
-    {
-        chunk_count = s_cast<u32>(this->items.size());
-    }
-
-    void run_cook(u32 chunk_index)
-    {
-        Item const & item = items.at(chunk_index);
-
-        // Part 1: read the raw image bytes (+ tag their source format).
-        auto raw = load_raw_image(*asset, item.gltf_image_index, asset_path);
-        if (!raw.has_value())
-        {
-            DEBUG_MSG(fmt::format("[ERROR] Failed to load image index {} name {}", item.gltf_image_index, asset->images.at(item.gltf_image_index).name));
-            return;
-        }
-
-        // Verify whether the content of the image actually changed using a content hash over the raw data.
-        u64 const content_hash = tido_fnv1a(std::as_bytes(std::span{raw.value().data}));
-        if (item.cached.has_value() && item.cached->content_hash == content_hash && std::filesystem::exists(item.cached->streamer_data.bin_source))
-        {
-            // Bytes unchanged (only the mtime moved): reuse the cached .tido_bin, just refresh its stored mtime.
-            TidoTextureCookResult artifact = item.cached.value();
-            artifact.source_modified = item.current_mtime;
-            context->store_texture(artifact);
-            importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::CookedAsset{
-                .streamer_data = item.cached->streamer_data,
-                .manifest_index = item.manifest_index,
-            }});
-            return;
-        }
-
-        // Part 2: process the raw bytes into GPU-ready cooked CPU memory (decode/transcode/compress).
-        OptimizeTextureInfo const optimize_info = {};
-        auto processed_ret = process_image(raw.value(), optimize_info);
-        if (auto const * error = std::get_if<ImageOptimizeError>(&processed_ret))
-        {
-            if (*error == ImageOptimizeError::SOURCE_HAS_NO_ALPHA)
-            {
-                DEBUG_MSG(fmt::format("[WARN] Image '{}' is Mask-sampled by a material but has no alpha channel - its opacity manifest entry will never become resident", asset->images.at(item.gltf_image_index).name));
-            }
-            else
-            {
-                DEBUG_MSG(fmt::format("[ERROR] Failed to process image index {} name {}", item.gltf_image_index, asset->images.at(item.gltf_image_index).name));
-            }
-            return;
-        }
-        ProcessedImage const & processed = std::get<ProcessedImage>(processed_ret);
-
-        // Part 3: write the cooked image out as a .tido_bin artifact. The cache key (recipe-tag
-        // disambiguated) is hashed into the stem, so artifacts sharing a source image never collide.
-        std::string const artifact_name = raw.value().name;
-        auto tido_result = write_texture_tido(processed, cache_dir, artifact_name, item.cache_key);
-        if (!tido_result.has_value())
-        {
-            DEBUG_MSG(fmt::format("[WARN][write_texture_tido] failed to write .tido_bin for image '{}'", artifact_name));
-            return;
-        }
-
-        DEBUG_MSG(fmt::format("[write_texture_tido] cooked '{}' -> {} ({}x{}, {} mips) -> '{}'",
-            artifact_name, s_cast<u32>(processed.image_info.format), processed.image_info.size.x,
-            processed.image_info.size.y, processed.mips_to_copy, tido_result.value().streamer_data.bin_source.string()));
-
-        TidoTextureCookResult artifact = tido_result.value();
-        artifact.source_modified = item.current_mtime;
-        artifact.content_hash = content_hash;
-        context->store_texture(artifact);
-        importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::CookedAsset{
-            .streamer_data = tido_result.value().streamer_data,
-            .manifest_index = item.manifest_index,
-        }});
-    }
-
-    void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
-    {
-        run_cook(chunk_index);
-        context->outstanding_asset_imports.fetch_sub(1, std::memory_order_acq_rel);
-        importer->notify();
-    }
-};
-
-// Cooks a batch's cache-missed mesh artifacts, one chunk per artifact.
-struct MeshCookTask final : Task
-{
-    struct Item
-    {
-        u32 gltf_mesh_index = {};
-        u32 gltf_primitive_index = {};
-        u64 cache_key = {};
-        u32 manifest_index = {};
-        i64 current_mtime = {}; // current max source mtime, stamped onto the (re)cooked or refreshed artifact
-        // Pre-seeded cache entry that failed the mtime fast path; reused if its content hash still matches.
-        std::optional<TidoMeshCookResult> cached = {};
-    };
-
-    // Immutable for the run of the task: set once at construction (before dispatch) and only ever read
-    // from callback, which may run concurrently across chunks - nothing here is mutated after dispatch.
-    // keep_alive holds the batch task owning the parsed asset for as long as any chunk is still dispatched.
-    fastgltf::Asset const * const asset;
-    std::filesystem::path const asset_path;
-    std::filesystem::path const cache_dir; // per-import output folder for the .tido_bin data files
-    std::vector<Item> const items;
-    std::shared_ptr<SourceContext> const context;
-    Importer * const importer;
-    std::shared_ptr<Task> const keep_alive;
-
-    MeshCookTask(fastgltf::Asset const * asset, std::filesystem::path asset_path, std::vector<Item> items,
-        std::shared_ptr<SourceContext> context, Importer * importer, std::shared_ptr<Task> keep_alive)
-        : asset{asset}, asset_path{std::move(asset_path)}, cache_dir{context->cache_dir},
-          items{std::move(items)}, context{std::move(context)}, importer{importer}, keep_alive{std::move(keep_alive)}
-    {
-        chunk_count = s_cast<u32>(this->items.size());
-    }
-
-    void push_cooked_mesh(TidoMeshCookResult const & artifact, u32 manifest_index)
-    {
-        context->store_mesh(artifact);
-        importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::CookedAsset{
-            .streamer_data = artifact.streamer_data, // .tido_bin reference; streamed in by the scene.
-            .manifest_index = manifest_index,
-        }});
-    }
-
-    void run_cook(u32 chunk_index)
-    {
-        Item const & item = items.at(chunk_index);
-        std::string const mesh_name = std::string(asset->meshes[item.gltf_mesh_index].name.c_str()) + "." + std::to_string(item.gltf_primitive_index);
-        // On a failed (re)cook, fall back to the last good cook (the pre-seeded cache entry, if any) and
-        // refresh its stored mtime so an un-processable source is not re-flagged "out of date" every
-        // import. No fallback (first cook) -> nothing is reported -> the entry stays permanently un-streamed.
-        auto keep_cached_fallback = [&]
-        {
-            if (item.cached.has_value())
-            {
-                TidoMeshCookResult artifact = item.cached.value();
-                artifact.source_modified = item.current_mtime;
-                push_cooked_mesh(artifact, item.manifest_index);
-            }
-        };
-
-        // Part 1: extract the glTF accessors into a format-neutral RawMesh (importer).
-        auto raw = extract_raw_mesh(*asset, asset_path, item.gltf_mesh_index, item.gltf_primitive_index);
-        if (!raw.has_value())
-        {
-            DEBUG_MSG(fmt::format("[ERROR] Failed to extract mesh group {} mesh {}",
-                item.gltf_mesh_index, item.gltf_primitive_index));
-            keep_cached_fallback();
-            return;
-        }
-        // Content hash of the raw extracted geometry: the authoritative change detector.
-        u64 const content_hash = raw_mesh_content_hash(raw.value());
-        if (item.cached.has_value() && item.cached->content_hash == content_hash && std::filesystem::exists(item.cached->streamer_data.bin_source))
-        {
-            // Geometry unchanged (only the mtime moved): keep the existing .tido_bin, just refresh the
-            // stored mtime so the next import fast-paths without reading the source again.
-            TidoMeshCookResult artifact = item.cached.value();
-            artifact.source_modified = item.current_mtime;
-            push_cooked_mesh(artifact, item.manifest_index);
-            return;
-        }
-        // Part 2: cook the raw streams into the runtime form (optimizer).
-        ProcessedMesh const processed = optimize_mesh(raw.value());
-        // Part 3: write the cooked mesh out as a .tido_bin artifact.
-        auto tido_result = write_mesh_tido(processed, cache_dir, mesh_name, item.cache_key);
-        if (!tido_result.has_value())
-        {
-            DEBUG_MSG(fmt::format("[WARN][write_mesh_tido] failed to write .tido_bin for mesh '{}'", mesh_name));
-            keep_cached_fallback();
-            return;
-        }
-        DEBUG_MSG(fmt::format("[write_mesh_tido] cooked '{}' ({} LODs) -> '{}'",
-            mesh_name, tido_result.value().streamer_data.descriptor.lod_count, tido_result.value().streamer_data.bin_source.string()));
-        TidoMeshCookResult artifact = tido_result.value();
-        artifact.source_modified = item.current_mtime;
-        artifact.content_hash = content_hash;
-        push_cooked_mesh(artifact, item.manifest_index);
-    }
-
-    void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
-    {
-        run_cook(chunk_index);
-        context->outstanding_asset_imports.fetch_sub(1, std::memory_order_acq_rel);
-        importer->notify();
-    }
-};
-
-// One source's grouped ImportAsset tasks. Parses the source once, then resolves every artifact: an
-// mtime fast path serves cache hits straight from the SourceContext, everything else fans out into
-// per-artifact cook chunks that keep this task (and thus the parsed asset) alive via shared_ptr.
-struct GltfAssetImportTask final : Task, std::enable_shared_from_this<GltfAssetImportTask>
-{
-    struct TextureItem
-    {
-        u32 gltf_image_index = {};
-        u32 manifest_index = {};
-    };
-    struct MeshItem
-    {
-        u32 gltf_mesh_index = {};
-        u32 gltf_primitive_index = {};
-        u32 manifest_index = {};
-    };
-
-    Importer * importer = {};
-    std::shared_ptr<SourceContext> context = {};
-    std::vector<TextureItem> texture_items = {};
-    std::vector<MeshItem> mesh_items = {};
-    // Parsed in callback before any cook chunk is dispatched; cook chunks read it through keep_alive.
-    fastgltf::Asset asset;
-
-    GltfAssetImportTask(Importer * importer, std::shared_ptr<SourceContext> context,
-        std::vector<TextureItem> texture_items, std::vector<MeshItem> mesh_items)
-        : importer{importer}, context{std::move(context)},
-          texture_items{std::move(texture_items)}, mesh_items{std::move(mesh_items)}
-    {
-        chunk_count = 1;
-    }
-
-    void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
-    {
-        auto parse_result = parse_gltf_file(context->source_path);
-        if (auto const * error = std::get_if<Scene::LoadManifestErrorCode>(&parse_result))
-        {
-            // The whole batch dies with the parse (e.g. the source changed or vanished since the scene
-            // import); its manifest entries simply never become resident.
-            DEBUG_MSG(fmt::format("[WARN][GltfAssetImportTask::callback] Loading \"{}\" Error: {}", context->source_path.string(), Scene::to_string(*error)));
-            importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
-                .kind = ImporterTaskResult::Error::TaskKind::IMPORT_ASSET,
-                .source = context->source_path,
-                .message = std::string{Scene::to_string(*error)},
-            }});
-            context->outstanding_asset_imports.fetch_sub(s_cast<u32>(texture_items.size() + mesh_items.size()), std::memory_order_acq_rel);
-            importer->notify();
-            return;
-        }
-        asset = std::move(std::get<fastgltf::Asset>(parse_result));
-
-        resolve_texture_items();
-        resolve_mesh_items();
-        importer->notify(); // fast-path hits may have decremented the outstanding count / dirtied the cache.
-    }
-
-  private:
-    void resolve_texture_items()
-    {
-        // For each texture item decide:
-        //   - mtime fast path: a cached entry whose stored source mtime still matches (and whose .tido_bin
-        //     exists) is reused WITHOUT reading the source at all.
-        //   - otherwise it becomes a chunk of the cook task, which reads the source, content-hashes it, and
-        //     either reuses the cached .tido_bin (bytes unchanged, refresh the mtime) or recooks the image.
-        u32 fast_hits = 0;
-        std::vector<TextureCookTask::Item> items_to_cook = {};
-        for (TextureItem const & item : texture_items)
-        {
-            u64 const key = image_cache_key(asset, context->source_path, item.gltf_image_index, item.type);
-            std::optional<TidoTextureCookResult> cached = context->lookup_texture(key);
-            std::filesystem::path const src_path = image_source_path(asset, item.gltf_image_index, context->source_path);
-            std::optional<i64> const src_mtime = src_path.empty() ? std::nullopt : file_mtime(src_path);
-
-            // mtime fast path: reuse the cached .tido_bin without reading the source.
-            if (cached.has_value() && src_mtime.has_value() && cached->source_modified == src_mtime.value() && std::filesystem::exists(cached->streamer_data.bin_source))
-            {
-                importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::CookedAsset{
-                    .streamer_data = cached->streamer_data,
-                    .manifest_index = item.manifest_index,
-                }});
-                ++fast_hits;
-                continue;
-            }
-            items_to_cook.push_back(TextureCookTask::Item{
-                .gltf_image_index = item.gltf_image_index,
-                .cache_key = key,
-                .manifest_index = item.manifest_index,
-                .current_mtime = src_mtime.value_or(0),
-                .cached = std::move(cached),
-            });
-        }
-
-        if (fast_hits > 0)
-        {
-            context->outstanding_asset_imports.fetch_sub(fast_hits, std::memory_order_acq_rel);
-        }
-        // One chunk per artifact; the chunks own the remaining outstanding decrements.
-        u32 const cook_count = s_cast<u32>(items_to_cook.size());
-        if (cook_count > 0)
-        {
-            auto task = std::make_shared<TextureCookTask>(&asset, context->source_path, std::move(items_to_cook), context, importer, shared_from_this());
-            importer->thread_pool->async_dispatch(task, TaskPriority::LOW);
-        }
-
-        DEBUG_MSG(fmt::format("[GltfAssetImportTask::resolve_texture_items] '{}': {} textures ({} mtime-hit, {} read)",
-            context->source_path.filename().string(), fast_hits + cook_count, fast_hits, cook_count));
-    }
-
-    void resolve_mesh_items()
-    {
-        // Same decision per mesh item as resolve_texture_items: mtime fast path or a cook chunk.
-        u32 fast_hits = 0;
-        std::vector<MeshCookTask::Item> items_to_cook = {};
-        for (MeshItem const & item : mesh_items)
-        {
-            u64 const key = mesh_cache_key(asset, context->source_path, item.gltf_mesh_index, item.gltf_primitive_index);
-            std::optional<TidoMeshCookResult> cached = context->lookup_mesh(key);
-            std::vector<std::filesystem::path> const src_paths = mesh_source_paths(asset, context->source_path, item.gltf_mesh_index, item.gltf_primitive_index);
-            std::optional<i64> const src_mtime = max_source_mtime(src_paths);
-
-            // mtime fast path: reuse the cached .tido_bin without reading the source.
-            if (cached.has_value() && src_mtime.has_value() && cached->source_modified == src_mtime.value() &&
-                std::filesystem::exists(cached->streamer_data.bin_source))
-            {
-                importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::CookedAsset{
-                    .streamer_data = cached->streamer_data,
-                    .manifest_index = item.manifest_index,
-                }});
-                ++fast_hits;
-                continue;
-            }
-            items_to_cook.push_back(MeshCookTask::Item{
-                .gltf_mesh_index = item.gltf_mesh_index,
-                .gltf_primitive_index = item.gltf_primitive_index,
-                .cache_key = key,
-                .manifest_index = item.manifest_index,
-                .current_mtime = src_mtime.value_or(0),
-                .cached = std::move(cached),
-            });
-        }
-
-        if (fast_hits > 0)
-        {
-            context->outstanding_asset_imports.fetch_sub(fast_hits, std::memory_order_acq_rel);
-        }
-        // One chunk per artifact; the chunks own the remaining outstanding decrements.
-        u32 const cook_count = s_cast<u32>(items_to_cook.size());
-        if (cook_count > 0)
-        {
-            auto task = std::make_shared<MeshCookTask>(&asset, context->source_path, std::move(items_to_cook), context, importer, shared_from_this());
-            importer->thread_pool->async_dispatch(task, TaskPriority::LOW);
-        }
-
-        DEBUG_MSG(fmt::format("[GltfAssetImportTask::resolve_mesh_items] '{}': {} meshes ({} mtime-hit, {} read)",
-            context->source_path.filename().string(), fast_hits + cook_count, fast_hits, cook_count));
-    }
-};
-} // namespace
-
-// ======================================= GltfImporter =============================================
-
-GltfImporter::GltfImporter(Importer * importer)
-    : _importer{importer}, _cache_registry{importer}
-{
-}
-
-void GltfImporter::update(std::vector<ImporterTask> & tasks)
-{
-    // Group this drain's asset tasks by source, so one batch shares one parse and one cache.
-    // SceneRuntime pushes a whole source's tasks under one lock, so a drain sees the group together.
-    struct PendingBatch
-    {
-        std::filesystem::path source_path = {};
-        std::vector<GltfAssetImportTask::TextureItem> texture_items = {};
-        std::vector<GltfAssetImportTask::MeshItem> mesh_items = {};
-    };
-    std::vector<PendingBatch> pending_batches = {};
-    auto batch_for = [&](std::filesystem::path const & source_path) -> PendingBatch &
-    {
-        for (PendingBatch & pending_batch : pending_batches)
-        {
-            if (pending_batch.source_path == source_path) { return pending_batch; }
-        }
-        pending_batches.push_back(PendingBatch{.source_path = source_path});
-        return pending_batches.back();
-    };
-
-    auto consume_task = [&](ImporterTask & task) -> bool
+    // The gltf backend only parses scenes into a SceneMetadataBatch; the fastgltf-free asset cooks are
+    // dispatched by Importer (from the fully resolved ImporterData) before this runs.
+    auto consume_scene_task = [&](ImporterTask & task) -> bool
     {
         if (auto const * import_scene = std::get_if<ImporterTask::ImportScene>(&task.data))
         {
-            _importer->thread_pool->async_dispatch(std::make_shared<SceneParseTask>(import_scene->path, _importer), TaskPriority::LOW);
-            return true;
-        }
-        if (auto * import_texture = std::get_if<ImporterTask::ImportTextureAsset>(&task.data))
-        {
-            auto const * gltf_data = std::get_if<ImageManifestEntry::GltfImporterData>(&import_texture->importer_data);
-            if (gltf_data == nullptr) { return false; } // Not glTF provenance - another importer's task.
-            batch_for(gltf_data->src_gltf).texture_items.push_back(GltfAssetImportTask::TextureItem{
-                .gltf_image_index = gltf_data->image_index,
-                .type = import_texture->type,
-                .manifest_index = import_texture->image_manifest_index,
-            });
-            return true;
-        }
-        if (auto * import_mesh = std::get_if<ImporterTask::ImportMeshAsset>(&task.data))
-        {
-            auto const * gltf_data = std::get_if<MeshLodGroupManifestEntry::GltfImporterData>(&import_mesh->importer_data);
-            if (gltf_data == nullptr) { return false; } // Not glTF provenance - another importer's task.
-            batch_for(gltf_data->src_gltf).mesh_items.push_back(GltfAssetImportTask::MeshItem{
-                .gltf_mesh_index = gltf_data->mesh_index,
-                .gltf_primitive_index = gltf_data->primitive_index,
-                .manifest_index = import_mesh->mesh_manifest_index,
-            });
+            importer.thread_pool->async_dispatch(std::make_shared<SceneParseTask>(import_scene->path, &importer), TaskPriority::LOW);
             return true;
         }
         return false;
     };
-    std::erase_if(tasks, consume_task);
-
-    for (PendingBatch & pending_batch : pending_batches)
-    {
-        std::filesystem::path const cache_dir = gltf_cache_dir(pending_batch.source_path);
-        std::shared_ptr<SourceContext> context = _cache_registry.find_or_create(pending_batch.source_path,
-            cache_dir, cache_dir / gltf_cache_file_name(pending_batch.source_path), GLTF_TEXTURE_COOK_VERSION, GLTF_MESH_COOK_VERSION);
-        // Taken before dispatch so the count can never cross zero while the batch's items are unresolved;
-        // each item's resolution (fast path, cook chunk, or parse failure) releases exactly one.
-        context->outstanding_asset_imports.fetch_add(
-            s_cast<u32>(pending_batch.texture_items.size() + pending_batch.mesh_items.size()), std::memory_order_relaxed);
-        auto task = std::make_shared<GltfAssetImportTask>(
-            _importer, std::move(context), std::move(pending_batch.texture_items), std::move(pending_batch.mesh_items));
-        _importer->thread_pool->async_dispatch(task, TaskPriority::LOW);
-    }
-
-    _cache_registry.run_upkeep();
+    std::erase_if(tasks, consume_scene_task);
 }

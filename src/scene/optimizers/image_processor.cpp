@@ -6,9 +6,11 @@
 #include <optional>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 #include <ktx.h>
 #include <png.h>
+#include <glm/detail/type_half.hpp>
 
 #include "../../multithreading/thread_pool.hpp"
 #include "../../shader_shared/shared.inl" // round_up_div
@@ -142,7 +144,7 @@ constexpr auto image_format_from_pixel_info(PixelInfo const & info) -> daxa::For
     return format;
 }
 
-auto image_parse_png(std::span<std::byte const>  png_bytes) -> std::variant<ImageProcessResult, TidoImageWithData>
+auto image_parse_png(std::span<std::byte const> png_bytes, bool is_srgb) -> std::variant<ImageProcessResult, TidoImageWithData>
 {
     if (png_sig_cmp((png_bytep)png_bytes.data(), 0, 8)) { return ImageProcessResult::FAILED_TO_PARSE_PNG; }
 
@@ -171,22 +173,28 @@ auto image_parse_png(std::span<std::byte const>  png_bytes) -> std::variant<Imag
     png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, &interlace_type, nullptr, nullptr);
     int channel_count = png_get_channels(png_ptr, info_ptr);
 
+    // Always decode to 4-channel RGBA so the cook can index any recipe channel (including alpha) uniformly:
+    // expand palette/gray to RGB, promote tRNS to a real alpha channel, and fill an opaque alpha where the
+    // source has none (0xFFFF -> full alpha at both 8- and 16-bit).
     if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png_ptr);
     if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png_ptr);
     if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png_ptr);
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png_ptr);
     if (interlace_type != PNG_INTERLACE_NONE) png_set_interlace_handling(png_ptr);
+    if (channel_count < 4) png_set_add_alpha(png_ptr, 0xFFFF, PNG_FILLER_AFTER);
 
     png_read_update_info(png_ptr, info_ptr);
     png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, &interlace_type, nullptr, nullptr);
     channel_count = png_get_channels(png_ptr, info_ptr);
 
+    DBG_ASSERT_TRUE_M(channel_count == 4, "image_parse_png: expected the decode transforms to yield 4-channel RGBA");
     DBG_ASSERT_TRUE_M(bit_depth == 16 || bit_depth == 8, "Unexpected PNG bit depth: " + std::to_string(bit_depth) + " (expected 8 or 16)");
 
     PixelInfo pixel_info = {};
     pixel_info.channel_count = s_cast<u8>(channel_count);
     pixel_info.channel_byte_size = s_cast<u8>(bit_depth / 8);
     pixel_info.channel_data_type = ChannelDataType::UNSIGNED_INT;
-    pixel_info.is_srgb = false;
+    pixel_info.is_srgb = is_srgb;
 
     TidoImageWithData ret = {};
     ret.descriptor.info.format = image_format_from_pixel_info(pixel_info);
@@ -194,17 +202,17 @@ auto image_parse_png(std::span<std::byte const>  png_bytes) -> std::variant<Imag
     ret.descriptor.info.size = {width, height, 1};
     ret.descriptor.info.mip_level_count = 1;
     ret.descriptor.info.array_layer_count = 1;
-    ret.data.resize(width * height * channel_count * (bit_depth / 8));
+    ret.data.resize(s_cast<usize>(width) * height * channel_count * (bit_depth / 8));
     ret.descriptor.subresources = {{.offset = 0, .byte_size = s_cast<u32>(ret.data.size())}};
 
     std::vector<png_bytep> row_pointers(height);
     for (u32 row_index = 0; row_index < height; row_index++)
     {
-        row_pointers[row_index] = (png_bytep)(ret.data.data() + width * row_index * channel_count * bit_depth / 8);
+        row_pointers[row_index] = (png_bytep)(ret.data.data() + s_cast<usize>(width) * row_index * channel_count * (bit_depth / 8));
     }
     png_read_image(png_ptr, row_pointers.data());
 
-    return ImageProcessResult::SUCCESS;
+    return ret;
 }
 }
 
@@ -218,7 +226,7 @@ auto image_parse(ImageParseInfo const & parse_info) -> std::variant<ImageProcess
         }
         case ImageFileFormat::PNG:
         {
-            return image_parse_png(parse_info.src_data);
+            return image_parse_png(parse_info.src_data, parse_info.is_srgb);
         }
         default:
         {
@@ -231,38 +239,85 @@ auto image_parse(ImageParseInfo const & parse_info) -> std::variant<ImageProcess
 // ================================ Mipmap generation ===============================
 namespace
 {
-inline auto srgb_to_linear(f32 value) -> f32
+inline auto srgb_to_linear(f64 value) -> f64
 {
-    return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
+    return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
 }
-inline auto linear_to_srgb(f32 value) -> f32
+inline auto linear_to_srgb(f64 value) -> f64
 {
-    return value <= 0.0031308f ? value * 12.92f : 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
+    return value <= 0.0031308 ? value * 12.92 : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
 }
 
-// Read/write one channel sample as a normalized [0,1] float, for 8- or 16-bit unsigned channels.
-inline auto read_normalized(std::byte const * sample_ptr, u32 channel_byte_size) -> f32
+// Largest integer value a channel of this width holds - numeric_limits::max() of its underlying integer type.
+auto numeric_magnitude(FormatNumericType numeric_type, u32 channel_byte_size) -> f64
 {
-    if (channel_byte_size == 2)
+    DBG_ASSERT_TRUE_M(numeric_type != FormatNumericType::SFLOAT, "numeric_magnitude: float has no integer magnitude");
+    bool const is_signed = numeric_type == FormatNumericType::SNORM || numeric_type == FormatNumericType::SINT;
+    switch (channel_byte_size)
     {
-        u16 sample = {};
-        std::memcpy(&sample, sample_ptr, 2);
-        return s_cast<f32>(sample) / 65535.0f;
+        case 1: return is_signed ? s_cast<f64>(std::numeric_limits<i8>::max())  : s_cast<f64>(std::numeric_limits<u8>::max());
+        case 2: return is_signed ? s_cast<f64>(std::numeric_limits<i16>::max()) : s_cast<f64>(std::numeric_limits<u16>::max());
+        case 4: return is_signed ? s_cast<f64>(std::numeric_limits<i32>::max()) : s_cast<f64>(std::numeric_limits<u32>::max());
+        default: DBG_ASSERT_TRUE_M(false, "numeric_magnitude: unsupported channel byte size"); return 1.0;
     }
-    return s_cast<f32>(s_cast<u8>(*sample_ptr)) / 255.0f;
 }
-inline void write_normalized(std::byte * sample_ptr, u32 channel_byte_size, f32 value)
+
+// Load a narrow signed channel as i64. memcpy into the exact-width signed type so the standard integral
+// conversion to i64 sign-extends it - no bit manipulation, no implementation-defined behavior.
+auto sign_extend(std::byte const * src_ptr, u32 byte_size) -> i64
 {
-    value = std::clamp(value, 0.0f, 1.0f);
-    if (channel_byte_size == 2)
+    switch (byte_size)
     {
-        u16 const quantized = s_cast<u16>(std::lround(value * 65535.0f));
-        std::memcpy(sample_ptr, &quantized, 2);
+        case 1: { i8  value; std::memcpy(&value, src_ptr, 1); return value; }
+        case 2: { i16 value; std::memcpy(&value, src_ptr, 2); return value; }
+        case 4: { i32 value; std::memcpy(&value, src_ptr, 4); return value; }
+        default: DBG_ASSERT_TRUE_M(false, "sign_extend: unsupported channel byte size"); return 0;
     }
-    else
+}
+
+// Decode one channel sample into a kind-canonical fp64 value (which ensures we lose no precision):
+//   NORM formats -> a value in the range [0,1]/[-1,1]
+//   INT formats -> the integer value cast to fp64
+//   FLOAT formats -> the float value (half-float widened) cast to fp64
+auto decode_channel_sample(std::byte const * src_ptr, FormatNumericType numeric_type, u32 channel_byte_size) -> f64
+{
+    u64 src_bits = 0;
+    std::memcpy(&src_bits, src_ptr, channel_byte_size);
+    switch (numeric_type)
     {
-        *sample_ptr = s_cast<std::byte>(s_cast<u8>(std::lround(value * 255.0f)));
+        case FormatNumericType::UNORM:  return s_cast<f64>(src_bits) / numeric_magnitude(numeric_type, channel_byte_size);
+        case FormatNumericType::SNORM:  return std::max(s_cast<f64>(sign_extend(src_ptr, channel_byte_size)) / numeric_magnitude(numeric_type, channel_byte_size), -1.0);
+        case FormatNumericType::UINT:   return s_cast<f64>(src_bits);
+        case FormatNumericType::SINT:   return s_cast<f64>(sign_extend(src_ptr, channel_byte_size));
+        case FormatNumericType::SFLOAT: return channel_byte_size == 2 ? s_cast<f64>(glm::detail::toFloat32(s_cast<glm::detail::hdata>(src_bits))) : s_cast<f64>(std::bit_cast<f32>(s_cast<u32>(src_bits)));
     }
+    DBG_ASSERT_TRUE_M(false, "decode_channel_sample: unhandled numeric type");
+    return 0.0;
+}
+
+// Encode a kind-canonical fp64 value into one destination channel sample, clamping/rounding into its
+// representable range. Signed rounds land in the low bytes of the u64 as two's complement, so the same
+// little-endian memcpy writes them back.
+void encode_channel_sample(std::byte * dst_ptr, FormatNumericType numeric_type, u32 channel_byte_size, f64 value)
+{
+    u64 dst_bits = 0;
+    switch (numeric_type)
+    {
+        case FormatNumericType::UNORM:  dst_bits = s_cast<u64>(std::llround(std::clamp(value, 0.0, 1.0) * numeric_magnitude(numeric_type, channel_byte_size))); break;
+        case FormatNumericType::SNORM:  dst_bits = s_cast<u64>(std::llround(std::clamp(value, -1.0, 1.0) * numeric_magnitude(numeric_type, channel_byte_size))); break;
+        case FormatNumericType::UINT:   dst_bits = s_cast<u64>(std::llround(std::clamp(value, 0.0, numeric_magnitude(numeric_type, channel_byte_size)))); break;
+        case FormatNumericType::SINT:   dst_bits = s_cast<u64>(std::llround(std::clamp(value, -numeric_magnitude(numeric_type, channel_byte_size) - 1.0, numeric_magnitude(numeric_type, channel_byte_size)))); break;
+        case FormatNumericType::SFLOAT: dst_bits = channel_byte_size == 2 ? s_cast<u64>(s_cast<u16>(glm::detail::toFloat16(s_cast<f32>(value)))) : s_cast<u64>(std::bit_cast<u32>(s_cast<f32>(value))); break;
+    }
+    std::memcpy(dst_ptr, &dst_bits, channel_byte_size);
+}
+
+// Byte offset of a channel sample in a tightly packed image, texels in z-major order (slice, then row, then
+// column). Reduces to the row-major 2D offset when coord.z is 0.
+auto texel_channel_offset(u32vec3 dimensions, u32vec3 coord, u32 channel, u32 channel_count, u32 channel_byte_size) -> u64
+{
+    u64 const texel_index = (s_cast<u64>(coord.z) * dimensions.y + coord.y) * dimensions.x + coord.x;
+    return (texel_index * channel_count + channel) * s_cast<u64>(channel_byte_size);
 }
 
 struct DownsampleImageTask final : Task
@@ -271,9 +326,8 @@ struct DownsampleImageTask final : Task
 
     DownsampleImageInfo info = {};
     FormatInfo format_info = {};
-    u32 dst_width = {};
-    u32 dst_height = {};
-    u32 rows_per_chunk = {};
+    u32vec3 dst_dimensions = {};
+    u32 rows_per_chunk = {};   // destination rows across the whole volume (dst_z * dst_height + dst_y)
 
     DownsampleImageTask(DownsampleImageInfo const & info)
         : info{info}, format_info{get_format_info(info.format)}
@@ -282,52 +336,78 @@ struct DownsampleImageTask final : Task
         {
             DBG_ASSERT_TRUE_M(false, "DownsampleImageTask: format is not a supported mip-generation source");
         }
-        dst_width = std::max(1u, info.src_dimensions.x >> 1);
-        dst_height = std::max(1u, info.src_dimensions.y >> 1);
-        rows_per_chunk = std::max(1u, TARGET_TEXELS_PER_CHUNK / std::max(1u, dst_width));
-        chunk_count = round_up_div(dst_height, rows_per_chunk);
+        dst_dimensions = {
+            std::max(1u, info.src_dimensions.x >> 1),
+            std::max(1u, info.src_dimensions.y >> 1),
+            std::max(1u, info.src_dimensions.z >> 1),
+        };
+        rows_per_chunk = std::max(1u, TARGET_TEXELS_PER_CHUNK / dst_dimensions.x);
+        u32 const total_dst_rows = dst_dimensions.y * dst_dimensions.z;
+        chunk_count = round_up_div(total_dst_rows, rows_per_chunk);
     }
 
-    virtual void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+    // Box-filter one destination texel by averaging its source neighborhood: two taps along each source axis
+    // of extent > 1, one tap along an axis of extent 1. So a 2D source averages 2x2 and a volume 2x2x2. sRGB
+    // color channels are averaged in linear space.
+    void filter_texel(u32vec3 dst_coord)
     {
         u32 const channel_count = format_info.channel_count;
         u32 const channel_byte_size = format_info.channel_byte_size;
+        FormatNumericType const numeric_type = format_info.numeric_type;
         bool const srgb = format_info.is_srgb;
-        u32 const src_width = info.src_dimensions.x;
-        u32 const src_height = info.src_dimensions.y;
-        u32 const src_row_stride = src_width * channel_count * channel_byte_size;
-        u32 const dst_row_stride = dst_width * channel_count * channel_byte_size;
+        u32vec3 const src_dimensions = info.src_dimensions;
+
+        u32vec3 const tap_counts = {
+            src_dimensions.x > 1u ? 2u : 1u,
+            src_dimensions.y > 1u ? 2u : 1u,
+            src_dimensions.z > 1u ? 2u : 1u,
+        };
+        f64 const inverse_tap_total = 1.0 / s_cast<f64>(tap_counts.x * tap_counts.y * tap_counts.z);
 
         std::byte const * src_data = info.src_data.data();
         std::byte * dst_data = info.dst_data.data();
 
-        u32 const dst_y_begin = chunk_index * rows_per_chunk;
-        u32 const dst_y_end = std::min(dst_y_begin + rows_per_chunk, dst_height);
-        for (u32 dst_y = dst_y_begin; dst_y < dst_y_end; ++dst_y)
+        for (u32 channel = 0; channel < channel_count; ++channel)
         {
-            for (u32 dst_x = 0; dst_x < dst_width; ++dst_x)
+            bool const is_srgb_color = srgb && channel < 3u;
+            f64 channel_sum = 0.0;
+            for (u32 tap_z = 0; tap_z < tap_counts.z; ++tap_z)
             {
-                for (u32 channel = 0; channel < channel_count; ++channel)
+                for (u32 tap_y = 0; tap_y < tap_counts.y; ++tap_y)
                 {
-                    bool const is_srgb_color = srgb && channel < 3u;
-                    f32 channel_sum = 0.0f;
-                    for (u32 tap_y = 0; tap_y < 2u; ++tap_y)
+                    for (u32 tap_x = 0; tap_x < tap_counts.x; ++tap_x)
                     {
-                        for (u32 tap_x = 0; tap_x < 2u; ++tap_x)
-                        {
-                            u32 const src_x = std::min(dst_x * 2u + tap_x, src_width - 1u);
-                            u32 const src_y = std::min(dst_y * 2u + tap_y, src_height - 1u);
-                            std::byte const * src_sample_ptr = &src_data[src_y * src_row_stride + (src_x * channel_count + channel) * channel_byte_size];
-                            f32 sample = read_normalized(src_sample_ptr, channel_byte_size);
-                            if (is_srgb_color) { sample = srgb_to_linear(sample); }
-                            channel_sum += sample;
-                        }
+                        u32vec3 const src_coord = {
+                            std::min(dst_coord.x * 2u + tap_x, src_dimensions.x - 1u),
+                            std::min(dst_coord.y * 2u + tap_y, src_dimensions.y - 1u),
+                            std::min(dst_coord.z * 2u + tap_z, src_dimensions.z - 1u),
+                        };
+                        std::byte const * src_sample_ptr = &src_data[texel_channel_offset(src_dimensions, src_coord, channel, channel_count, channel_byte_size)];
+                        f64 sample = decode_channel_sample(src_sample_ptr, numeric_type, channel_byte_size);
+                        if (is_srgb_color) { sample = srgb_to_linear(sample); }
+                        channel_sum += sample;
                     }
-                    f32 average = channel_sum * 0.25f;
-                    if (is_srgb_color) { average = linear_to_srgb(average); }
-                    std::byte * dst_sample_ptr = &dst_data[dst_y * dst_row_stride + (dst_x * channel_count + channel) * channel_byte_size];
-                    write_normalized(dst_sample_ptr, channel_byte_size, average);
                 }
+            }
+            f64 average = channel_sum * inverse_tap_total;
+            if (is_srgb_color) { average = linear_to_srgb(average); }
+            std::byte * dst_sample_ptr = &dst_data[texel_channel_offset(dst_dimensions, dst_coord, channel, channel_count, channel_byte_size)];
+            encode_channel_sample(dst_sample_ptr, numeric_type, channel_byte_size, average);
+        }
+    }
+
+    virtual void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+    {
+        u32 const total_dst_rows = dst_dimensions.y * dst_dimensions.z;
+        u32 const row_begin = chunk_index * rows_per_chunk;
+        u32 const row_end = std::min(row_begin + rows_per_chunk, total_dst_rows);
+        for (u32 row = row_begin; row < row_end; ++row)
+        {
+            u32 const dst_z = row / dst_dimensions.y;
+            u32 const dst_y = row % dst_dimensions.y;
+            for (u32 dst_x = 0; dst_x < dst_dimensions.x; ++dst_x)
+            {
+                filter_texel({dst_x, dst_y, dst_z});
             }
         }
     }
@@ -342,10 +422,11 @@ auto downsample_image(DownsampleImageInfo const & info) -> std::shared_ptr<Task>
     u32 const texel_byte_size = format_info.block_byte_size;
     u32 const dst_width = std::max(1u, info.src_dimensions.x >> 1);
     u32 const dst_height = std::max(1u, info.src_dimensions.y >> 1);
+    u32 const dst_depth = std::max(1u, info.src_dimensions.z >> 1);
 
-    DBG_ASSERT_TRUE_M(info.src_data.size() == s_cast<usize>(info.src_dimensions.x) * info.src_dimensions.y * texel_byte_size,
+    DBG_ASSERT_TRUE_M(info.src_data.size() == s_cast<usize>(info.src_dimensions.x) * info.src_dimensions.y * info.src_dimensions.z * texel_byte_size,
         "downsample_image: src_data size does not match src_dimensions/format");
-    DBG_ASSERT_TRUE_M(info.dst_data.size() == s_cast<usize>(dst_width) * dst_height * texel_byte_size,
+    DBG_ASSERT_TRUE_M(info.dst_data.size() == s_cast<usize>(dst_width) * dst_height * dst_depth * texel_byte_size,
         "downsample_image: dst_data size does not match the halved src_dimensions/format");
 
     return std::make_shared<DownsampleImageTask>(info);
@@ -355,79 +436,105 @@ void image_resize_for_mipmaps(TidoImageWithData & image, u32 mip_count)
 {
     DBG_ASSERT_TRUE_M(image.descriptor.info.array_layer_count <= 1, "image_resize_for_mipmaps: array/layered images are not yet supported");
 
+    u32 const existing_mip_count = image.descriptor.info.mip_level_count;
+    if (existing_mip_count >= mip_count) { return; }
+    DBG_ASSERT_TRUE_M(image.descriptor.subresources.size() == existing_mip_count, "image_resize_for_mipmaps: subresource count does not match mip_level_count");
+
     FormatInfo const layout = get_format_info(image.descriptor.info.format);
     u32 const base_width = image.descriptor.info.size.x;
     u32 const base_height = image.descriptor.info.size.y;
 
-    // Lay out every level contiguously up front so the buffer never reallocates while a running task holds
-    // pointers into it. One block formula covers both layouts: uncompressed is a 1x1 block of texel bytes, a
-    // BC format a 4x4 block of 8/16 bytes.
-    std::vector<TidoImageDescriptor::SubresourceEntry> subresources(mip_count);
-    u64 total_size = 0;
-    for (u32 mip = 0; mip < mip_count; ++mip)
+    // Append storage + descriptors for mip levels that are not yet present.
+    // Existing levels keep their data and offsets, the new levels are laid out contiguously after the current buffer end.
+    image.descriptor.subresources.reserve(mip_count);
+    u64 offset = image.data.size();
+    for (u32 mip = existing_mip_count; mip < mip_count; ++mip)
     {
         u32 const mip_width = std::max(1u, base_width >> mip);
         u32 const mip_height = std::max(1u, base_height >> mip);
         u64 const byte_size = s_cast<u64>(round_up_div(mip_width, layout.block_width)) * round_up_div(mip_height, layout.block_height) * layout.block_byte_size;
-        subresources[mip] = {.offset = total_size, .byte_size = s_cast<u32>(byte_size)};
-        total_size += byte_size;
+        image.descriptor.subresources.push_back({.offset = offset, .byte_size = s_cast<u32>(byte_size)});
+        offset += byte_size;
     }
-    // The existing buffer must be a valid prefix of the new chain: either empty (an output image, its levels
-    // filled later) or exactly level 0 (an already-decoded source), which the resize preserves at offset 0.
-    DBG_ASSERT_TRUE_M(image.data.empty() || image.data.size() == subresources[0].byte_size,
-        "image_resize_for_mipmaps: existing data is neither empty nor exactly level 0 for its format/size");
-
-    TidoImageWithData ret = std::move(image);
-    ret.data.resize(total_size);
-    ret.descriptor.subresources = std::move(subresources);
-    ret.descriptor.info.mip_level_count = mip_count;
+    image.data.resize(offset);
+    image.descriptor.info.mip_level_count = mip_count;
 }
 
 namespace
 {
+// This table describes the operations that are needed to convert a sample from one numeric type to another.
+// ASSIGN - The source value can be assigned directly to the destination without any scaling or normalization.
+// NORMALIZE_BY_SRC - The source value needs to be divided by its maximum representable value to convert it into the range of [0, 1] or [-1, 1].
+// DENORMALIZE_TO_DST - The source value (which is normalized) needs to be multiplied by the maximum representable value of the destination type.
+enum struct SampleScale { ASSIGN, NORMALIZE_BY_SRC, DENORMALIZE_TO_DST };
+constexpr SampleScale SAMPLE_SCALE_MATRIX[5][5] = {
+    /* src \ dst      UNORM                           SNORM                           UINT                             SINT                             SFLOAT */
+    /* UNORM  */ {SampleScale::ASSIGN,            SampleScale::ASSIGN,            SampleScale::DENORMALIZE_TO_DST, SampleScale::DENORMALIZE_TO_DST, SampleScale::ASSIGN},
+    /* SNORM  */ {SampleScale::ASSIGN,            SampleScale::ASSIGN,            SampleScale::DENORMALIZE_TO_DST, SampleScale::DENORMALIZE_TO_DST, SampleScale::ASSIGN},
+    /* UINT   */ {SampleScale::NORMALIZE_BY_SRC,  SampleScale::NORMALIZE_BY_SRC,  SampleScale::ASSIGN,             SampleScale::ASSIGN,             SampleScale::ASSIGN},
+    /* SINT   */ {SampleScale::NORMALIZE_BY_SRC,  SampleScale::NORMALIZE_BY_SRC,  SampleScale::ASSIGN,             SampleScale::ASSIGN,             SampleScale::ASSIGN},
+    /* SFLOAT */ {SampleScale::ASSIGN,            SampleScale::ASSIGN,            SampleScale::ASSIGN,             SampleScale::ASSIGN,             SampleScale::ASSIGN},
+};
+
+// Convert one source channel sample into one destination channel sample:
+//   1) decode the source channel into a kind-canonical fp64 value,
+//   2) scale it according to the source/destination numeric types (using the conversion table above),
+//   3) encode the scaled value into the destination channel.
+void convert_channel_sample(
+    std::byte const * src_ptr, FormatNumericType src_numeric_type, u32 src_channel_byte_size,
+    std::byte * dst_ptr, FormatNumericType dst_numeric_type, u32 dst_channel_byte_size)
+{
+    f64 value = decode_channel_sample(src_ptr, src_numeric_type, src_channel_byte_size);
+
+    switch (SAMPLE_SCALE_MATRIX[s_cast<u32>(src_numeric_type)][s_cast<u32>(dst_numeric_type)])
+    {
+        case SampleScale::ASSIGN:             break;
+        case SampleScale::NORMALIZE_BY_SRC:   value /= numeric_magnitude(src_numeric_type, src_channel_byte_size); break;
+        case SampleScale::DENORMALIZE_TO_DST: value *= numeric_magnitude(dst_numeric_type, dst_channel_byte_size); break;
+    }
+
+    encode_channel_sample(dst_ptr, dst_numeric_type, dst_channel_byte_size, value);
+}
+
 struct RemapChannelsTask final : Task
 {
     static constexpr u32 TARGET_TEXELS_PER_CHUNK = 8192;
 
     RemapChannelsInfo info = {};
     FormatInfo format_info = {};
-    u32 rows_per_chunk = {};
+    FormatInfo dst_format_info = {};
 
     RemapChannelsTask(RemapChannelsInfo const & info)
-        : info{info}, format_info{get_format_info(info.format)}
+        : info{info}, format_info{get_format_info(info.format)}, dst_format_info{get_format_info(info.dst_format)}
     {
         if(format_info.channel_count == 0 || format_info.channel_byte_size == 0)
         {
             DBG_ASSERT_TRUE_M(false, "RemapChannelsTask: format is not a supported remap source");
         }
-        rows_per_chunk = std::max(1u, TARGET_TEXELS_PER_CHUNK / std::max(1u, info.dimensions.x));
-        chunk_count = round_up_div(info.dimensions.y, rows_per_chunk);
+        chunk_count = round_up_div(info.texel_count, TARGET_TEXELS_PER_CHUNK);
     }
 
     virtual void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
     {
         u32 const src_channel_count = format_info.channel_count;
-        u32 const channel_byte_size = format_info.channel_byte_size;
-        u32 const dst_channel_count = s_cast<u32>(info.channel_mapping.size());
-        u32 const width = info.dimensions.x;
+        u32 const src_channel_byte_size = format_info.channel_byte_size;
+        u32 const dst_channel_count = dst_format_info.channel_count;
+        u32 const dst_channel_byte_size = dst_format_info.channel_byte_size;
 
         std::byte const * src_data = info.src_data.data();
         std::byte * dst_data = info.dst_data.data();
 
-        u32 const y_begin = chunk_index * rows_per_chunk;
-        u32 const y_end = std::min(y_begin + rows_per_chunk, info.dimensions.y);
-        for (u32 texel_y = y_begin; texel_y < y_end; ++texel_y)
+        u32 const texel_begin = chunk_index * TARGET_TEXELS_PER_CHUNK;
+        u32 const texel_end = std::min(texel_begin + TARGET_TEXELS_PER_CHUNK, info.texel_count);
+        for (u32 texel_index = texel_begin; texel_index < texel_end; ++texel_index)
         {
-            for (u32 texel_x = 0; texel_x < width; ++texel_x)
+            for (u32 dst_channel = 0; dst_channel < dst_channel_count; ++dst_channel)
             {
-                usize const texel_index = s_cast<usize>(texel_y) * width + texel_x;
-                for (u32 dst_channel = 0; dst_channel < dst_channel_count; ++dst_channel)
-                {
-                    u32 const src_channel = info.channel_mapping[dst_channel];
-                    std::byte const * src_sample_ptr = src_data + (texel_index * src_channel_count + src_channel) * channel_byte_size;
-                    std::byte * dst_sample_ptr = dst_data + (texel_index * dst_channel_count + dst_channel) * channel_byte_size;
-                    std::memcpy(dst_sample_ptr, src_sample_ptr, channel_byte_size);
-                }
+                u32 const src_channel = info.channel_mapping[dst_channel];
+                std::byte const * src_sample_ptr = src_data + (s_cast<usize>(texel_index) * src_channel_count + src_channel) * src_channel_byte_size;
+                std::byte * dst_sample_ptr = dst_data + (s_cast<usize>(texel_index) * dst_channel_count + dst_channel) * dst_channel_byte_size;
+                convert_channel_sample(src_sample_ptr, format_info.numeric_type, src_channel_byte_size,
+                    dst_sample_ptr, dst_format_info.numeric_type, dst_channel_byte_size);
             }
         }
     }
@@ -437,17 +544,19 @@ struct RemapChannelsTask final : Task
 auto remap_channels(RemapChannelsInfo const & info) -> std::shared_ptr<Task>
 {
     FormatInfo const format_info = get_format_info(info.format);
+    FormatInfo const dst_format_info = get_format_info(info.dst_format);
     DBG_ASSERT_TRUE_M(format_info.channel_count != 0 && format_info.channel_byte_size != 0, "remap_channels: format is not a supported remap source");
+    DBG_ASSERT_TRUE_M(dst_format_info.channel_count != 0 && dst_format_info.channel_byte_size != 0, "remap_channels: dst_format is not a supported remap destination");
+    DBG_ASSERT_TRUE_M(dst_format_info.channel_count == info.channel_mapping.size(), "remap_channels: dst_format channel count must equal the channel_mapping size");
 
     for (u8 const src_channel : info.channel_mapping)
     {
         DBG_ASSERT_TRUE_M(src_channel < format_info.channel_count, "remap_channels: channel_mapping indexes a channel the source format does not have");
     }
-    u32 const dst_channel_count = s_cast<u32>(info.channel_mapping.size());
-    DBG_ASSERT_TRUE_M(info.src_data.size() == s_cast<usize>(info.dimensions.x) * info.dimensions.y * format_info.channel_count * format_info.channel_byte_size,
-        "remap_channels: src_data size does not match dimensions/format");
-    DBG_ASSERT_TRUE_M(info.dst_data.size() == s_cast<usize>(info.dimensions.x) * info.dimensions.y * dst_channel_count * format_info.channel_byte_size,
-        "remap_channels: dst_data size does not match dimensions and remapped channel count");
+    DBG_ASSERT_TRUE_M(info.src_data.size() == s_cast<usize>(info.texel_count) * format_info.channel_count * format_info.channel_byte_size,
+        "remap_channels: src_data size does not match texel_count/format");
+    DBG_ASSERT_TRUE_M(info.dst_data.size() == s_cast<usize>(info.texel_count) * dst_format_info.channel_count * dst_format_info.channel_byte_size,
+        "remap_channels: dst_data size does not match texel_count and dst_format");
     return std::make_shared<RemapChannelsTask>(info);
 }
 
@@ -485,14 +594,17 @@ namespace
         image_with_data.descriptor.info.format = std::bit_cast<daxa::Format>(texture->vkFormat);
         image_with_data.descriptor.info.dimensions = texture->numDimensions;
         image_with_data.descriptor.info.size = {texture->baseWidth, texture->baseHeight, texture->baseDepth};
+        // A non-array KTX2 reports numLayers == 0; treat it as a single layer so the subresource table and
+        // the copy loop below are non-empty.
+        u32 const layer_count = std::max(1u, texture->numLayers);
         image_with_data.descriptor.info.mip_level_count = texture->numLevels;
-        image_with_data.descriptor.info.array_layer_count = texture->numLayers;
-        image_with_data.descriptor.subresources.resize(texture->numLevels * texture->numLayers);
+        image_with_data.descriptor.info.array_layer_count = layer_count;
+        image_with_data.descriptor.subresources.resize(texture->numLevels * layer_count);
 
         ktx_uint8_t const * texture_data = ktxTexture_GetData(ktxTexture(texture));
         for (u32 mip = 0; mip < texture->numLevels; ++mip)
         {
-            for (u32 layer = 0; layer < texture->numLayers; ++layer)
+            for (u32 layer = 0; layer < layer_count; ++layer)
             {
                 u64 offset = {};
                 result = ktxTexture_GetImageOffset(ktxTexture(texture), mip, layer, 0, &offset);
@@ -575,121 +687,3 @@ auto image_transcode(ImageTranscodeInfo const & info) -> std::variant<ImageProce
     bool const transcode_alpha_to_opaque = info.channel_mapping.size() == 1 && info.channel_mapping[0] == 3;
     return image_transcode_ktx(info.src_data, transcode_format, transcode_alpha_to_opaque);
 }
-
-// // Interleave N fp16 grids into one channel-interleaved buffer, channel order = grids_data order. Mirrors
-// // the repack loops LoadVDBTask's callers used to do by hand for the RAW (4-grid) and BC6 (3-grid) cases.
-// auto interleave_fp16_grids(std::vector<std::vector<std::byte>> const & grids_data, i32vec3 grid_extents) -> std::vector<std::byte>
-// {
-//     constexpr u32 element_size = sizeof(u16);
-//     u32 const channel_count = s_cast<u32>(grids_data.size());
-//     u64 const entry_count = s_cast<u64>(grid_extents.x) * grid_extents.y * grid_extents.z;
-//     std::vector<std::byte> interleaved(entry_count * channel_count * element_size);
-//     for (u64 entry_index = 0; entry_index < entry_count; ++entry_index)
-//     {
-//         u64 const dst_offset = entry_index * channel_count * element_size;
-//         for (u32 channel = 0; channel < channel_count; ++channel)
-//         {
-//             std::memcpy(&interleaved[dst_offset + channel * element_size], &grids_data[channel][entry_index * element_size], element_size);
-//         }
-//     }
-//     return interleaved;
-// }
-
-// // Remap one fp32 grid's (already value_range-clamped, see VDBGridInfo) samples into [0,1] -
-// // CompressBlockBC1SDF asserts its input lies in that range.
-// auto normalize_f32_grid(std::vector<std::byte> const & grid_data, f32vec2 value_range) -> std::vector<std::byte>
-// {
-//     std::vector<std::byte> normalized(grid_data.size());
-//     usize const entry_count = grid_data.size() / sizeof(f32);
-//     f32 const range = value_range.y - value_range.x;
-//     for (usize entry_index = 0; entry_index < entry_count; ++entry_index)
-//     {
-//         f32 value = {};
-//         std::memcpy(&value, &grid_data[entry_index * sizeof(f32)], sizeof(f32));
-//         f32 const remapped = (value - value_range.x) / range;
-//         std::memcpy(&normalized[entry_index * sizeof(f32)], &remapped, sizeof(f32));
-//     }
-//     return normalized;
-// }
-
-// auto process_volume(OptimizeVolumeInfo const & info, ThreadPool * threadpool) -> ProcessedImage
-// {
-//     DBG_ASSERT_TRUE_M(info.grids_data.size() == info.grids.size(), "process_volume: grids_data must have one entry per recipe grid");
-//     u32vec3 const volume_dimensions = {s_cast<u32>(info.grid_extents.x), s_cast<u32>(info.grid_extents.y), s_cast<u32>(info.grid_extents.z)};
-
-//     ProcessedImage ret = {};
-//     ret.mips_to_copy = 1;
-//     ret.mip_copy_offsets[0] = 0;
-//     ret.image_info = {
-//         .dimensions = 3,
-//         .size = {volume_dimensions.x, volume_dimensions.y, volume_dimensions.z},
-//         .mip_level_count = 1,
-//         .array_layer_count = 1,
-//         .sample_count = 1,
-//         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
-//         .name = info.name,
-//     };
-
-//     switch (info.target)
-//     {
-//         case Compression::BC1_SDF:
-//         {
-//             DBG_ASSERT_TRUE_M(info.grids.size() == 1, "process_volume: BC1_SDF compresses exactly one grid");
-//             DBG_ASSERT_TRUE_M(!info.grids[0].convert_to_fp16, "process_volume: BC1_SDF requires its grid decoded as fp32");
-//             std::vector<std::byte> const normalized = normalize_f32_grid(info.grids_data[0], info.grids[0].value_range);
-
-//             u64 const block_count = s_cast<u64>(round_up_div(volume_dimensions.x, 4u)) * round_up_div(volume_dimensions.y, 4u) * volume_dimensions.z;
-//             ret.src_data.resize(block_count * bc_block_bytes(Compression::BC1_SDF));
-//             auto compress_task = compress_image({
-//                 .in_data = normalized,
-//                 .out_data = ret.src_data,
-//                 .image_dimensions = volume_dimensions,
-//                 .compression = Compression::BC1_SDF,
-//             });
-//             threadpool->blocking_dispatch(compress_task);
-//             ret.image_info.format = daxa::Format::BC1_RGBA_UNORM_BLOCK;
-//             break;
-//         }
-//         case Compression::BC6:
-//         {
-//             DBG_ASSERT_TRUE_M(info.grids.size() == 3, "process_volume: BC6 interleaves exactly three grids (RGB16F)");
-//             for (VDBGridInfo const & grid : info.grids)
-//             {
-//                 DBG_ASSERT_TRUE_M(grid.convert_to_fp16, "process_volume: BC6 requires its grids decoded as fp16");
-//             }
-//             std::vector<std::byte> const interleaved = interleave_fp16_grids(info.grids_data, info.grid_extents);
-
-//             u64 const block_count = s_cast<u64>(round_up_div(volume_dimensions.x, 4u)) * round_up_div(volume_dimensions.y, 4u) * volume_dimensions.z;
-//             ret.src_data.resize(block_count * bc_block_bytes(Compression::BC6));
-//             auto compress_task = compress_image({
-//                 .in_data = interleaved,
-//                 .out_data = ret.src_data,
-//                 .image_dimensions = volume_dimensions,
-//                 .compression = Compression::BC6,
-//             });
-//             threadpool->blocking_dispatch(compress_task);
-//             ret.image_info.format = daxa::Format::BC6H_UFLOAT_BLOCK;
-//             break;
-//         }
-//         case Compression::UNDEFINED:
-//         {
-//             // "none" means uncompressed RGBA16F, matching the legacy RAW cloud format - exactly 4 grids.
-//             DBG_ASSERT_TRUE_M(info.grids.size() == 4, "process_volume: uncompressed volumes need exactly four grids (RGBA16F)");
-//             for (VDBGridInfo const & grid : info.grids)
-//             {
-//                 DBG_ASSERT_TRUE_M(grid.convert_to_fp16, "process_volume: uncompressed volumes require their grids decoded as fp16");
-//             }
-//             ret.src_data = interleave_fp16_grids(info.grids_data, info.grid_extents);
-//             ret.image_info.format = daxa::Format::R16G16B16A16_SFLOAT;
-//             break;
-//         }
-//         case Compression::BC1:
-//         case Compression::BC4:
-//         case Compression::BC5:
-//         case Compression::BC7:
-//         default:
-//             DBG_ASSERT_TRUE_M(false, "process_volume: unsupported volume compression target");
-//             break;
-//     }
-//     return ret;
-// }

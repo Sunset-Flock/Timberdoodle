@@ -58,7 +58,7 @@ auto read_file_byte_range(FileByteRange const & range) -> std::pair<FileIoResult
     return {FileIoResult::SUCCESS, data};
 }
 
-auto read_file_shared(std::filesystem::path const & path) -> std::pair<FileIoResult, std::vector<std::byte>>
+auto read_file(std::filesystem::path const & path) -> std::pair<FileIoResult, std::vector<std::byte>>
 {
     Win32Handle file = {.handle = CreateFileW(
         path.c_str(),
@@ -80,7 +80,7 @@ auto read_file_shared(std::filesystem::path const & path) -> std::pair<FileIoRes
     return {FileIoResult::SUCCESS, data};
 }
 
-auto write_file_exclusive(std::filesystem::path const & path, void const * data, usize size) -> FileIoResult
+auto write_file(std::filesystem::path const & path, void const * data, usize size) -> FileIoResult
 {
     Win32Handle file = {.handle = CreateFileW(
         path.c_str(),
@@ -96,4 +96,38 @@ auto write_file_exclusive(std::filesystem::path const & path, void const * data,
     BOOL const ok = WriteFile(file.handle, data, s_cast<DWORD>(size), &bytes_written, nullptr);
     if (!ok || bytes_written != s_cast<DWORD>(size)) { return FileIoResult::IO_FAILED; }
     return FileIoResult::SUCCESS;
+}
+
+auto write_file_byte_range(std::filesystem::path const & path, u64 byte_offset, void const * data, usize size) -> FileIoResult
+{
+    Win32Handle file = {.handle = CreateFileW(
+        path.c_str(),
+        GENERIC_WRITE,
+        0, // deny read and write to everyone else while the write is in flight
+        nullptr,
+        OPEN_EXISTING, // patch an existing file in place; never create or truncate
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr)};
+    if (file.handle == INVALID_HANDLE_VALUE) { return open_error_to_file_io_error(GetLastError()); }
+
+    LARGE_INTEGER file_size = {};
+    if (!GetFileSizeEx(file.handle, &file_size)) { return FileIoResult::IO_FAILED; }
+    if (byte_offset + size > s_cast<u64>(file_size.QuadPart)) { return FileIoResult::OUT_OF_BOUNDS; }
+
+    LARGE_INTEGER seek_target = {};
+    seek_target.QuadPart = s_cast<LONGLONG>(byte_offset);
+    if (!SetFilePointerEx(file.handle, seek_target, nullptr, FILE_BEGIN)) { return FileIoResult::IO_FAILED; }
+
+    DWORD bytes_written = 0;
+    BOOL const ok = WriteFile(file.handle, data, s_cast<DWORD>(size), &bytes_written, nullptr);
+    if (!ok || bytes_written != s_cast<DWORD>(size)) { return FileIoResult::IO_FAILED; }
+    return FileIoResult::SUCCESS;
+}
+
+auto read_file_modified_time(std::filesystem::path const & path) -> std::optional<i64>
+{
+    std::error_code ec = {};
+    auto const write_time = std::filesystem::last_write_time(path, ec);
+    if (ec) { return std::nullopt; }
+    return write_time.time_since_epoch().count();
 }

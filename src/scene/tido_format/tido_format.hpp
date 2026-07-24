@@ -35,6 +35,18 @@ struct TidoFilePreamble
 constexpr static u32 TIDO_FILE_PREAMBLE_SIZE = sizeof(TidoFilePreamble);
 static_assert(TIDO_FILE_PREAMBLE_SIZE == 24, "TidoFilePreamble must stay tightly packed with no padding");
 
+// How a channel's stored bits are interpreted numerically. Distinguishes normalized (UNORM/SNORM, a
+// bounded real) from raw integer (UINT/SINT) - a distinction signed/unsigned/float alone can't make, but
+// which channel conversion (remap) needs to pick between rescaling and value-preserving.
+enum struct FormatNumericType
+{
+    UNORM,
+    SNORM,
+    UINT,
+    SINT,
+    SFLOAT,
+};
+
 struct FormatInfo
 {
     static constexpr u32 UNSUPPORTED_FORMAT = 0;
@@ -42,6 +54,7 @@ struct FormatInfo
     u32 channel_count = {};
     u32 channel_byte_size = {};
     bool is_srgb = {};
+    FormatNumericType numeric_type = {};
     u32 block_width = 1;
     u32 block_height = 1;
 
@@ -123,3 +136,9 @@ auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & 
 // Validates the fixed preamble at the start of a .tido_bin and returns just the JSON header region that
 // follows it. nullopt if the file is too small or the preamble's magic/version does not match.
 auto tido_header_region(std::span<std::byte const> file_data) -> std::optional<std::span<std::byte const>>;
+
+// Patch only the metadata-hash header of an existing .tido_bin in place (descriptor + payload untouched).
+// The metadata fields are fixed-width, so old_hash and new_hash serialize to the same length and the patch
+// can't move the payload offset. Returns false on a write failure, or as a safety net if that length
+// invariant is ever broken (lengths differ).
+auto try_patch_tido_metadata_hash(std::filesystem::path const & path, TidoMetadataHash const & old_hash, TidoMetadataHash const & new_hash) -> bool;

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string_view>
 #include <vector>
 
 #include <chrono>
@@ -14,22 +15,75 @@
 
 namespace
 {
-auto write_file_exclusive_retry(std::filesystem::path const & path, void const * data, usize size) -> bool
+// Retry a single-attempt write while the file is held open by someone else; give up on any other error.
+template <typename WriteOp>
+auto retry_while_locked(WriteOp && write_op) -> bool
 {
     static constexpr u32 WRITE_RETRY_DELAY_MS = 1;
     while (true)
     {
-        FileIoResult const result = write_file_exclusive(path, data, size);
+        FileIoResult const result = write_op();
         if (result == FileIoResult::SUCCESS) { return true; }
         if (result != FileIoResult::LOCKED) { return false; }
         std::this_thread::sleep_for(std::chrono::milliseconds(WRITE_RETRY_DELAY_MS));
     }
 }
 
-void append_string_bytes(std::vector<std::byte> & dst, std::string const & src)
+auto write_file_exclusive_retry(std::filesystem::path const & path, void const * data, usize size) -> bool
 {
-    std::byte const * const begin = r_cast<std::byte const *>(src.data());
-    dst.insert(dst.end(), begin, begin + src.size());
+    return retry_while_locked([&]() { return write_file(path, data, size); });
+}
+
+// The header region is a single JSON array [metadata_hash, descriptor]. Each element is pretty-printed
+// independently, and these are just the literal wrapper bytes stitched around them (not a re-serialization
+// of the combined structure), so the metadata-hash element's offset/length stay fixed regardless of the
+// descriptor's size - that's what try_patch_tido_metadata_hash relies on below.
+constexpr std::string_view TIDO_HEADER_ARRAY_PREFIX = "[\n";
+constexpr std::string_view TIDO_HEADER_ARRAY_SEPARATOR = ",\n";
+constexpr std::string_view TIDO_HEADER_ARRAY_SUFFIX = "\n]";
+
+struct WriteTidoFileResult
+{
+    std::filesystem::path bin_source = {};
+    u64 file_data_offset = {};
+};
+
+// Assembles [preamble][JSON array: metadata_hash, descriptor][payload] and writes it to
+// destination_folder/<stem>.tido_bin; callers pass their already-serialized descriptor and built payload.
+auto write_tido_file(WriteTidoFileInfo const & info, std::string const & serialized_descriptor, std::span<std::byte const> data_payload) -> std::optional<WriteTidoFileResult>
+{
+    std::error_code create_destination_folder_error = {};
+    std::filesystem::create_directories(info.destination_folder, create_destination_folder_error);
+
+    DBG_ASSERT_TRUE_M(
+        !create_destination_folder_error || create_destination_folder_error == std::errc::file_exists,
+        "write_tido_file: failed to create destination folder");
+
+    std::filesystem::path const tido_path = tido_artifact_path(info.destination_folder, info.name, info.metadata_hash.cache_key);
+
+    std::vector<std::byte> header_payload = {};
+    header_payload.resize(TIDO_FILE_PREAMBLE_SIZE);
+
+    std::string const serialized_tido_metadata_hash = serialize_tido_metadata_hash(info.metadata_hash);
+    tido_append_bytes(header_payload, TIDO_HEADER_ARRAY_PREFIX.data(), TIDO_HEADER_ARRAY_PREFIX.size());
+    tido_append_bytes(header_payload, serialized_tido_metadata_hash.data(), serialized_tido_metadata_hash.size());
+    tido_append_bytes(header_payload, TIDO_HEADER_ARRAY_SEPARATOR.data(), TIDO_HEADER_ARRAY_SEPARATOR.size());
+    tido_append_bytes(header_payload, serialized_descriptor.data(), serialized_descriptor.size());
+    tido_append_bytes(header_payload, TIDO_HEADER_ARRAY_SUFFIX.data(), TIDO_HEADER_ARRAY_SUFFIX.size());
+
+    // A fixed preamble precedes the json metadata headers, which precede the raw payload.
+    u64 const file_data_offset = header_payload.size();
+    TidoFilePreamble preamble = {};
+    preamble.header_byte_length = header_payload.size() - TIDO_FILE_PREAMBLE_SIZE;
+    std::copy(r_cast<std::byte *>(&preamble), r_cast<std::byte *>(&preamble) + TIDO_FILE_PREAMBLE_SIZE, header_payload.begin());
+
+    // TODO(saky): still one copy of data_payload here; a scatter/gather write_file_exclusive would avoid it.
+    header_payload.reserve(header_payload.size() + data_payload.size());
+    header_payload.insert(header_payload.end(), data_payload.begin(), data_payload.end());
+
+    if (!write_file_exclusive_retry(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+
+    return WriteTidoFileResult{.bin_source = tido_path, .file_data_offset = file_data_offset};
 }
 }
 
@@ -38,56 +92,58 @@ auto get_format_info(daxa::Format format) -> FormatInfo
     switch (format)
     {
         // 8-bit
-        case daxa::Format::R8_UNORM:             return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 1};
-        case daxa::Format::R8_SRGB:              return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = true,  .block_width = 1, .block_height = 1, .block_byte_size = 1};
-        case daxa::Format::R8_SINT:              return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 1};
-        case daxa::Format::R8G8_UNORM:           return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R8G8_SRGB:            return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = true,  .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R8G8_SINT:            return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R8G8B8A8_UNORM:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R8G8B8A8_SRGB:        return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R8G8B8A8_SINT:        return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R8_UNORM:             return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 1};
+        case daxa::Format::R8_SRGB:              return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 1};
+        case daxa::Format::R8_SINT:              return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SINT,  .block_width = 1, .block_height = 1, .block_byte_size = 1};
+        case daxa::Format::R8G8_UNORM:           return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R8G8_SRGB:            return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R8G8_SINT:            return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SINT,  .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R8G8B8_UNORM:         return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 3};
+        case daxa::Format::R8G8B8_SRGB:          return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 3};
+        case daxa::Format::R8G8B8A8_UNORM:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R8G8B8A8_SRGB:        return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R8G8B8A8_SINT:        return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SINT,  .block_width = 1, .block_height = 1, .block_byte_size = 4};
         // 16-bit
-        case daxa::Format::R16_UINT:
-        case daxa::Format::R16_SINT:
-        case daxa::Format::R16_SFLOAT:           return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 2};
-        case daxa::Format::R16G16_UINT:
-        case daxa::Format::R16G16_SINT:
-        case daxa::Format::R16G16_SFLOAT:        return {.channel_count = 2, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R16G16B16_UINT:
-        case daxa::Format::R16G16B16_SINT:
-        case daxa::Format::R16G16B16_SFLOAT:     return {.channel_count = 3, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 6};
-        case daxa::Format::R16G16B16A16_UINT:
-        case daxa::Format::R16G16B16A16_SINT:
-        case daxa::Format::R16G16B16A16_SFLOAT:  return {.channel_count = 4, .channel_byte_size = 2, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R16_UINT:             return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R16_SINT:             return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R16_SFLOAT:           return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R16G16_UINT:          return {.channel_count = 2, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R16G16_SINT:          return {.channel_count = 2, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R16G16_SFLOAT:        return {.channel_count = 2, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R16G16B16_UINT:       return {.channel_count = 3, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 6};
+        case daxa::Format::R16G16B16_SINT:       return {.channel_count = 3, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 6};
+        case daxa::Format::R16G16B16_SFLOAT:     return {.channel_count = 3, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 6};
+        case daxa::Format::R16G16B16A16_UINT:    return {.channel_count = 4, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R16G16B16A16_SINT:    return {.channel_count = 4, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R16G16B16A16_SFLOAT:  return {.channel_count = 4, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 8};
         // 32-bit
-        case daxa::Format::R32_UINT:
-        case daxa::Format::R32_SINT:
-        case daxa::Format::R32_SFLOAT:           return {.channel_count = 1, .channel_byte_size = 4, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 4};
-        case daxa::Format::R32G32_UINT:
-        case daxa::Format::R32G32_SINT:
-        case daxa::Format::R32G32_SFLOAT:        return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 8};
-        case daxa::Format::R32G32B32A32_UINT:
-        case daxa::Format::R32G32B32A32_SINT:
-        case daxa::Format::R32G32B32A32_SFLOAT:  return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .block_width = 1, .block_height = 1, .block_byte_size = 16};
+        case daxa::Format::R32_UINT:             return {.channel_count = 1, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R32_SINT:             return {.channel_count = 1, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R32_SFLOAT:           return {.channel_count = 1, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R32G32_UINT:          return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R32G32_SINT:          return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R32G32_SFLOAT:        return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R32G32B32A32_UINT:    return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 16};
+        case daxa::Format::R32G32B32A32_SINT:    return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 16};
+        case daxa::Format::R32G32B32A32_SFLOAT:  return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 16};
         // Block compressed (8 bytes / 4x4 block)
-        case daxa::Format::BC1_RGB_UNORM_BLOCK:
         case daxa::Format::BC1_RGB_SRGB_BLOCK:
+        case daxa::Format::BC1_RGBA_SRGB_BLOCK:  return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = true,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        case daxa::Format::BC1_RGB_UNORM_BLOCK:
         case daxa::Format::BC1_RGBA_UNORM_BLOCK:
-        case daxa::Format::BC1_RGBA_SRGB_BLOCK:
         case daxa::Format::BC4_UNORM_BLOCK:
         case daxa::Format::BC4_SNORM_BLOCK:      return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 8};
         // Block compressed (16 bytes / 4x4 block)
-        case daxa::Format::BC2_UNORM_BLOCK:
         case daxa::Format::BC2_SRGB_BLOCK:
-        case daxa::Format::BC3_UNORM_BLOCK:
         case daxa::Format::BC3_SRGB_BLOCK:
+        case daxa::Format::BC7_SRGB_BLOCK:       return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = true,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC2_UNORM_BLOCK:
+        case daxa::Format::BC3_UNORM_BLOCK:
         case daxa::Format::BC5_UNORM_BLOCK:
         case daxa::Format::BC5_SNORM_BLOCK:
         case daxa::Format::BC6H_UFLOAT_BLOCK:
         case daxa::Format::BC6H_SFLOAT_BLOCK:
-        case daxa::Format::BC7_UNORM_BLOCK:
-        case daxa::Format::BC7_SRGB_BLOCK:       return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC7_UNORM_BLOCK:      return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 16};
         default:
             DBG_ASSERT_TRUE_M(false, "get_format_info: unhandled format");
             return {};
@@ -114,13 +170,6 @@ auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const 
     FormatInfo const block = get_format_info(descriptor.info.format);
     DBG_ASSERT_TRUE_M(block.block_byte_size != 0, "write_tido_image: unsupported texture format");
 
-    std::error_code create_destination_folder_error = {};
-    std::filesystem::create_directories(info.destination_folder, create_destination_folder_error);
-
-    std::string const stem = tido_stem(info.name, info.metadata_hash.cache_key);
-    std::filesystem::path const tido_path = info.destination_folder / (stem + ".tido_bin");
-
-
     std::vector<std::byte> data_payload = {};
 
     // The destination desrciptor might be different from the source descriptor (the subresource offsets can be different).
@@ -146,48 +195,18 @@ auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const 
         }
     }
 
-    std::vector<std::byte> header_payload = {};
-    header_payload.resize(TIDO_FILE_PREAMBLE_SIZE);
-
-    std::string const serialized_tido_metadata_hash = serialize_tido_metadata_hash(info.metadata_hash);
-    std::string const serialized_tido_image_descriptor = serialize_tido_image_descriptor(dst_descriptor);
-    std::string const separator = "\n";
-    append_string_bytes(header_payload, serialized_tido_metadata_hash);
-    append_string_bytes(header_payload, separator);
-    append_string_bytes(header_payload, serialized_tido_image_descriptor);
-    append_string_bytes(header_payload, separator);
-
-    // A fixed preamble precedes the json metadata headers, which precede the raw image data.
-    u64 const file_data_offset = header_payload.size();
-    TidoFilePreamble preamble = {};
-    preamble.header_byte_length = header_payload.size() - TIDO_FILE_PREAMBLE_SIZE;
-    std::copy(r_cast<std::byte *>(&preamble), r_cast<std::byte *>(&preamble) + TIDO_FILE_PREAMBLE_SIZE, header_payload.begin());
-
-    // TODO(saky): still one copy of data_payload here; a scatter/gather write_file_exclusive would avoid it.
-    header_payload.reserve(header_payload.size() + data_payload.size());
-    header_payload.insert(header_payload.end(), data_payload.begin(), data_payload.end());
-
-    if (!write_file_exclusive_retry(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+    std::optional<WriteTidoFileResult> const write_result = write_tido_file(info, serialize_tido_image_descriptor(dst_descriptor), data_payload);
+    if (!write_result.has_value()) { return std::nullopt; }
 
     ImageStreamerData result = {};
     result.descriptor = dst_descriptor;
-    result.bin_source = tido_path;
-    result.file_data_offset = file_data_offset;
+    result.bin_source = write_result->bin_source;
+    result.file_data_offset = write_result->file_data_offset;
     return result;
 }
 
 auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & descriptor) -> std::optional<MeshStreamerData>
 {
-    std::error_code create_destination_folder_error = {};
-    std::filesystem::create_directories(info.destination_folder, create_destination_folder_error);
-
-    DBG_ASSERT_TRUE_M(
-        !create_destination_folder_error || create_destination_folder_error == std::errc::file_exists,
-        "write_tido_mesh: failed to create destination folder");
-
-    std::string const stem = tido_stem(info.name, info.metadata_hash.cache_key);
-    std::filesystem::path const tido_path = info.destination_folder / (stem + ".tido_bin");
-
     std::vector<std::byte> data_payload = {};
     data_payload.reserve(info.data.size());
 
@@ -205,38 +224,32 @@ auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & 
         data_payload.insert(data_payload.end(), info.data.begin() + entry.offset, info.data.begin() + entry.offset + entry.byte_size);
     }
 
-    std::vector<std::byte> header_payload = {};
-    header_payload.resize(TIDO_FILE_PREAMBLE_SIZE);
-
-    std::string const serialized_tido_metadata_hash = serialize_tido_metadata_hash(info.metadata_hash);
-    std::string const serialized_tido_mesh_descriptor = serialize_tido_mesh_descriptor(dst_descriptor);
-
-    std::string const separator = "\n";
-    append_string_bytes(header_payload, serialized_tido_metadata_hash);
-    append_string_bytes(header_payload, separator);
-    append_string_bytes(header_payload, serialized_tido_mesh_descriptor);
-    append_string_bytes(header_payload, separator);
-
-    // A fixed preamble precedes the json metadata headers, which precede the raw mesh data.
-    u64 const file_data_offset = header_payload.size();
-    TidoFilePreamble preamble = {};
-    preamble.header_byte_length = header_payload.size() - TIDO_FILE_PREAMBLE_SIZE;
-    std::copy(r_cast<std::byte *>(&preamble), r_cast<std::byte *>(&preamble) + TIDO_FILE_PREAMBLE_SIZE, header_payload.begin());
-
-    // TODO(saky): still one copy of data_payload here; a scatter/gather write_file_exclusive would avoid it.
-    header_payload.reserve(header_payload.size() + data_payload.size());
-    header_payload.insert(header_payload.end(), data_payload.begin(), data_payload.end());
-
-    if (!write_file_exclusive_retry(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+    std::optional<WriteTidoFileResult> const write_result = write_tido_file(info, serialize_tido_mesh_descriptor(dst_descriptor), data_payload);
+    if (!write_result.has_value()) { return std::nullopt; }
 
     MeshStreamerData result = {};
     result.descriptor = dst_descriptor;
-    result.bin_source = tido_path;
-    result.file_data_offset = file_data_offset;
+    result.bin_source = write_result->bin_source;
+    result.file_data_offset = write_result->file_data_offset;
     return result;
 }
 
-auto tido_extract_and_validate_header_preamble(std::span<std::byte const> file_data) -> std::optional<TidoFilePreamble>
+auto try_patch_tido_metadata_hash(std::filesystem::path const & path, TidoMetadataHash const & old_hash, TidoMetadataHash const & new_hash) -> bool
+{
+    // The metadata-hash block is the first element of the header's JSON array, at a fixed offset right after
+    // the preamble and the array's literal "[\n" prefix. Every field serializes fixed-width (mtime as hex,
+    // like the hashes), so serialize(new_hash) has the same length as the on-disk block (== serialize(old_hash),
+    // serialization being deterministic) and the patch can't move the payload offset. The length check is a
+    // safety net against that ever ceasing to hold - it bails rather than shift the payload.
+    std::string const old_block = serialize_tido_metadata_hash(old_hash);
+    std::string const new_block = serialize_tido_metadata_hash(new_hash);
+    if (old_block.size() != new_block.size()) { return false; }
+
+    u64 const patch_offset = TIDO_FILE_PREAMBLE_SIZE + TIDO_HEADER_ARRAY_PREFIX.size();
+    return retry_while_locked([&]() { return write_file_byte_range(path, patch_offset, new_block.data(), new_block.size()); });
+}
+
+auto tido_header_region(std::span<std::byte const> file_data) -> std::optional<std::span<std::byte const>>
 {
     if (file_data.size() < sizeof(TidoFilePreamble)) { return std::nullopt; }
     TidoFilePreamble preamble = {};
@@ -244,5 +257,7 @@ auto tido_extract_and_validate_header_preamble(std::span<std::byte const> file_d
     TidoFilePreamble const expected = {};
     if (preamble.magic != expected.magic || preamble.version != TidoFilePreamble::CURRENT_VERSION) { return std::nullopt; }
 
-    return preamble;
+    u64 const region_end = TIDO_FILE_PREAMBLE_SIZE + preamble.header_byte_length;
+    if (file_data.size() < region_end) { return std::nullopt; }
+    return file_data.subspan(TIDO_FILE_PREAMBLE_SIZE, preamble.header_byte_length);
 }

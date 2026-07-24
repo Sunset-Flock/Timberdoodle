@@ -375,7 +375,7 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
             task->device = _device;
             task->artifact = _scene._image_manifest.at(texture_index).streamer_data;
             task->image_manifest_index = texture_index;
-            info.thread_pool->async_dispatch(task, TaskPriority::LOW);
+            info.thread_pool->async_dispatch(task, TaskPriority::HIGH);
             _inflight_image_streams.push_back(std::move(task));
         }
     }
@@ -412,7 +412,8 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
             task->mesh_lod_manifest_index = mesh_index;
             task->material_manifest_index = entry.material_index.value_or(INVALID_MANIFEST_INDEX);
             task->name = entry.name;
-            info.thread_pool->async_dispatch(task, TaskPriority::LOW);
+            // TODO(saky): TEMP HACK - Fix once threadpool has proper task priorities
+            info.thread_pool->async_dispatch(task, TaskPriority::HIGH);
             _inflight_mesh_streams.push_back(std::move(task));
         }
     }
