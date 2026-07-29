@@ -73,6 +73,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy ${Slang_DLL} $<TARGET_FILE_DIR:TimberDoodle>
         COMMAND ${CMAKE_COMMAND} -E copy ${Slang_Glslang_DLL} $<TARGET_FILE_DIR:TimberDoodle>
     )
+
+    # clangd matches the editor's lowercase drive letter case-sensitively, so lowercase the
+    # drive in compile_commands.json's "file" entries and publish the fixed file to the repo root.
+    # The script is developer-local and gitignored, so skip the step when it is absent.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/tools/fix_compile_commands_drive.ps1")
+        add_custom_command(TARGET TimberDoodle POST_BUILD
+            COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/tools/fix_compile_commands_drive.ps1" -Paths "${CMAKE_BINARY_DIR}/compile_commands.json" -CopyTo "${CMAKE_SOURCE_DIR}/compile_commands.json"
+            VERBATIM
+        )
+    endif()
 endif()
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
