@@ -370,7 +370,7 @@ void SceneParseTask::translate_materials()
         switch(texture_type)
         {
             case GLTFTextureMaterialType::DIFFUSE:
-                import_info.channel_mapping = {0, 1, 2};    import_info.target_format = daxa::Format::BC7_SRGB_BLOCK;   break;
+                import_info.channel_mapping = {0, 1, 2};    import_info.target_format = daxa::Format::BC1_RGB_SRGB_BLOCK;   break;
             case GLTFTextureMaterialType::OPACITY:
                 import_info.channel_mapping = {3};          import_info.target_format = daxa::Format::BC4_UNORM_BLOCK;  break;
             case GLTFTextureMaterialType::NORMAL:
