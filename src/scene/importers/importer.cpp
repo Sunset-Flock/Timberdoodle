@@ -11,6 +11,7 @@
 
 #include "../optimizers/image_processor.hpp"
 #include "../optimizers/geometry_optimizer.hpp"
+#include "../optimizers/vdb_processor.hpp"
 #include "../tido_format/tido_format.hpp"
 #include "../tido_format/tido_util.hpp"
 #include "../../io/file_io.hpp"
@@ -23,6 +24,10 @@ static constexpr u32 IMAGE_COOK_VERSION = 1;
 // Bumped whenever the mesh cook's output or .tido_bin layout changes; a cached artifact whose stored
 // version differs is treated as stale on re-import. Stamped into every cooked mesh's metadata header.
 static constexpr u32 MESH_COOK_VERSION = 1;
+
+// Bumped whenever the VDB cook's output or .tido_bin layout changes; a cached artifact whose stored version
+// differs is treated as stale on re-import. Stamped into every cooked VDB image's metadata header.
+static constexpr u32 VDB_COOK_VERSION = 1;
 
 auto image_identity_key(ImageImporterData const & importer_data) -> u64
 {
@@ -63,6 +68,28 @@ auto mesh_identity_key(MeshImporterData const & importer_data) -> u64
     fold_attrib_source(importer_data.positions);
     fold_attrib_source(importer_data.normals);
     if (importer_data.uvs.has_value()) { fold_attrib_source(importer_data.uvs.value()); }
+
+    return tido_fnv1a(importer_data_as_bytes, 0);
+}
+
+auto vdb_identity_key(VdbImporterData const & importer_data) -> u64
+{
+    std::vector<std::byte> importer_data_as_bytes;
+    // Location: whole-file source range (path + offset + length); cache_path is routing-only and excluded.
+    std::string const path_string = importer_data.source_bytes.file.generic_string();
+    tido_append_bytes(importer_data_as_bytes, path_string.data(), path_string.size());
+    tido_append_pod(importer_data_as_bytes, importer_data.source_bytes.byte_offset);
+    tido_append_pod(importer_data_as_bytes, importer_data.source_bytes.byte_length);
+
+    for (auto const & grid : importer_data.grid_names)
+    {
+        tido_append_bytes(importer_data_as_bytes, grid.data(), grid.size());
+    }
+    for (auto const & mapped_channel : importer_data.channel_mapping)
+    {
+        importer_data_as_bytes.push_back(static_cast<std::byte>(mapped_channel));
+    }
+    tido_append_pod(importer_data_as_bytes, importer_data.target_format);
 
     return tido_fnv1a(importer_data_as_bytes, 0);
 }
@@ -255,25 +282,61 @@ struct CookTask final : Task
     }
 };
 
-// Decode an uncompressed (PNG) source, box-filter a full mip chain, then produce the recipe's target format
-// per level - block-compress, channel-remap, or pass through when the source already matches the target.
-// Returns the cooked image ready for write_tido_image.
-auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImporterData const & importer_data) -> std::optional<TidoImageWithData>
+// Cook an already-decoded uncompressed source (2D or 3D) into the recipe's target format: box-filter the mip
+// chain, then produce the target per level - block-compress, channel-remap, or pass through when the source
+// already matches. channel_mapping selects/orders source channels into the target (dst d <- src mapping[d]);
+// mip_count == 1 skips mip generation. Returns the cooked image ready for write_tido_image.
+auto cook_uncompressed_source(TidoImageWithData decoded, std::span<u8 const> channel_mapping, daxa::Format target_format, u32 mip_count) -> std::optional<TidoImageWithData>
 {
-    bool const srgb = get_format_info(importer_data.target_format).is_srgb;
-    auto parse_result = image_parse(ImageParseInfo{.src_data = source_bytes, .source_format = importer_data.container_format, .is_srgb = srgb});
-    if (std::holds_alternative<ImageProcessResult>(parse_result)) { return std::nullopt; }
-    TidoImageWithData decoded = std::move(std::get<TidoImageWithData>(parse_result));
-
     u32 const width = decoded.descriptor.info.size.x;
     u32 const height = decoded.descriptor.info.size.y;
+    u32 const depth = decoded.descriptor.info.size.z;
+    u32 const dimensions = decoded.descriptor.info.dimensions;
 
-    u32 const mip_count = s_cast<u32>(std::log2(std::max(width, height))) + 1;
+    FormatInfo const target_block = get_info_from_format(target_format);
+
+    FormatInfo decoded_info = get_info_from_format(decoded.descriptor.info.format);
+    if (decoded_info.is_srgb != target_block.is_srgb)
+    {
+        // Vulkan names sRGB only for 8-bit UNORM, so the tag cannot be carried on a wider source.
+        if (target_block.is_srgb && (decoded_info.channel_byte_size != 1 || decoded_info.numeric_type != FormatNumericType::UNORM))
+        {
+            DEBUG_MSG(fmt::format("[ERROR][cook_uncompressed_source] an sRGB target needs an 8-bit UNORM source, got {} byte channels",
+                decoded_info.channel_byte_size));
+            return std::nullopt;
+        }
+        decoded_info.is_srgb = target_block.is_srgb;
+        decoded.descriptor.info.format = get_format_from_info(decoded_info);
+    }
+
     image_resize_for_mipmaps(decoded, mip_count);
 
-    FormatInfo const target_block = get_format_info(importer_data.target_format);
+    // The remap destination is sized from channel_mapping, so a mapping that does not fit the target would
+    // index source channels that are not there. Recipes are producer data, so this stays a runtime check.
+    bool const is_block_target = target_block.block_width > 1;
+    bool const channel_count_fits = is_block_target
+        ? (!channel_mapping.empty() && channel_mapping.size() <= target_block.channel_count)
+        : (channel_mapping.size() == target_block.channel_count);
+    if (!channel_count_fits)
+    {
+        DEBUG_MSG(fmt::format("[ERROR][cook_uncompressed_source] channel mapping of {} channels does not fit a {} channel target",
+            channel_mapping.size(), target_block.channel_count));
+        return std::nullopt;
+    }
 
-    bool const channel_mapping_is_identity = std::ranges::equal(importer_data.channel_mapping, std::views::iota(0u, target_block.channel_count));
+    // The mapping indexes the decoded source's channels; an index past them would read out of bounds in the
+    // remap. Recipes are producer data, so this stays a runtime check.
+    for (u8 const source_channel : channel_mapping)
+    {
+        if (source_channel >= decoded_info.channel_count)
+        {
+            DEBUG_MSG(fmt::format("[ERROR][cook_uncompressed_source] channel mapping indexes channel {} of a {} channel source",
+                source_channel, decoded_info.channel_count));
+            return std::nullopt;
+        }
+    }
+
+    bool const channel_mapping_is_identity = std::ranges::equal(channel_mapping, std::views::iota(0u, target_block.channel_count));
 
     enum struct MipEncoding
     {
@@ -285,7 +348,7 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
     MipEncoding const mip_encoding = [&]()
     {
         if (target_block.block_width > 1) { return MipEncoding::BLOCK_COMPRESS; }
-        if (decoded.descriptor.info.format == importer_data.target_format && channel_mapping_is_identity) { return MipEncoding::PASS_THROUGH; }
+        if (decoded.descriptor.info.format == target_format && channel_mapping_is_identity) { return MipEncoding::PASS_THROUGH; }
         return MipEncoding::CHANNEL_REMAP;
     }();
 
@@ -294,9 +357,9 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
     // whole chain instead of appending to existing levels.
     TidoImageWithData cooked = {};
     cooked.descriptor.info = {
-        .format = importer_data.target_format,
-        .dimensions = 2,
-        .size = {width, height, 1},
+        .format = target_format,
+        .dimensions = dimensions,
+        .size = {width, height, depth},
         .mip_level_count = 0,
         .array_layer_count = 1,
     };
@@ -305,8 +368,9 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
     // Encode one filtered mip into the target format: pass it through when the source already matches,
     // otherwise remap the recipe's channels - straight into an uncompressed target, or into the BC source
     // layout which is then compressed into the block target.
-    auto encode_mip = [&](std::span<std::byte const> src_pixels, std::span<std::byte> dst_pixels, u32vec2 dimensions)
+    auto encode_mip = [&](std::span<std::byte const> src_pixels, std::span<std::byte> dst_pixels, u32vec3 mip_dimensions)
     {
+        u64 const texel_count = s_cast<u64>(mip_dimensions.x) * mip_dimensions.y * mip_dimensions.z;
         switch (mip_encoding)
         {
             case MipEncoding::PASS_THROUGH:
@@ -318,45 +382,34 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
             {
                 run_task_inline(*remap_channels(RemapChannelsInfo{
                     .src_data = src_pixels,
-                    .texel_count = dimensions.x * dimensions.y,
+                    .texel_count = texel_count,
                     .format = decoded.descriptor.info.format,
-                    .channel_mapping = importer_data.channel_mapping,
-                    .dst_format = importer_data.target_format,
+                    .channel_mapping = channel_mapping,
+                    .dst_format = target_format,
                     .dst_data = dst_pixels,
                 }));
                 return;
             }
             case MipEncoding::BLOCK_COMPRESS:
             {
-                // Select/reorder (and narrow to 8-bit) the recipe's channels into a tightly packed BC source:
-                // an 8-bit format for the N mapped channels (sRGB-tagged), independent of the specific BC target.
-                daxa::Format const bc_source_format = [&]()
-                {
-                    switch (s_cast<u32>(importer_data.channel_mapping.size()))
-                    {
-                        case 1: return srgb ? daxa::Format::R8_SRGB       : daxa::Format::R8_UNORM;
-                        case 2: return srgb ? daxa::Format::R8G8_SRGB     : daxa::Format::R8G8_UNORM;
-                        case 3: return srgb ? daxa::Format::R8G8B8_SRGB   : daxa::Format::R8G8B8_UNORM;
-                        case 4: return srgb ? daxa::Format::R8G8B8A8_SRGB : daxa::Format::R8G8B8A8_UNORM;
-                        default:
-                            DBG_ASSERT_TRUE_M(false, "cook_uncompressed_source: BC source channel count must be 1-4");
-                            return daxa::Format::UNDEFINED;
-                    }
-                }();
-                std::vector<std::byte> bc_source(s_cast<usize>(dimensions.x) * dimensions.y * get_format_info(bc_source_format).block_byte_size);
+                // Remap the recipe's channels into a tightly packed BC source.
+                FormatInfo bc_source_info = target_block;
+                bc_source_info.channel_count = s_cast<u32>(channel_mapping.size());
+                daxa::Format const bc_source_format = get_format_from_info(bc_source_info);
+                std::vector<std::byte> bc_source(s_cast<usize>(texel_count) * get_info_from_format(bc_source_format).block_byte_size);
 
                 run_task_inline(*remap_channels(RemapChannelsInfo{
                     .src_data = src_pixels,
-                    .texel_count = dimensions.x * dimensions.y,
+                    .texel_count = texel_count,
                     .format = decoded.descriptor.info.format,
-                    .channel_mapping = importer_data.channel_mapping,
+                    .channel_mapping = channel_mapping,
                     .dst_format = bc_source_format,
                     .dst_data = bc_source,
                 }));
                 run_task_inline(*compress_image(CreateCompressedImageInfo{
                     .src_data = bc_source,
-                    .image_dimensions = {dimensions.x, dimensions.y, 1},
-                    .target_format = importer_data.target_format,
+                    .image_dimensions = mip_dimensions,
+                    .target_format = target_format,
                     .source_format = bc_source_format,
                     .dst_data = dst_pixels,
                 }));
@@ -373,6 +426,7 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
     {
         u32 const mip_width = std::max(1u, width >> mip);
         u32 const mip_height = std::max(1u, height >> mip);
+        u32 const mip_depth = std::max(1u, depth >> mip);
         // Derive the next mip from this one in the decoded format, so a 16-bit source is box-filtered at full
         // precision and only narrowed per-mip in the encode below. This mip's texels stay intact for that.
         if (mip + 1 < mip_count)
@@ -380,7 +434,7 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
             run_task_inline(*downsample_image(DownsampleImageInfo{
                 .src_data = std::span<std::byte const>(decoded.data).subspan(decoded_subresources[mip].offset, decoded_subresources[mip].byte_size),
                 .dst_data = std::span<std::byte>(decoded.data).subspan(decoded_subresources[mip + 1].offset, decoded_subresources[mip + 1].byte_size),
-                .src_dimensions = {mip_width, mip_height, 1},
+                .src_dimensions = {mip_width, mip_height, mip_depth},
                 .format = decoded.descriptor.info.format,
             }));
         }
@@ -388,9 +442,22 @@ auto cook_uncompressed_source(std::span<std::byte const> source_bytes, ImageImpo
         encode_mip(
             std::span<std::byte const>(decoded.data).subspan(decoded_subresources[mip].offset, decoded_subresources[mip].byte_size),
             std::span<std::byte>(cooked.data).subspan(cooked_subresources[mip].offset, cooked_subresources[mip].byte_size),
-            {mip_width, mip_height});
+            {mip_width, mip_height, mip_depth});
     }
     return cooked;
+}
+
+// Decode a PNG source and cook its full 2D mip chain into the recipe's target format.
+auto cook_png_source(std::span<std::byte const> source_bytes, ImageImporterData const & importer_data) -> std::optional<TidoImageWithData>
+{
+    auto parse_result = image_parse(ImageParseInfo{.src_data = source_bytes, .source_format = importer_data.container_format});
+    if (std::holds_alternative<ImageProcessResult>(parse_result)) { return std::nullopt; }
+    TidoImageWithData decoded = std::move(std::get<TidoImageWithData>(parse_result));
+
+    u32 const width = decoded.descriptor.info.size.x;
+    u32 const height = decoded.descriptor.info.size.y;
+    u32 const mip_count = s_cast<u32>(std::log2(std::max(width, height))) + 1;
+    return cook_uncompressed_source(std::move(decoded), importer_data.channel_mapping, importer_data.target_format, mip_count);
 }
 
 // Transcode a Basis-compressed KTX2 source straight to the recipe's BCn target (mips already present).
@@ -439,7 +506,7 @@ struct ImageCookPolicy
         std::optional<TidoImageWithData> cooked = {};
         switch (importer_data.container_format)
         {
-            case ImageFileFormat::PNG:  cooked = cook_uncompressed_source(read_state.source_bytes, importer_data); break;
+            case ImageFileFormat::PNG:  cooked = cook_png_source(read_state.source_bytes, importer_data); break;
             case ImageFileFormat::KTX2: cooked = cook_ktx_source(read_state.source_bytes, importer_data); break;
             default: DBG_ASSERT_TRUE_M(false, "ImageCookPolicy: unhandled container format"); return std::nullopt;
         }
@@ -581,8 +648,58 @@ struct MeshCookPolicy
     }
 };
 
+// Cooks one VDB asset into a 3D image: read the whole .vdb, densify its grids into an interleaved fp32 volume
+// (vdb_parse), then run the shared uncompressed cook tail into the recipe's target format. Reuses the image
+// artifact (write_tido_image / ImageStreamerData), keyed by its VDB identity.
+struct VdbCookPolicy
+{
+    using ImporterData = VdbImporterData;
+    using Descriptor = TidoImageDescriptor;
+    using StreamerData = ImageStreamerData;
+    struct ReadState { std::vector<std::byte> source_bytes = {}; };
+
+    static constexpr u32 COOK_VERSION = VDB_COOK_VERSION;
+    static constexpr char const * LOG_TAG = "VdbCookTask";
+
+    static auto identity_key(ImporterData const & importer_data) -> u64 { return vdb_identity_key(importer_data); }
+    static auto read_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return read_tido_image_header_data(header_region); }
+    static auto write_artifact(WriteTidoFileInfo const & write_info, Descriptor const & descriptor) -> std::optional<StreamerData> { return write_tido_image(write_info, descriptor); }
+    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_bytes.file.stem().string(); }
+    static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_bytes.file).value_or(0); }
+
+    static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
+    {
+        auto [read_result, source_bytes] = read_file_byte_range(importer_data.source_bytes);
+        if (read_result != FileIoResult::SUCCESS) { return std::nullopt; }
+        // Content hash over the whole loaded .vdb (before parse), stamped into the artifact header.
+        u64 const content_hash = tido_fnv1a(std::span<std::byte const>(source_bytes));
+        read_state.source_bytes = std::move(source_bytes);
+        return content_hash;
+    }
+
+    static auto do_cook(ImporterData const & importer_data, ReadState const & read_state, std::vector<std::byte> & payload) -> std::optional<Descriptor>
+    {
+        std::optional<TidoImageWithData> decoded = vdb_parse(VdbParseInfo{.src_data = read_state.source_bytes, .grid_names = importer_data.grid_names});
+        if (!decoded.has_value()) { return std::nullopt; }
+
+        // vdb_parse densifies one channel per grid, in order; the recipe's channel_mapping then permutes those
+        // into the target, whose format decides the final precision/layout via remap/compress.
+        // VDB defers mip generation for now - a single level.
+        std::optional<TidoImageWithData> cooked = cook_uncompressed_source(std::move(decoded.value()), importer_data.channel_mapping, importer_data.target_format, 1);
+        if (!cooked.has_value()) { return std::nullopt; }
+        payload = std::move(cooked->data);
+        return std::move(cooked->descriptor);
+    }
+
+    static auto cooked_detail(Descriptor const & descriptor) -> std::string
+    {
+        return fmt::format("{}x{}x{}, {} mips", descriptor.info.size.x, descriptor.info.size.y, descriptor.info.size.z, descriptor.info.mip_level_count);
+    }
+};
+
 using ImageCookTask = CookTask<ImageCookPolicy>;
 using MeshCookTask = CookTask<MeshCookPolicy>;
+using VdbCookTask = CookTask<VdbCookPolicy>;
 
 // Dispatches the fastgltf-free asset cooks (image and mesh) from their already-resolved ImporterData,
 // consuming those tasks. Scene-parse tasks are left in place for the gltf backend.
@@ -601,6 +718,13 @@ void dispatch_asset_cooks(Importer & importer, std::vector<ImporterTask> & tasks
         {
             importer.thread_pool->async_dispatch(
                 std::make_shared<MeshCookTask>(&importer, std::move(import_mesh->importer_data), import_mesh->mesh_manifest_index),
+                TaskPriority::LOW);
+            return true;
+        }
+        if (auto * import_vdb = std::get_if<ImporterTask::ImportVdbAsset>(&task.data))
+        {
+            importer.thread_pool->async_dispatch(
+                std::make_shared<VdbCookTask>(&importer, std::move(import_vdb->importer_data), import_vdb->image_manifest_index),
                 TaskPriority::LOW);
             return true;
         }
@@ -693,6 +817,7 @@ void Importer::thread_main()
                 if (std::holds_alternative<ImporterTask::ImportScene>(task.data)) { return 0; }
                 if (std::holds_alternative<ImporterTask::ImportMeshAsset>(task.data)) { return 1; }
                 if (std::holds_alternative<ImporterTask::ImportImageAsset>(task.data)) { return 2; }
+                if (std::holds_alternative<ImporterTask::ImportVdbAsset>(task.data)) { return 2; }
                 return 3;
             };
             return get_priority(a) < get_priority(b);
@@ -709,6 +834,11 @@ void Importer::thread_main()
             {
                 auto const & import_mesh = std::get<ImporterTask::ImportMeshAsset>(task.data);
                 DEBUG_MSG(fmt::format("[Importer] dispatching mesh cook for '{}'", import_mesh.importer_data.indices.range.file.string()));
+            }
+            else if (std::holds_alternative<ImporterTask::ImportVdbAsset>(task.data))
+            {
+                auto const & import_vdb = std::get<ImporterTask::ImportVdbAsset>(task.data);
+                DEBUG_MSG(fmt::format("[Importer] dispatching vdb cook for '{}'", import_vdb.importer_data.source_bytes.file.string()));
             }
             else if (std::holds_alternative<ImporterTask::ImportScene>(task.data))
             {

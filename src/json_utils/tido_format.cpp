@@ -60,6 +60,12 @@ auto read_u32(simdjson::ondemand::object & obj, char const * key, u32 & out) -> 
     return simdjson::SUCCESS;
 }
 
+auto read_u64(simdjson::ondemand::object & obj, char const * key, u64 & out) -> simdjson::error_code
+{
+    SIMDJSON_TRY(obj[key].get_uint64().get(out));
+    return simdjson::SUCCESS;
+}
+
 auto read_path(simdjson::ondemand::object & obj, char const * key, std::filesystem::path & out) -> simdjson::error_code
 {
     std::string_view text;
@@ -127,7 +133,7 @@ auto tag_invoke(deserialize_tag, value_type & value, TidoImageDescriptor & image
         SIMDJSON_TRY(element.get_object().get(sub));
         TidoImageDescriptor::SubresourceEntry entry = {};
         SIMDJSON_TRY(read_dec(sub, "offset", entry.offset));
-        SIMDJSON_TRY(read_u32(sub, "byte_size", entry.byte_size));
+        SIMDJSON_TRY(read_u64(sub, "byte_size", entry.byte_size));
         image.subresources.push_back(entry);
     }
 

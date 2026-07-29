@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(BUILD_SHARED_LIBS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
 
-set(TIDO_ENABLE_UTILS_VDB_LOADER false)
+set(TIDO_ENABLE_UTILS_VDB_LOADER true)
 
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     # /MT for Release, /MTd for Debug. Force static CRT
@@ -48,6 +48,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/streamer.cpp"
     "src/scene/optimizers/image_compressor.cpp"
     "src/scene/optimizers/image_processor.cpp"
+    "src/scene/optimizers/vdb_processor.cpp"
     "src/scene/optimizers/sdf_bc1_compressor.cpp"
     "src/scene/optimizers/geometry_optimizer.cpp"
     "src/io/file_io.cpp"

@@ -14,6 +14,7 @@
 #include "importer_types.hpp"
 #include "asset_processor.hpp"
 #include "importers/openvdb_importer.hpp"
+#include "optimizers/vdb_processor.hpp"
 #include "tido_format/tido_format.hpp"
 #include "streamer.hpp"
 using namespace tido::types;
@@ -69,6 +70,17 @@ struct ImageManifestEntry
     std::optional<ImageRuntimeData> runtime_data = {};
 
     auto loaded() const -> bool{ return runtime_data.has_value(); }
+};
+
+struct VdbImporterData
+{
+    // Owning .vdb; selects the per-source cache dir only - never read for structure.
+    std::filesystem::path cache_path = {};
+    // Whole .vdb file: {path, 0, file_size}.
+    FileByteRange source_bytes = {};
+    std::vector<std::string> grid_names = {};
+    std::vector<u8> channel_mapping = {};
+    daxa::Format target_format = {};
 };
 
 /// ================================================== MESH ==================================================

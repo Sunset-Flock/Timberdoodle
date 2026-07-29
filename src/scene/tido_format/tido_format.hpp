@@ -47,6 +47,9 @@ enum struct FormatNumericType
     SFLOAT,
 };
 
+// For a block-compressed format the channel fields describe the codec's texel - what it encodes from and
+// decodes to - not the stored bytes, which block_* covers. block_width == 1 is what identifies an
+// uncompressed format;
 struct FormatInfo
 {
     static constexpr u32 UNSUPPORTED_FORMAT = 0;
@@ -62,7 +65,8 @@ struct FormatInfo
     u32 block_byte_size = UNSUPPORTED_FORMAT;
 };
 
-auto get_format_info(daxa::Format format) -> FormatInfo;
+auto get_info_from_format(daxa::Format format) -> FormatInfo;
+auto get_format_from_info(FormatInfo const & info) -> daxa::Format;
 
 // ================================= TIDO IMAGE =================================
 
@@ -81,7 +85,7 @@ struct TidoImageDescriptor
     struct SubresourceEntry
     {
         u64 offset = {};
-        u32 byte_size = {};
+        u64 byte_size = {};
     };
 
     ImageInfo info = {};
@@ -91,6 +95,12 @@ struct TidoImageDescriptor
     {
         return layer * info.mip_level_count + mip;
     }
+};
+
+struct TidoImageWithData
+{
+    TidoImageDescriptor descriptor = {};
+    std::vector<std::byte> data = {};
 };
 
 // ================================= TIDO MESH =================================

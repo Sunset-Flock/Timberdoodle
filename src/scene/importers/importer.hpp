@@ -21,6 +21,11 @@ auto image_identity_key(ImageImporterData const & importer_data) -> u64;
 // dedup meshes into one manifest entry) and the mesh cook (as the artifact's cache key and file stem).
 auto mesh_identity_key(MeshImporterData const & importer_data) -> u64;
 
+// Stable per-VDB-image-artifact source-identity key: a hash of the whole-file source range (location) folded
+// with the recipe (per-channel grid name / background / value range, and the target format). cache_path is
+// routing only and excluded, so one .vdb cooked under different grid selections or formats gets distinct keys.
+auto vdb_identity_key(VdbImporterData const & importer_data) -> u64;
+
 struct ImporterTask
 {
     struct ImportScene
@@ -40,7 +45,13 @@ struct ImporterTask
         u32 mesh_manifest_index = {};
     };
 
-    std::variant<ImportScene, ImportImageAsset, ImportMeshAsset> data = {};
+    struct ImportVdbAsset
+    {
+        VdbImporterData importer_data = {};
+        u32 image_manifest_index = {};
+    };
+
+    std::variant<ImportScene, ImportImageAsset, ImportMeshAsset, ImportVdbAsset> data = {};
 };
 
 struct Importer;

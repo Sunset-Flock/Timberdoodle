@@ -13,7 +13,6 @@
 
 #include "../../timberdoodle.hpp"
 #include "../../multithreading/thread_pool.hpp"
-#include "../importers/openvdb_importer.hpp"
 #include "../tido_format/tido_format.hpp"
 using namespace tido::types;
 
@@ -21,12 +20,6 @@ enum struct ImageFileFormat
 {
     PNG,
     KTX2,
-};
-
-struct TidoImageWithData
-{
-    TidoImageDescriptor descriptor = {};
-    std::vector<std::byte> data = {};
 };
 
 enum struct ImageProcessResult
@@ -45,9 +38,6 @@ struct ImageParseInfo
 {
     std::span<std::byte const> src_data = {};
     ImageFileFormat source_format = {};
-    // Tag the decoded format sRGB when the caller's target format is sRGB, so downstream mip filtering
-    // (which operates on the decoded format) happens in gamma-correct space.
-    bool is_srgb = false;
 };
 auto image_parse(ImageParseInfo const & info) -> std::variant<ImageProcessResult, TidoImageWithData>;
 
@@ -74,7 +64,7 @@ auto downsample_image(DownsampleImageInfo const & info) -> std::shared_ptr<Task>
 struct RemapChannelsInfo
 {
     std::span<std::byte const> src_data;
-    u32 texel_count;                      // flat count (2D or 3D); remap is purely per-texel
+    u64 texel_count;                      // flat count (2D or 3D); remap is purely per-texel
     daxa::Format format;                  // source layout: channel count + numeric type + bit depth of src_data
     std::span<u8 const> channel_mapping;  // dst channel d <- src channel channel_mapping[d]
     daxa::Format dst_format;              // output layout: channel_count must equal channel_mapping.size()

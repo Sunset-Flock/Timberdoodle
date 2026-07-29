@@ -87,23 +87,31 @@ auto write_tido_file(WriteTidoFileInfo const & info, std::string const & seriali
 }
 }
 
-auto get_format_info(daxa::Format format) -> FormatInfo
+auto get_info_from_format(daxa::Format format) -> FormatInfo
 {
     switch (format)
     {
         // 8-bit
         case daxa::Format::R8_UNORM:             return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 1};
+        case daxa::Format::R8_SNORM:             return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SNORM, .block_width = 1, .block_height = 1, .block_byte_size = 1};
         case daxa::Format::R8_SRGB:              return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 1};
         case daxa::Format::R8_SINT:              return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SINT,  .block_width = 1, .block_height = 1, .block_byte_size = 1};
         case daxa::Format::R8G8_UNORM:           return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R8G8_SNORM:           return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SNORM, .block_width = 1, .block_height = 1, .block_byte_size = 2};
         case daxa::Format::R8G8_SRGB:            return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 2};
         case daxa::Format::R8G8_SINT:            return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SINT,  .block_width = 1, .block_height = 1, .block_byte_size = 2};
         case daxa::Format::R8G8B8_UNORM:         return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 3};
+        case daxa::Format::R8G8B8_SNORM:         return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SNORM, .block_width = 1, .block_height = 1, .block_byte_size = 3};
         case daxa::Format::R8G8B8_SRGB:          return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 3};
         case daxa::Format::R8G8B8A8_UNORM:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R8G8B8A8_SNORM:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SNORM, .block_width = 1, .block_height = 1, .block_byte_size = 4};
         case daxa::Format::R8G8B8A8_SRGB:        return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM, .block_width = 1, .block_height = 1, .block_byte_size = 4};
         case daxa::Format::R8G8B8A8_SINT:        return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SINT,  .block_width = 1, .block_height = 1, .block_byte_size = 4};
         // 16-bit
+        case daxa::Format::R16_UNORM:            return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 1, .block_height = 1, .block_byte_size = 2};
+        case daxa::Format::R16G16_UNORM:         return {.channel_count = 2, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 1, .block_height = 1, .block_byte_size = 4};
+        case daxa::Format::R16G16B16_UNORM:      return {.channel_count = 3, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 1, .block_height = 1, .block_byte_size = 6};
+        case daxa::Format::R16G16B16A16_UNORM:   return {.channel_count = 4, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 1, .block_height = 1, .block_byte_size = 8};
         case daxa::Format::R16_UINT:             return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 2};
         case daxa::Format::R16_SINT:             return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 2};
         case daxa::Format::R16_SFLOAT:           return {.channel_count = 1, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 2};
@@ -123,31 +131,95 @@ auto get_format_info(daxa::Format format) -> FormatInfo
         case daxa::Format::R32G32_UINT:          return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 8};
         case daxa::Format::R32G32_SINT:          return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 8};
         case daxa::Format::R32G32_SFLOAT:        return {.channel_count = 2, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 8};
+        case daxa::Format::R32G32B32_SFLOAT:     return {.channel_count = 3, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 12};
         case daxa::Format::R32G32B32A32_UINT:    return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::UINT,   .block_width = 1, .block_height = 1, .block_byte_size = 16};
         case daxa::Format::R32G32B32A32_SINT:    return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SINT,   .block_width = 1, .block_height = 1, .block_byte_size = 16};
         case daxa::Format::R32G32B32A32_SFLOAT:  return {.channel_count = 4, .channel_byte_size = 4, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 1, .block_height = 1, .block_byte_size = 16};
-        // Block compressed (8 bytes / 4x4 block)
-        case daxa::Format::BC1_RGB_SRGB_BLOCK:
-        case daxa::Format::BC1_RGBA_SRGB_BLOCK:  return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = true,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
-        case daxa::Format::BC1_RGB_UNORM_BLOCK:
-        case daxa::Format::BC1_RGBA_UNORM_BLOCK:
-        case daxa::Format::BC4_UNORM_BLOCK:
-        case daxa::Format::BC4_SNORM_BLOCK:      return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        // Block compressed (8 bytes / 4x4 block). For block formats the channel fields describe the codec's
+        // texel - what it encodes from and decodes to - which is what get_format_from_info turns back into the
+        // uncompressed source format a compress pass must be fed. block_* describes the storage.
+        case daxa::Format::BC1_RGB_UNORM_BLOCK:  return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        case daxa::Format::BC1_RGB_SRGB_BLOCK:   return {.channel_count = 3, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        case daxa::Format::BC1_RGBA_UNORM_BLOCK: return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        case daxa::Format::BC1_RGBA_SRGB_BLOCK:  return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        case daxa::Format::BC4_UNORM_BLOCK:      return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
+        case daxa::Format::BC4_SNORM_BLOCK:      return {.channel_count = 1, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 8};
         // Block compressed (16 bytes / 4x4 block)
-        case daxa::Format::BC2_SRGB_BLOCK:
-        case daxa::Format::BC3_SRGB_BLOCK:
-        case daxa::Format::BC7_SRGB_BLOCK:       return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = true,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
-        case daxa::Format::BC2_UNORM_BLOCK:
-        case daxa::Format::BC3_UNORM_BLOCK:
-        case daxa::Format::BC5_UNORM_BLOCK:
-        case daxa::Format::BC5_SNORM_BLOCK:
+        case daxa::Format::BC2_UNORM_BLOCK:      return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC2_SRGB_BLOCK:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC3_UNORM_BLOCK:      return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC3_SRGB_BLOCK:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC5_UNORM_BLOCK:      return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC5_SNORM_BLOCK:      return {.channel_count = 2, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::SNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        // BC6H texels are fp16 RGB; UFLOAT vs SFLOAT changes only how the codec clamps, not the source layout.
         case daxa::Format::BC6H_UFLOAT_BLOCK:
-        case daxa::Format::BC6H_SFLOAT_BLOCK:
-        case daxa::Format::BC7_UNORM_BLOCK:      return {.channel_count = 0, .channel_byte_size = 0, .is_srgb = false, .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC6H_SFLOAT_BLOCK:    return {.channel_count = 3, .channel_byte_size = 2, .is_srgb = false, .numeric_type = FormatNumericType::SFLOAT, .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC7_UNORM_BLOCK:      return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = false, .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
+        case daxa::Format::BC7_SRGB_BLOCK:       return {.channel_count = 4, .channel_byte_size = 1, .is_srgb = true,  .numeric_type = FormatNumericType::UNORM,  .block_width = 4, .block_height = 4, .block_byte_size = 16};
         default:
-            DBG_ASSERT_TRUE_M(false, "get_format_info: unhandled format");
+            DBG_ASSERT_TRUE_M(false, "get_info_from_format: unhandled format");
             return {};
     }
+}
+
+auto get_format_from_info(FormatInfo const & info) -> daxa::Format
+{
+    DBG_ASSERT_TRUE_M(info.channel_count >= 1 && info.channel_count <= 4, "get_format_from_info: channel count must be 1-4");
+
+    constexpr daxa::Format X = daxa::Format::UNDEFINED; // combination get_info_from_format does not register
+    // [numeric_type][byte_size: 1/2/4][channel_count: 1..4]. sRGB is applied afterwards (8-bit UNORM only).
+    constexpr daxa::Format TABLE[5][3][4] = {
+        /* UNORM  */ {
+            {daxa::Format::R8_UNORM, daxa::Format::R8G8_UNORM, daxa::Format::R8G8B8_UNORM, daxa::Format::R8G8B8A8_UNORM},
+            {daxa::Format::R16_UNORM, daxa::Format::R16G16_UNORM, daxa::Format::R16G16B16_UNORM, daxa::Format::R16G16B16A16_UNORM},
+            {X, X, X, X},
+        },
+        /* SNORM  */ {
+            {daxa::Format::R8_SNORM, daxa::Format::R8G8_SNORM, daxa::Format::R8G8B8_SNORM, daxa::Format::R8G8B8A8_SNORM},
+            {X, X, X, X},
+            {X, X, X, X},
+        },
+        /* UINT   */ {
+            {X, X, X, X},
+            {daxa::Format::R16_UINT, daxa::Format::R16G16_UINT, daxa::Format::R16G16B16_UINT, daxa::Format::R16G16B16A16_UINT},
+            {daxa::Format::R32_UINT, daxa::Format::R32G32_UINT, X, daxa::Format::R32G32B32A32_UINT},
+        },
+        /* SINT   */ {
+            {daxa::Format::R8_SINT, daxa::Format::R8G8_SINT, X, daxa::Format::R8G8B8A8_SINT},
+            {daxa::Format::R16_SINT, daxa::Format::R16G16_SINT, daxa::Format::R16G16B16_SINT, daxa::Format::R16G16B16A16_SINT},
+            {daxa::Format::R32_SINT, daxa::Format::R32G32_SINT, X, daxa::Format::R32G32B32A32_SINT},
+        },
+        /* SFLOAT */ {
+            {X, X, X, X},
+            {daxa::Format::R16_SFLOAT, daxa::Format::R16G16_SFLOAT, daxa::Format::R16G16B16_SFLOAT, daxa::Format::R16G16B16A16_SFLOAT},
+            {daxa::Format::R32_SFLOAT, daxa::Format::R32G32_SFLOAT, daxa::Format::R32G32B32_SFLOAT, daxa::Format::R32G32B32A32_SFLOAT},
+        },
+    };
+
+    u32 byte_size_index = 0;
+    switch (info.channel_byte_size)
+    {
+        case 1: byte_size_index = 0; break;
+        case 2: byte_size_index = 1; break;
+        case 4: byte_size_index = 2; break;
+        default: DBG_ASSERT_TRUE_M(false, "get_format_from_info: channel byte size must be 1, 2 or 4"); return daxa::Format::UNDEFINED;
+    }
+
+    daxa::Format format = TABLE[s_cast<u32>(info.numeric_type)][byte_size_index][info.channel_count - 1];
+    if (info.is_srgb)
+    {
+        // sRGB is an 8-bit UNORM-only variant of the same channel layout.
+        switch (format)
+        {
+            case daxa::Format::R8_UNORM:       format = daxa::Format::R8_SRGB; break;
+            case daxa::Format::R8G8_UNORM:     format = daxa::Format::R8G8_SRGB; break;
+            case daxa::Format::R8G8B8_UNORM:   format = daxa::Format::R8G8B8_SRGB; break;
+            case daxa::Format::R8G8B8A8_UNORM: format = daxa::Format::R8G8B8A8_SRGB; break;
+            default: DBG_ASSERT_TRUE_M(false, "get_format_from_info: sRGB only applies to 8-bit UNORM"); return daxa::Format::UNDEFINED;
+        }
+    }
+    DBG_ASSERT_TRUE_M(format != daxa::Format::UNDEFINED, "get_format_from_info: unsupported channel/byte-size/numeric-type combination");
+    return format;
 }
 
 namespace
@@ -167,7 +239,7 @@ auto subresource_byte_size(FormatInfo const & block, u32 width, u32 height, u32 
 
 auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const & descriptor) -> std::optional<ImageStreamerData>
 {
-    FormatInfo const block = get_format_info(descriptor.info.format);
+    FormatInfo const block = get_info_from_format(descriptor.info.format);
     DBG_ASSERT_TRUE_M(block.block_byte_size != 0, "write_tido_image: unsupported texture format");
 
     std::vector<std::byte> data_payload = {};
@@ -190,7 +262,7 @@ auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const 
             DBG_ASSERT_TRUE_M(entry.offset + calculated_size <= info.data.size(), "write_tido_image: subresource out of source data bounds");
 
             u32 const dst_subresource_index = dst_descriptor.layer_mip_to_subresource_index(layer, s_cast<u32>(mip));
-            dst_descriptor.subresources[dst_subresource_index] = {.offset = data_payload.size(), .byte_size = s_cast<u32>(calculated_size)};
+            dst_descriptor.subresources[dst_subresource_index] = {.offset = data_payload.size(), .byte_size = calculated_size};
             data_payload.insert(data_payload.end(), info.data.begin() + entry.offset, info.data.begin() + entry.offset + entry.byte_size);
         }
     }
