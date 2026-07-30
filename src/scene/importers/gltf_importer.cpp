@@ -229,6 +229,46 @@ auto image_parse_dedup_key(ImageImporterData const & importer_data) -> u64
 // ============================ Shared glTF parse ===========================
 namespace
 {
+// Feeds fastgltf from our own file I/O rather than handing it the path, so the share mode, the bounds checks
+// and the FileIoResult taxonomy all stay in file_io. Only what fastgltf asks for is buffered: for a .glb that
+// is the JSON chunk, while the binary chunk is read straight into the storage the asset keeps it in.
+struct GltfFileReaderDataGetter final : fastgltf::GltfDataGetter
+{
+    explicit GltfFileReaderDataGetter(FileReader && reader) : reader{std::move(reader)} {}
+
+    void read(void * destination, std::size_t byte_count) override
+    {
+        if (reader.read_into(destination, byte_count) != FileIoResult::SUCCESS) { read_failed = true; }
+    }
+
+    auto read(std::size_t byte_count, std::size_t padding) -> fastgltf::span<std::byte> override
+    {
+        // The span has to expose byte_count + padding bytes: simdjson reads past the data it is given and
+        // does not care what the padding holds.
+        scratch.resize(byte_count + padding);
+        if (reader.read_into(scratch.data(), byte_count) != FileIoResult::SUCCESS)
+        {
+            read_failed = true;
+            // fastgltf has no way to report the failure back, so hand it zeroes rather than stale bytes.
+            std::fill(scratch.begin(), scratch.end(), std::byte{});
+        }
+        return fastgltf::span<std::byte>(scratch.data(), scratch.size());
+    }
+
+    void reset() override
+    {
+        if (reader.seek(0) != FileIoResult::SUCCESS) { read_failed = true; }
+    }
+
+    auto bytesRead() -> std::size_t override { return s_cast<std::size_t>(reader.read_byte_offset()); }
+    auto totalSize() -> std::size_t override { return s_cast<std::size_t>(reader.file_byte_size()); }
+
+    FileReader reader = {};
+    std::vector<std::byte> scratch = {};
+    // The interface returns void and spans, so a failed read can only be reported after the parse finishes.
+    bool read_failed = false;
+};
+
 // Parses a .gltf/.glb into a fastgltf::Asset. Only SceneParseTask calls this - fastgltf is touched at
 // scene-parse only; asset cooks run off the resolved ImporterData and never re-parse.
 static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::variant<Scene::LoadManifestErrorCode, fastgltf::Asset>
@@ -241,20 +281,14 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
         fastgltf::Options::DontRequireValidAssetMember |
         fastgltf::Options::AllowDouble;
 
-    auto [io_result, file_bytes] = read_file(file_path);
+    auto [io_result, reader] = FileReader::open(file_path);
     if (io_result != FileIoResult::SUCCESS)
     {
         return io_result == FileIoResult::NOT_FOUND ? Scene::LoadManifestErrorCode::FILE_NOT_FOUND : Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
     }
-    if (file_bytes.empty()) { return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET; }
+    if (reader.file_byte_size() == 0) { return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET; }
 
-    auto data_opt = fastgltf::GltfDataBuffer::FromBytes(file_bytes.data(), file_bytes.size());
-    if (data_opt.error() != fastgltf::Error::None) { return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET; }
-
-    // Free the file bytes now that fastgltf has copied them into its own padded buffer.
-    file_bytes.clear();
-
-    fastgltf::GltfDataBuffer data = std::move(data_opt.get());
+    GltfFileReaderDataGetter data = GltfFileReaderDataGetter(std::move(reader));
     auto const type = fastgltf::determineGltfFileType(data);
 
     switch (type)
@@ -262,7 +296,7 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
         case fastgltf::GltfType::glTF:
         {
             fastgltf::Expected<fastgltf::Asset> result = parser.loadGltf(data, file_path.parent_path(), gltf_options);
-            if (result.error() != fastgltf::Error::None)
+            if (result.error() != fastgltf::Error::None || data.read_failed)
             {
                 return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
             }
@@ -271,13 +305,16 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
         case fastgltf::GltfType::GLB:
         {
             fastgltf::Expected<fastgltf::Asset> result = parser.loadGltfBinary(data, file_path.parent_path(), gltf_options);
-            if (result.error() != fastgltf::Error::None)
+            if (result.error() != fastgltf::Error::None || data.read_failed)
             {
                 return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
             }
             return std::move(result.get());
         }
+        case fastgltf::GltfType::Invalid:
+            return Scene::LoadManifestErrorCode::INVALID_GLTF_FILE_TYPE;
         default:
+            DBG_ASSERT_TRUE_M(false, "Unhandled glTF file type");
             return Scene::LoadManifestErrorCode::INVALID_GLTF_FILE_TYPE;
     }
 }
