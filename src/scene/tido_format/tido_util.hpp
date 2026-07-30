@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "../../io/file_io.hpp"
 #include "../../timberdoodle.hpp"
 using namespace tido::types;
 
@@ -16,6 +17,11 @@ inline std::filesystem::path const TIDO_ASSETS_ROOT = "assets";
 auto tido_relative_to_assets_root(std::filesystem::path const & path) -> std::optional<std::filesystem::path>;
 
 auto tido_fnv1a(std::span<std::byte const> bytes, u64 seed = 0xcbf29ce484222325ull) -> u64;
+
+// Folds a file range into an FNV-1a hash without materializing it, reading through a fixed scratch buffer so
+// the cost is bounded however large the source is. Seeded so several ranges chain into one hash, matching
+// tido_fnv1a over their concatenation exactly. nullopt on any read failure.
+auto tido_hash_file(std::filesystem::path const & path, std::optional<ByteSlice> slice = {}, u64 seed = 0xcbf29ce484222325ull) -> std::optional<u64>;
 
 // Turn an arbitrary asset name into a safe, extension-stripped stem for the artifact header (asset names can
 // be empty or carry characters that would have to be escaped). Returns "unnamed" if nothing usable remains.

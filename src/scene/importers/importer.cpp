@@ -171,18 +171,17 @@ struct CookTask final : Task
     {
         std::string const artifact_name = Policy::artifact_source_name(importer_data);
 
-        // Every probe reads and hashes the sources first: the key is derived from the bytes, so with location
-        // out of it nothing cheaper can even name the artifact. The hash is over the loaded bytes (before
-        // parse); the read state owns the buffers do_cook interprets.
-        typename Policy::ReadState read_state = {};
-        std::optional<u64> const content_hash = Policy::read_and_hash(importer_data, read_state);
-        if (!content_hash.has_value())
+        // Every probe hashes the sources first: the key is derived from the bytes, so with location out of it
+        // nothing cheaper can even name the artifact. The hash streams through a bounded buffer rather than
+        // materializing the sources, because a hit never looks at them.
+        std::optional<u64> const probe_hash = Policy::hash_sources(importer_data);
+        if (!probe_hash.has_value())
         {
-            DEBUG_MSG(fmt::format("[ERROR][{}] failed to read source bytes for '{}'", Policy::LOG_TAG, artifact_name));
+            DEBUG_MSG(fmt::format("[ERROR][{}] failed to hash source bytes for '{}'", Policy::LOG_TAG, artifact_name));
             return;
         }
 
-        u64 const artifact_key = Policy::artifact_key(importer_data, content_hash.value());
+        u64 const artifact_key = Policy::artifact_key(importer_data, probe_hash.value());
         std::filesystem::path const tido_path = tido_artifact_path(TIDO_ASSET_CACHE_DIR, artifact_key);
 
         std::optional<CachedArtifactHeaderData> const cached_header_data = read_cached_artifact_header(tido_path);
@@ -213,6 +212,20 @@ struct CookTask final : Task
             return;
         }
 
+        // Only a miss materializes the sources, and it re-hashes what it actually loaded rather than trusting
+        // the probe: a source edited in between would otherwise store a cook of the new bytes under the old
+        // bytes' key, where another source holding the old content would later be served it.
+        typename Policy::ReadState read_state = {};
+        std::optional<u64> const content_hash = Policy::read_and_hash(importer_data, read_state);
+        if (!content_hash.has_value())
+        {
+            DEBUG_MSG(fmt::format("[ERROR][{}] failed to read source bytes for '{}'", Policy::LOG_TAG, artifact_name));
+            return;
+        }
+        // Equal to artifact_key unless the source moved between the probe and the read, which just costs a
+        // cook of something that may already exist - the write is content-addressed either way.
+        u64 const cooked_artifact_key = Policy::artifact_key(importer_data, content_hash.value());
+
         std::vector<std::byte> payload = {};
         std::optional<Descriptor> const descriptor = Policy::do_cook(importer_data, read_state, payload);
         if (!descriptor.has_value())
@@ -224,7 +237,7 @@ struct CookTask final : Task
         WriteTidoFileInfo const write_info = {
             .store_dir = TIDO_ASSET_CACHE_DIR,
             .metadata_hash = TidoMetadataHash{
-                .cache_key = artifact_key,
+                .cache_key = cooked_artifact_key,
                 .source_mtime_at_bake = Policy::current_mtime(importer_data),
                 .content_hash = content_hash.value(),
                 .version = Policy::COOK_VERSION,
@@ -460,6 +473,11 @@ struct ImageCookPolicy
     static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_location.file.stem().string(); }
     static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_location.file).value_or(0); }
 
+    static auto hash_sources(ImporterData const & importer_data) -> std::optional<u64>
+    {
+        return tido_hash_file(importer_data.source_location.file, importer_data.source_location.slice);
+    }
+
     static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
     {
         auto [read_result, source_bytes] = read_file(importer_data.source_location.file, importer_data.source_location.slice);
@@ -567,6 +585,17 @@ struct MeshCookPolicy
         return newest;
     }
 
+    // Chains the streams in the same order read_and_hash does - the two must agree byte for byte, or the probe
+    // names a different artifact than the write and every run recooks.
+    static auto hash_sources(ImporterData const & importer_data) -> std::optional<u64>
+    {
+        std::optional<u64> hash = tido_hash_file(importer_data.indices.location.file, importer_data.indices.location.slice);
+        if (hash.has_value()) { hash = tido_hash_file(importer_data.positions.location.file, importer_data.positions.location.slice, hash.value()); }
+        if (hash.has_value()) { hash = tido_hash_file(importer_data.normals.location.file, importer_data.normals.location.slice, hash.value()); }
+        if (hash.has_value() && importer_data.uvs.has_value()) { hash = tido_hash_file(importer_data.uvs->location.file, importer_data.uvs->location.slice, hash.value()); }
+        return hash;
+    }
+
     static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
     {
         auto [indices_read, indices_bytes] = read_file(importer_data.indices.location.file, importer_data.indices.location.slice);
@@ -635,6 +664,11 @@ struct VdbCookPolicy
     static auto write_artifact(WriteTidoFileInfo const & write_info, Descriptor const & descriptor) -> std::optional<StreamerData> { return write_tido_image(write_info, descriptor); }
     static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_location.file.stem().string(); }
     static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_location.file).value_or(0); }
+
+    static auto hash_sources(ImporterData const & importer_data) -> std::optional<u64>
+    {
+        return tido_hash_file(importer_data.source_location.file, importer_data.source_location.slice);
+    }
 
     static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
     {
