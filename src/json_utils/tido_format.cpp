@@ -66,6 +66,14 @@ auto read_u64(simdjson::ondemand::object & obj, char const * key, u64 & out) -> 
     return simdjson::SUCCESS;
 }
 
+auto read_string(simdjson::ondemand::object & obj, char const * key, std::string & out) -> simdjson::error_code
+{
+    std::string_view text;
+    SIMDJSON_TRY(obj[key].get_string().get(text));
+    out = std::string(text);
+    return simdjson::SUCCESS;
+}
+
 auto read_path(simdjson::ondemand::object & obj, char const * key, std::filesystem::path & out) -> simdjson::error_code
 {
     std::string_view text;
@@ -105,6 +113,7 @@ auto tag_invoke(deserialize_tag, value_type & value, TidoMetadataHash & hash) ->
     hash.source_mtime_at_bake = static_cast<i64>(source_mtime_bits);
     SIMDJSON_TRY(read_hex(obj, "content_hash", hash.content_hash));
     SIMDJSON_TRY(read_u32(obj, "version", hash.version));
+    SIMDJSON_TRY(read_string(obj, "name", hash.name));
     return SUCCESS;
 }
 
@@ -196,6 +205,8 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoMetadataHash const & 
     builder.append_key_value("content_hash", hex_u64(header.content_hash));
     builder.append_comma();
     builder.append_key_value("version", static_cast<u32>(header.version));
+    builder.append_comma();
+    builder.append_key_value("name", std::string_view(header.name));
     builder.end_object();
 }
 
@@ -368,12 +379,12 @@ auto serialize_tido_mesh_descriptor(TidoMeshDescriptor const & mesh) -> std::str
     return serialize_record(mesh);
 }
 
-auto read_tido_image_header_data(std::span<std::byte const> data) -> std::optional<std::pair<TidoMetadataHash, TidoImageDescriptor>>
+auto parse_tido_image_header_data(std::span<std::byte const> data) -> std::optional<std::pair<TidoMetadataHash, TidoImageDescriptor>>
 {
-    return parse_tido_header_array<TidoImageDescriptor>(data, "read_tido_image_header_data");
+    return parse_tido_header_array<TidoImageDescriptor>(data, "parse_tido_image_header_data");
 }
 
-auto read_tido_mesh_header_data(std::span<std::byte const> data) -> std::optional<std::pair<TidoMetadataHash, TidoMeshDescriptor>>
+auto parse_tido_mesh_header_data(std::span<std::byte const> data) -> std::optional<std::pair<TidoMetadataHash, TidoMeshDescriptor>>
 {
-    return parse_tido_header_array<TidoMeshDescriptor>(data, "read_tido_mesh_header_data");
+    return parse_tido_header_array<TidoMeshDescriptor>(data, "parse_tido_mesh_header_data");
 }

@@ -11,21 +11,6 @@
 #include "importer_task_result.hpp"
 using namespace tido::types;
 
-// Stable per-image-artifact source-identity key: a hash of the resolved source byte range (location) folded
-// with the cook recipe (container format, channel mapping, target format). Shared by scene-parse (to dedup
-// images into one manifest entry) and the image cook (as the artifact's cache key and file stem).
-auto image_identity_key(ImageImporterData const & importer_data) -> u64;
-
-// Stable per-mesh-artifact source-identity key: a hash of the resolved attribute-source byte ranges
-// (location). Meshes have no cook recipe, so location alone keys the artifact. Shared by scene-parse (to
-// dedup meshes into one manifest entry) and the mesh cook (as the artifact's cache key and file stem).
-auto mesh_identity_key(MeshImporterData const & importer_data) -> u64;
-
-// Stable per-VDB-image-artifact source-identity key: a hash of the whole-file source range (location) folded
-// with the recipe (per-channel grid name / background / value range, and the target format). cache_path is
-// routing only and excluded, so one .vdb cooked under different grid selections or formats gets distinct keys.
-auto vdb_identity_key(VdbImporterData const & importer_data) -> u64;
-
 struct ImporterTask
 {
     struct ImportScene

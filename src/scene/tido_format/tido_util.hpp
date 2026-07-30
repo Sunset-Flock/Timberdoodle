@@ -17,14 +17,15 @@ auto tido_relative_to_assets_root(std::filesystem::path const & path) -> std::op
 
 auto tido_fnv1a(std::span<std::byte const> bytes, u64 seed = 0xcbf29ce484222325ull) -> u64;
 
-// Turn an arbitrary asset name into a safe, extension-stripped file stem (asset names can be empty or
-// contain characters that are not valid in a path). Returns "unnamed" if nothing usable remains.
+// Turn an arbitrary asset name into a safe, extension-stripped stem for the artifact header (asset names can
+// be empty or carry characters that would have to be escaped). Returns "unnamed" if nothing usable remains.
 auto tido_sanitize_stem(std::string const & name) -> std::string;
 
-auto tido_stem(std::string const & name, u64 identity_key) -> std::string;
-
-// Full path of an artifact's .tido_bin file: <cache_dir>/<stem>.tido_bin.
-auto tido_artifact_path(std::filesystem::path const & cache_dir, std::string const & name, u64 identity_key) -> std::filesystem::path;
+// Full path of an artifact's .tido_bin file: <store_dir>/<key's leading byte>/<key>.tido_bin. The store is
+// flat and sharded by key prefix because a shared artifact has no owning source to live under, and the name
+// contributes nothing to the path because two sources with identical content but different names must land on
+// the same artifact. The human-readable stem lives in the header instead.
+auto tido_artifact_path(std::filesystem::path const & store_dir, u64 artifact_key) -> std::filesystem::path;
 
 // Append the raw bytes of a single POD to an in-memory byte buffer.
 template <typename T>

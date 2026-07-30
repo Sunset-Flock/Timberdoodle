@@ -17,123 +17,121 @@
 #include "../../io/file_io.hpp"
 #include "../../json_utils/tido_format.hpp"
 
-// Bumped whenever the image cook's output or .tido_bin layout changes; a cached artifact whose stored
-// version differs is treated as stale on re-import. Stamped into every cooked image's metadata header.
+// Bumped whenever the image cook's output or .tido_bin layout changes; folded into the artifact key, so a bump
+// makes every image artifact cooked by an earlier version unreachable instead of silently stale.
 static constexpr u32 IMAGE_COOK_VERSION = 1;
 
-// Bumped whenever the mesh cook's output or .tido_bin layout changes; a cached artifact whose stored
-// version differs is treated as stale on re-import. Stamped into every cooked mesh's metadata header.
+// Bumped whenever the mesh cook's output or .tido_bin layout changes; folded into the artifact key, so a bump
+// makes every mesh artifact cooked by an earlier version unreachable instead of silently stale.
 static constexpr u32 MESH_COOK_VERSION = 1;
 
-// Bumped whenever the VDB cook's output or .tido_bin layout changes; a cached artifact whose stored version
-// differs is treated as stale on re-import. Stamped into every cooked VDB image's metadata header.
+// Bumped whenever the VDB cook's output or .tido_bin layout changes; folded into the artifact key, so a bump
+// makes every VDB artifact cooked by an earlier version unreachable instead of silently stale.
 static constexpr u32 VDB_COOK_VERSION = 1;
-
-auto image_identity_key(ImageImporterData const & importer_data) -> u64
-{
-    std::vector<std::byte> importer_data_as_bytes;
-    // Location: the resolved source byte range (path + offset + length); cache_path is routing-only and excluded.
-    std::string const path_string = importer_data.source_bytes.file.generic_string();
-    tido_append_bytes(importer_data_as_bytes, path_string.data(), path_string.size());
-    tido_append_pod(importer_data_as_bytes, importer_data.source_bytes.byte_offset);
-    tido_append_pod(importer_data_as_bytes, importer_data.source_bytes.byte_length);
-
-    // Recipe: container format joins the channel mapping and target format so one source blob used under
-    // different recipes gets distinct keys.
-    tido_append_pod(importer_data_as_bytes, importer_data.container_format);
-    for (auto const & mapped_channel : importer_data.channel_mapping)
-    {
-        importer_data_as_bytes.push_back(static_cast<std::byte>(mapped_channel));
-    }
-    tido_append_pod(importer_data_as_bytes, importer_data.target_format);
-
-    return tido_fnv1a(importer_data_as_bytes, 0);
-}
-
-auto mesh_identity_key(MeshImporterData const & importer_data) -> u64
-{
-    std::vector<std::byte> importer_data_as_bytes;
-    // Location only: each attribute stream's resolved byte range (path + offset + length) and its component
-    // type. cache_path is routing-only and excluded; meshes carry no recipe. An absent uvs stream simply
-    // contributes nothing, so a mesh with uvs keys differently from one without.
-    auto fold_attrib_source = [&](MeshAttribSource const & attrib_source)
-    {
-        std::string const path_string = attrib_source.range.file.generic_string();
-        tido_append_bytes(importer_data_as_bytes, path_string.data(), path_string.size());
-        tido_append_pod(importer_data_as_bytes, attrib_source.range.byte_offset);
-        tido_append_pod(importer_data_as_bytes, attrib_source.range.byte_length);
-        tido_append_pod(importer_data_as_bytes, attrib_source.component_type);
-    };
-    fold_attrib_source(importer_data.indices);
-    fold_attrib_source(importer_data.positions);
-    fold_attrib_source(importer_data.normals);
-    if (importer_data.uvs.has_value()) { fold_attrib_source(importer_data.uvs.value()); }
-
-    return tido_fnv1a(importer_data_as_bytes, 0);
-}
-
-auto vdb_identity_key(VdbImporterData const & importer_data) -> u64
-{
-    std::vector<std::byte> importer_data_as_bytes;
-    // Location: whole-file source range (path + offset + length); cache_path is routing-only and excluded.
-    std::string const path_string = importer_data.source_bytes.file.generic_string();
-    tido_append_bytes(importer_data_as_bytes, path_string.data(), path_string.size());
-    tido_append_pod(importer_data_as_bytes, importer_data.source_bytes.byte_offset);
-    tido_append_pod(importer_data_as_bytes, importer_data.source_bytes.byte_length);
-
-    for (auto const & grid : importer_data.grid_names)
-    {
-        tido_append_bytes(importer_data_as_bytes, grid.data(), grid.size());
-    }
-    for (auto const & mapped_channel : importer_data.channel_mapping)
-    {
-        importer_data_as_bytes.push_back(static_cast<std::byte>(mapped_channel));
-    }
-    tido_append_pod(importer_data_as_bytes, importer_data.target_format);
-
-    return tido_fnv1a(importer_data_as_bytes, 0);
-}
 
 namespace
 {
 
-// The per-source cache directory an artifact is written into: mirrors the owning source's location under
-// the tido_asset_cache tree. cache_path selects the dir; the identity-keyed stem selects the file.
-auto asset_cache_dir(std::filesystem::path const & source_path) -> std::filesystem::path
+// Folded into every artifact key so the flat store's key space stays disjoint per asset type - the cook
+// version constants alone do not distinguish an image from a mesh.
+enum struct ArtifactKind : u32
 {
-    auto const relative = tido_relative_to_assets_root(source_path);
-    DBG_ASSERT_TRUE_M(relative.has_value(), "asset_cache_dir: source path must be under the Tido assets root");
-    return TIDO_ASSET_CACHE_DIR / (relative.has_value() ? relative->parent_path() : std::filesystem::path{});
+    IMAGE = 1,
+    MESH = 2,
+    VDB = 3,
+};
+
+// Length-prefixes a variable-length recipe field, so two different splits of the same concatenated bytes
+// cannot fold into the same key.
+void append_recipe_field(std::vector<std::byte> & key_bytes, void const * data, usize size)
+{
+    tido_append_pod(key_bytes, s_cast<u64>(size));
+    tido_append_bytes(key_bytes, data, size);
+}
+
+// Identity is a property of what the asset is, not of where it was found: two byte-identical sources produce
+// one artifact however many files, containers or slots they arrived through. Nothing about the location is
+// folded in, so slot renumbering and re-export to a new path are non-events.
+auto image_artifact_key(ImageImporterData const & importer_data, u64 content_hash) -> u64
+{
+    std::vector<std::byte> key_bytes;
+    tido_append_pod(key_bytes, ArtifactKind::IMAGE);
+    tido_append_pod(key_bytes, IMAGE_COOK_VERSION);
+    tido_append_pod(key_bytes, content_hash);
+
+    // Recipe: container format joins the channel mapping and target format so one source blob used under
+    // different recipes gets distinct keys.
+    tido_append_pod(key_bytes, importer_data.container_format);
+    append_recipe_field(key_bytes, importer_data.channel_mapping.data(), importer_data.channel_mapping.size());
+    tido_append_pod(key_bytes, importer_data.target_format);
+
+    return tido_fnv1a(key_bytes, 0);
+}
+
+auto mesh_artifact_key(MeshImporterData const & importer_data, u64 content_hash) -> u64
+{
+    std::vector<std::byte> key_bytes;
+    tido_append_pod(key_bytes, ArtifactKind::MESH);
+    tido_append_pod(key_bytes, MESH_COOK_VERSION);
+    tido_append_pod(key_bytes, content_hash);
+
+    // Meshes carry no cook recipe, but the component types and counts decide how the hashed bytes are read,
+    // and one blob can be a valid read under more than one interpretation - those must not share a key.
+    tido_append_pod(key_bytes, importer_data.indices.component_type);
+    tido_append_pod(key_bytes, importer_data.positions.component_type);
+    tido_append_pod(key_bytes, importer_data.normals.component_type);
+    // An absent uvs stream contributes nothing to the content hash, so the flag is what separates it from an
+    // empty one.
+    tido_append_pod(key_bytes, importer_data.uvs.has_value());
+    if (importer_data.uvs.has_value()) { tido_append_pod(key_bytes, importer_data.uvs->component_type); }
+    tido_append_pod(key_bytes, importer_data.vertex_count);
+    tido_append_pod(key_bytes, importer_data.index_count);
+
+    return tido_fnv1a(key_bytes, 0);
+}
+
+auto vdb_artifact_key(VdbImporterData const & importer_data, u64 content_hash) -> u64
+{
+    std::vector<std::byte> key_bytes;
+    tido_append_pod(key_bytes, ArtifactKind::VDB);
+    tido_append_pod(key_bytes, VDB_COOK_VERSION);
+    tido_append_pod(key_bytes, content_hash);
+
+    // Recipe: the selected grids join the channel mapping and target format, so one .vdb cooked under
+    // different grid selections or formats gets distinct keys.
+    tido_append_pod(key_bytes, s_cast<u64>(importer_data.grid_names.size()));
+    for (auto const & grid : importer_data.grid_names) { append_recipe_field(key_bytes, grid.data(), grid.size()); }
+    append_recipe_field(key_bytes, importer_data.channel_mapping.data(), importer_data.channel_mapping.size());
+    tido_append_pod(key_bytes, importer_data.target_format);
+
+    return tido_fnv1a(key_bytes, 0);
 }
 
 // The JSON header region (metadata + descriptor, no payload) and payload offset of a .tido_bin, read
 // without loading the payload. nullopt if the file is missing, too short, or its preamble is invalid - any
 // of which routes the caller to a full cook. The two byte-range reads keep the artifact's bulk off the disk
 // for a cache probe.
-struct CachedArtifactHeader
+struct CachedArtifactHeaderData
 {
     std::vector<std::byte> header_region = {};
     u64 file_data_offset = {};
 };
-auto read_cached_artifact_header(std::filesystem::path const & tido_path) -> std::optional<CachedArtifactHeader>
+auto read_cached_artifact_header(std::filesystem::path const & tido_path) -> std::optional<CachedArtifactHeaderData>
 {
-    // Read the preamble alone to learn how many header bytes follow it - keeps the payload off disk.
-    auto [preamble_result, preamble_bytes] = read_file_byte_range({.file = tido_path, .byte_offset = 0, .byte_length = TIDO_FILE_PREAMBLE_SIZE});
-    if (preamble_result != FileIoResult::SUCCESS || preamble_bytes.size() < sizeof(TidoFilePreamble)) { return std::nullopt; }
-    TidoFilePreamble preamble = {};
-    std::memcpy(&preamble, preamble_bytes.data(), sizeof(TidoFilePreamble));
+    // Read the preamble to find the header region length.
+    auto [read_preamble_result, preamble_bytes] = read_file(tido_path, ByteSlice{.byte_offset = 0, .byte_length = TIDO_FILE_PREAMBLE_SIZE});
+    if (read_preamble_result != FileIoResult::SUCCESS) { return std::nullopt; }
 
-    // Read the preamble + header region (still no payload), then validate and slice out the header region.
-    u64 const header_end = TIDO_FILE_PREAMBLE_SIZE + preamble.header_byte_length;
-    auto [header_result, header_bytes] = read_file_byte_range({.file = tido_path, .byte_offset = 0, .byte_length = header_end});
-    if (header_result != FileIoResult::SUCCESS) { return std::nullopt; }
+    std::optional<TidoFilePreamble> const preamble = tido_parse_preamble(preamble_bytes);
+    if (!preamble.has_value()) { return std::nullopt; }
 
-    std::optional<std::span<std::byte const>> const region = tido_header_region(header_bytes);
-    if (!region.has_value()) { return std::nullopt; }
+    // Read the json header region.
+    auto [read_json_header_result, json_header_bytes] = read_file(tido_path, ByteSlice{.byte_offset = TIDO_FILE_PREAMBLE_SIZE, .byte_length = preamble->header_byte_length});
+    if (read_json_header_result != FileIoResult::SUCCESS) { return std::nullopt; }
 
-    return CachedArtifactHeader{
-        .header_region = std::vector<std::byte>(region->begin(), region->end()),
-        .file_data_offset = header_end,
+    return CachedArtifactHeaderData{
+        .header_region = std::vector<std::byte>(json_header_bytes.begin(), json_header_bytes.end()),
+        .file_data_offset = TIDO_FILE_PREAMBLE_SIZE + preamble->header_byte_length,
     };
 }
 
@@ -148,8 +146,8 @@ void run_task_inline(Task & task)
     }
 }
 
-// Drives one asset cook end to end: derive the identity key + cache path, try the mtime and content cache
-// tiers, and on a miss read the sources, cook, and write the .tido_bin. Everything type-specific (which
+// Drives one asset cook end to end: read and hash the sources, derive the artifact key from that hash, and
+// either serve the artifact already sitting at the key or cook and write one. Everything type-specific (which
 // sources to read, how to cook, which descriptor/streamer types) lives in the Policy; this skeleton is the
 // same for images and meshes.
 template<typename Policy>
@@ -171,19 +169,30 @@ struct CookTask final : Task
 
     void cook()
     {
-        u64 const identity_key = Policy::identity_key(importer_data);
         std::string const artifact_name = Policy::artifact_source_name(importer_data);
-        std::filesystem::path const cache_dir = asset_cache_dir(importer_data.cache_path);
-        std::filesystem::path const tido_path = tido_artifact_path(cache_dir, artifact_name, identity_key);
-        i64 const current_mtime = Policy::current_mtime(importer_data);
 
-        // Fast path: reuse an existing artifact whose stored metadata still matches, skipping the recook.
-        std::optional<CachedArtifactHeader> const cached = read_cached_artifact_header(tido_path);
+        // Every probe reads and hashes the sources first: the key is derived from the bytes, so with location
+        // out of it nothing cheaper can even name the artifact. The hash is over the loaded bytes (before
+        // parse); the read state owns the buffers do_cook interprets.
+        typename Policy::ReadState read_state = {};
+        std::optional<u64> const content_hash = Policy::read_and_hash(importer_data, read_state);
+        if (!content_hash.has_value())
+        {
+            DEBUG_MSG(fmt::format("[ERROR][{}] failed to read source bytes for '{}'", Policy::LOG_TAG, artifact_name));
+            return;
+        }
+
+        u64 const artifact_key = Policy::artifact_key(importer_data, content_hash.value());
+        std::filesystem::path const tido_path = tido_artifact_path(TIDO_ASSET_CACHE_DIR, artifact_key);
+
+        std::optional<CachedArtifactHeaderData> const cached_header_data = read_cached_artifact_header(tido_path);
         std::optional<std::pair<TidoMetadataHash, Descriptor>> cached_header = {};
-        if (cached.has_value()) { cached_header = Policy::read_header(cached->header_region); }
+        if (cached_header_data.has_value()) { cached_header = Policy::parse_artifact_header(cached_header_data->header_region); }
+        // The key already folds the content hash and the cook version, so an artifact that parses at this path
+        // is by construction current; the stored fields are re-checked only to catch a foreign file.
         bool const cache_usable = cached_header.has_value()
             && cached_header->first.version == Policy::COOK_VERSION
-            && cached_header->first.cache_key == identity_key;
+            && cached_header->first.cache_key == artifact_key;
 
         auto push_streamer_result = [&](StreamerData streamer_data)
         {
@@ -193,86 +202,46 @@ struct CookTask final : Task
             }});
         };
 
-        // Both cache tiers reuse the on-disk artifact untouched.
-        auto serve_cached = [&]()
+        if (cache_usable)
         {
             DEBUG_MSG(fmt::format("[{}] cache hit '{}' -> '{}'", Policy::LOG_TAG, artifact_name, tido_path.string()));
             push_streamer_result(StreamerData{
                 .descriptor = cached_header->second,
                 .bin_source = tido_path,
-                .file_data_offset = cached->file_data_offset,
+                .file_data_offset = cached_header_data->file_data_offset,
             });
+            return;
+        }
+
+        std::vector<std::byte> payload = {};
+        std::optional<Descriptor> const descriptor = Policy::do_cook(importer_data, read_state, payload);
+        if (!descriptor.has_value())
+        {
+            DEBUG_MSG(fmt::format("[ERROR][{}] failed to cook '{}'", Policy::LOG_TAG, artifact_name));
+            return;
+        }
+
+        WriteTidoFileInfo const write_info = {
+            .store_dir = TIDO_ASSET_CACHE_DIR,
+            .metadata_hash = TidoMetadataHash{
+                .cache_key = artifact_key,
+                .source_mtime_at_bake = Policy::current_mtime(importer_data),
+                .content_hash = content_hash.value(),
+                .version = Policy::COOK_VERSION,
+                .name = tido_sanitize_stem(artifact_name),
+            },
+            .data = payload,
         };
-
-        // Miss path: cook the freshly-read sources and write a new artifact, stamping the cache identity.
-        auto cook_and_write = [&](typename Policy::ReadState const & read_state, u64 content_hash)
+        std::optional<StreamerData> const streamer_data = Policy::write_artifact(write_info, descriptor.value());
+        if (!streamer_data.has_value())
         {
-            std::vector<std::byte> payload = {};
-            std::optional<Descriptor> const descriptor = Policy::do_cook(importer_data, read_state, payload);
-            if (!descriptor.has_value())
-            {
-                DEBUG_MSG(fmt::format("[ERROR][{}] failed to cook '{}'", Policy::LOG_TAG, artifact_name));
-                return;
-            }
-
-            WriteTidoFileInfo const write_info = {
-                .destination_folder = cache_dir,
-                .name = artifact_name,
-                .metadata_hash = TidoMetadataHash{
-                    .cache_key = identity_key,
-                    .source_mtime_at_bake = current_mtime,
-                    .content_hash = content_hash,
-                    .version = Policy::COOK_VERSION,
-                },
-                .data = payload,
-            };
-            std::optional<StreamerData> const streamer_data = Policy::write_artifact(write_info, descriptor.value());
-            if (!streamer_data.has_value())
-            {
-                DEBUG_MSG(fmt::format("[WARN][{}] failed to write .tido_bin for '{}'", Policy::LOG_TAG, artifact_name));
-                return;
-            }
-
-            DEBUG_MSG(fmt::format("[{}] cooked '{}' ({}) -> '{}'", Policy::LOG_TAG, artifact_name,
-                Policy::cooked_detail(descriptor.value()), streamer_data->bin_source.string()));
-            push_streamer_result(streamer_data.value());
-        };
-
-        // Tier 1 (mtime): sources untouched since the bake - reuse without reading them at all.
-        if (cache_usable && cached_header->first.source_mtime_at_bake == current_mtime)
-        {
-            serve_cached();
+            DEBUG_MSG(fmt::format("[WARN][{}] failed to write .tido_bin for '{}'", Policy::LOG_TAG, artifact_name));
             return;
         }
 
-        // Past the mtime tier every remaining path reads the sources - the content tier hashes them to confirm
-        // the artifact is still valid, and a fresh cook consumes them. The hash is over the loaded bytes
-        // (before parse); the read state owns the buffers do_cook interprets.
-        typename Policy::ReadState read_state = {};
-        std::optional<u64> const content_hash = Policy::read_and_hash(importer_data, read_state);
-        if (!content_hash.has_value())
-        {
-            DEBUG_MSG(fmt::format("[ERROR][{}] failed to read source bytes for '{}'", Policy::LOG_TAG, artifact_name));
-            return;
-        }
-
-        // Tier 2 (content): the mtime moved but the bytes are unchanged, so the artifact is still valid. Patch
-        // the stale bake mtime in place so later imports hit the cheap mtime tier. The mtime is fixed-width in
-        // the header, so the patch can't move the payload offset; a failed patch just leaves it for next time.
-        if (cache_usable && cached_header->first.content_hash == content_hash.value())
-        {
-            TidoMetadataHash refreshed_hash = cached_header->first;
-            refreshed_hash.source_mtime_at_bake = current_mtime;
-            if (!try_patch_tido_metadata_hash(tido_path, cached_header->first, refreshed_hash))
-            {
-                DEBUG_MSG(fmt::format("[WARN][{}] failed to refresh bake mtime for '{}'", Policy::LOG_TAG, artifact_name));
-            }
-            serve_cached();
-            return;
-        }
-
-        // Tier 3 (miss): no usable artifact - cook and write one.
-        cook_and_write(read_state, content_hash.value());
+        DEBUG_MSG(fmt::format("[{}] cooked '{}' ({}) -> '{}'", Policy::LOG_TAG, artifact_name,
+            Policy::cooked_detail(descriptor.value()), streamer_data->bin_source.string()));
+        push_streamer_result(streamer_data.value());
     }
 
     void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
@@ -485,15 +454,15 @@ struct ImageCookPolicy
     static constexpr u32 COOK_VERSION = IMAGE_COOK_VERSION;
     static constexpr char const * LOG_TAG = "ImageCookTask";
 
-    static auto identity_key(ImporterData const & importer_data) -> u64 { return image_identity_key(importer_data); }
-    static auto read_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return read_tido_image_header_data(header_region); }
+    static auto artifact_key(ImporterData const & importer_data, u64 content_hash) -> u64 { return image_artifact_key(importer_data, content_hash); }
+    static auto parse_artifact_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return parse_tido_image_header_data(header_region); }
     static auto write_artifact(WriteTidoFileInfo const & write_info, Descriptor const & descriptor) -> std::optional<StreamerData> { return write_tido_image(write_info, descriptor); }
-    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_bytes.file.stem().string(); }
-    static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_bytes.file).value_or(0); }
+    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_location.file.stem().string(); }
+    static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_location.file).value_or(0); }
 
     static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
     {
-        auto [read_result, source_bytes] = read_file_byte_range(importer_data.source_bytes);
+        auto [read_result, source_bytes] = read_file(importer_data.source_location.file, importer_data.source_location.slice);
         if (read_result != FileIoResult::SUCCESS) { return std::nullopt; }
         // Content hash over the loaded encoded bytes (before parse), stamped into the artifact header.
         u64 const content_hash = tido_fnv1a(std::span<std::byte const>(source_bytes));
@@ -583,28 +552,28 @@ struct MeshCookPolicy
     static constexpr u32 COOK_VERSION = MESH_COOK_VERSION;
     static constexpr char const * LOG_TAG = "MeshCookTask";
 
-    static auto identity_key(ImporterData const & importer_data) -> u64 { return mesh_identity_key(importer_data); }
-    static auto read_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return read_tido_mesh_header_data(header_region); }
+    static auto artifact_key(ImporterData const & importer_data, u64 content_hash) -> u64 { return mesh_artifact_key(importer_data, content_hash); }
+    static auto parse_artifact_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return parse_tido_mesh_header_data(header_region); }
     static auto write_artifact(WriteTidoFileInfo const & write_info, Descriptor const & descriptor) -> std::optional<StreamerData> { return write_tido_mesh(write_info, descriptor); }
-    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.indices.range.file.stem().string(); }
+    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.indices.location.file.stem().string(); }
 
     // The attribute streams usually share one .bin/.glb; the newest across them all is the bake stamp.
     static auto current_mtime(ImporterData const & importer_data) -> i64
     {
-        i64 newest = read_file_modified_time(importer_data.indices.range.file).value_or(0);
-        newest = std::max(newest, read_file_modified_time(importer_data.positions.range.file).value_or(0)); 
-        newest = std::max(newest, read_file_modified_time(importer_data.normals.range.file).value_or(0)); 
-        newest = std::max(newest, importer_data.uvs.has_value() ? read_file_modified_time(importer_data.uvs->range.file).value_or(0) : 0); 
+        i64 newest = read_file_modified_time(importer_data.indices.location.file).value_or(0);
+        newest = std::max(newest, read_file_modified_time(importer_data.positions.location.file).value_or(0));
+        newest = std::max(newest, read_file_modified_time(importer_data.normals.location.file).value_or(0));
+        newest = std::max(newest, importer_data.uvs.has_value() ? read_file_modified_time(importer_data.uvs->location.file).value_or(0) : 0);
         return newest;
     }
 
     static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
     {
-        auto [indices_read, indices_bytes] = read_file_byte_range(importer_data.indices.range);
-        auto [positions_read, positions_bytes] = read_file_byte_range(importer_data.positions.range);
-        auto [normals_read, normals_bytes] = read_file_byte_range(importer_data.normals.range);
+        auto [indices_read, indices_bytes] = read_file(importer_data.indices.location.file, importer_data.indices.location.slice);
+        auto [positions_read, positions_bytes] = read_file(importer_data.positions.location.file, importer_data.positions.location.slice);
+        auto [normals_read, normals_bytes] = read_file(importer_data.normals.location.file, importer_data.normals.location.slice);
         std::pair<FileIoResult, std::vector<std::byte>> uvs_read = {FileIoResult::SUCCESS, {}};
-        if (importer_data.uvs.has_value()) { uvs_read = read_file_byte_range(importer_data.uvs->range); }
+        if (importer_data.uvs.has_value()) { uvs_read = read_file(importer_data.uvs->location.file, importer_data.uvs->location.slice); }
         if (indices_read != FileIoResult::SUCCESS || positions_read != FileIoResult::SUCCESS ||
             normals_read != FileIoResult::SUCCESS || uvs_read.first != FileIoResult::SUCCESS)
         {
@@ -661,15 +630,15 @@ struct VdbCookPolicy
     static constexpr u32 COOK_VERSION = VDB_COOK_VERSION;
     static constexpr char const * LOG_TAG = "VdbCookTask";
 
-    static auto identity_key(ImporterData const & importer_data) -> u64 { return vdb_identity_key(importer_data); }
-    static auto read_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return read_tido_image_header_data(header_region); }
+    static auto artifact_key(ImporterData const & importer_data, u64 content_hash) -> u64 { return vdb_artifact_key(importer_data, content_hash); }
+    static auto parse_artifact_header(std::span<std::byte const> header_region) -> std::optional<std::pair<TidoMetadataHash, Descriptor>> { return parse_tido_image_header_data(header_region); }
     static auto write_artifact(WriteTidoFileInfo const & write_info, Descriptor const & descriptor) -> std::optional<StreamerData> { return write_tido_image(write_info, descriptor); }
-    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_bytes.file.stem().string(); }
-    static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_bytes.file).value_or(0); }
+    static auto artifact_source_name(ImporterData const & importer_data) -> std::string { return importer_data.source_location.file.stem().string(); }
+    static auto current_mtime(ImporterData const & importer_data) -> i64 { return read_file_modified_time(importer_data.source_location.file).value_or(0); }
 
     static auto read_and_hash(ImporterData const & importer_data, ReadState & read_state) -> std::optional<u64>
     {
-        auto [read_result, source_bytes] = read_file_byte_range(importer_data.source_bytes);
+        auto [read_result, source_bytes] = read_file(importer_data.source_location.file, importer_data.source_location.slice);
         if (read_result != FileIoResult::SUCCESS) { return std::nullopt; }
         // Content hash over the whole loaded .vdb (before parse), stamped into the artifact header.
         u64 const content_hash = tido_fnv1a(std::span<std::byte const>(source_bytes));
@@ -828,17 +797,17 @@ void Importer::thread_main()
             if (std::holds_alternative<ImporterTask::ImportImageAsset>(task.data))
             {
                 auto const & import_image = std::get<ImporterTask::ImportImageAsset>(task.data);
-                DEBUG_MSG(fmt::format("[Importer] dispatching image cook for '{}'", import_image.importer_data.source_bytes.file.string()));
+                DEBUG_MSG(fmt::format("[Importer] dispatching image cook for '{}'", import_image.importer_data.source_location.file.string()));
             }
             else if (std::holds_alternative<ImporterTask::ImportMeshAsset>(task.data))
             {
                 auto const & import_mesh = std::get<ImporterTask::ImportMeshAsset>(task.data);
-                DEBUG_MSG(fmt::format("[Importer] dispatching mesh cook for '{}'", import_mesh.importer_data.indices.range.file.string()));
+                DEBUG_MSG(fmt::format("[Importer] dispatching mesh cook for '{}'", import_mesh.importer_data.indices.location.file.string()));
             }
             else if (std::holds_alternative<ImporterTask::ImportVdbAsset>(task.data))
             {
                 auto const & import_vdb = std::get<ImporterTask::ImportVdbAsset>(task.data);
-                DEBUG_MSG(fmt::format("[Importer] dispatching vdb cook for '{}'", import_vdb.importer_data.source_bytes.file.string()));
+                DEBUG_MSG(fmt::format("[Importer] dispatching vdb cook for '{}'", import_vdb.importer_data.source_location.file.string()));
             }
             else if (std::holds_alternative<ImporterTask::ImportScene>(task.data))
             {

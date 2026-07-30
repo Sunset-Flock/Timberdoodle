@@ -8,6 +8,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include "../optimizers/image_processor.hpp"
+#include "../tido_format/tido_util.hpp"
 
 namespace
 {
@@ -19,7 +20,7 @@ static constexpr std::string_view VERT_ATTRIB_NORMAL_NAME = "NORMAL";
 // is embedded/unsupported or the accessor has no buffer view. Asserts the source is tightly packed - the
 // generic cook reads a contiguous range and reinterprets it as a tight array, so interleaved sources aren't
 // supported.
-static auto locate_accessor_range(fastgltf::Asset const & asset, std::filesystem::path const & root_path, fastgltf::Accessor const & accessor) -> std::optional<FileByteRange>
+static auto locate_accessor_range(fastgltf::Asset const & asset, std::filesystem::path const & root_path, fastgltf::Accessor const & accessor) -> std::optional<SourceLocation>
 {
     if (!accessor.bufferViewIndex.has_value()) { return std::nullopt; }
     fastgltf::BufferView const & view = asset.bufferViews.at(accessor.bufferViewIndex.value());
@@ -29,10 +30,12 @@ static auto locate_accessor_range(fastgltf::Asset const & asset, std::filesystem
 
     u64 const element_byte_size = fastgltf::getElementByteSize(accessor.type, accessor.componentType);
     DBG_ASSERT_TRUE_M(!view.byteStride.has_value() || view.byteStride.value() == element_byte_size, "Mesh accessor source is not tightly packed");
-    return FileByteRange{
+    return SourceLocation{
         .file = root_path / uri.uri.fspath(),
-        .byte_offset = view.byteOffset + accessor.byteOffset + uri.fileByteOffset,
-        .byte_length = accessor.count * element_byte_size,
+        .slice = ByteSlice{
+            .byte_offset = view.byteOffset + accessor.byteOffset + uri.fileByteOffset,
+            .byte_length = accessor.count * element_byte_size,
+        },
     };
 }
 
@@ -46,7 +49,6 @@ struct ResolvedMeshStream
 // Resolve where one primitive's tightly-packed vertex/index streams live without reading them. The accepted
 // formats match extract_raw_mesh's accessor validation (F32 vec3 positions/normals, F32 vec2 uvs, U16|U32
 // scalar indices). nullopt if a required stream is missing/invalid or a source is embedded/unsupported.
-// cache_path is left defaulted (routing-only, set by the caller).
 static auto resolve_mesh_source(fastgltf::Asset const & asset, std::filesystem::path const & asset_path, u32 gltf_mesh_index, u32 gltf_primitive_index) -> std::optional<MeshImporterData>
 {
     std::filesystem::path const root_path = std::filesystem::path{asset_path}.remove_filename();
@@ -73,10 +75,10 @@ static auto resolve_mesh_source(fastgltf::Asset const & asset, std::filesystem::
 
         if (accessor.type != expected_type || !component_type.has_value()) { return std::nullopt; }
 
-        auto const range = locate_accessor_range(asset, root_path, accessor);
-        if (!range.has_value()) { return std::nullopt; }
+        auto const location = locate_accessor_range(asset, root_path, accessor);
+        if (!location.has_value()) { return std::nullopt; }
         return ResolvedMeshStream{
-            .source = MeshAttribSource{.range = range.value(), .component_type = component_type.value()},
+            .source = MeshAttribSource{.location = location.value(), .component_type = component_type.value()},
             .element_count = s_cast<u32>(accessor.count),
         };
     };
@@ -134,7 +136,7 @@ static auto mime_type_to_image_format(fastgltf::MimeType mime_type) -> std::opti
 
 struct ImageSourceLocate
 {
-    FileByteRange range = {};
+    SourceLocation location = {};
     ImageFileFormat format = {};
 };
 
@@ -152,12 +154,6 @@ static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_i
             return std::nullopt;
         }
         std::filesystem::path const full_image_path = scene_dir_path / uri->uri.fspath();
-        std::error_code size_error = {};
-        u64 const file_byte_length = std::filesystem::file_size(full_image_path, size_error);
-        if (size_error)
-        {
-            return std::nullopt;
-        }
         fastgltf::MimeType mime_type = uri->mimeType;
         // The URI mime is often unset; the .ktx2 extension is authoritative for basisu textures.
         if (uri->uri.string().ends_with(".ktx2"))
@@ -170,7 +166,7 @@ static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_i
             return std::nullopt;
         }
         return ImageSourceLocate{
-            .range = FileByteRange{.file = full_image_path, .byte_offset = 0, .byte_length = file_byte_length},
+            .location = SourceLocation{.file = full_image_path},
             .format = format.value(),
         };
     }
@@ -190,19 +186,47 @@ static auto resolve_image_source(fastgltf::Asset const & asset, u32 gltf_image_i
             return std::nullopt;
         }
         return ImageSourceLocate{
-            .range = FileByteRange{
+            .location = SourceLocation{
                 .file = full_buffer_path,
-                .byte_offset = gltf_buffer_view.byteOffset + buffer_uri.fileByteOffset,
-                .byte_length = gltf_buffer_view.byteLength,
+                .slice = ByteSlice{
+                    .byte_offset = gltf_buffer_view.byteOffset + buffer_uri.fileByteOffset,
+                    .byte_length = gltf_buffer_view.byteLength,
+                },
             },
             .format = format.value(),
         };
     }
     return std::nullopt;
 }
+
+// Collapses the images of one parse into manifest entries. Keyed on location plus recipe, not on content: the
+// artifact key needs the source bytes, which are only read at cook time. Two entries whose content turns out
+// to be identical still share one artifact, they just each resolve to it. Parse-local and never stored - no
+// durable name may depend on a location.
+auto image_parse_dedup_key(ImageImporterData const & importer_data) -> u64
+{
+    std::vector<std::byte> key_bytes;
+    std::string const path_string = importer_data.source_location.file.generic_string();
+    tido_append_bytes(key_bytes, path_string.data(), path_string.size());
+    tido_append_pod(key_bytes, importer_data.source_location.slice.has_value());
+    if (importer_data.source_location.slice.has_value())
+    {
+        tido_append_pod(key_bytes, importer_data.source_location.slice->byte_offset);
+        tido_append_pod(key_bytes, importer_data.source_location.slice->byte_length);
+    }
+
+    tido_append_pod(key_bytes, importer_data.container_format);
+    for (auto const & mapped_channel : importer_data.channel_mapping)
+    {
+        key_bytes.push_back(static_cast<std::byte>(mapped_channel));
+    }
+    tido_append_pod(key_bytes, importer_data.target_format);
+
+    return tido_fnv1a(key_bytes, 0);
+}
 } // namespace
 
-// ============================ Shared parse + per-artifact identity keys ===========================
+// ============================ Shared glTF parse ===========================
 namespace
 {
 // Parses a .gltf/.glb into a fastgltf::Asset. Only SceneParseTask calls this - fastgltf is touched at
@@ -328,7 +352,7 @@ void SceneParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
 
 void SceneParseTask::translate_materials()
 {
-    // image_source_key -> image_manifest_index
+    // image_parse_dedup_key -> image_manifest_index
     std::unordered_map<u64, u32> image_manifest_map = {};
 
     auto gltf_texture_to_image_index = [&](u32 const gltf_texture_index) -> std::optional<u32>
@@ -363,8 +387,7 @@ void SceneParseTask::translate_materials()
 
         // Shared location; only the recipe (channel_mapping + target_format) varies per material slot.
         ImageImporterData import_info = {
-            .cache_path = file_path,
-            .source_bytes = resolved_source.range,
+            .source_location = resolved_source.location,
             .container_format = resolved_source.format,
         };
         switch(texture_type)
@@ -387,8 +410,8 @@ void SceneParseTask::translate_materials()
 
     auto resolve_image_info = [&](ImporterTaskResult::SceneMetadataBatch::Image const & image_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::ImageInfo>
     {
-        u64 const identity_key = image_identity_key(image_data.importer_data);
-        auto const [iterator, inserted] = image_manifest_map.try_emplace(identity_key, s_cast<u32>(batch.images.size()));
+        u64 const dedup_key = image_parse_dedup_key(image_data.importer_data);
+        auto const [iterator, inserted] = image_manifest_map.try_emplace(dedup_key, s_cast<u32>(batch.images.size()));
         u32 const manifest_index = iterator->second;
         if (inserted)
         {
@@ -396,7 +419,7 @@ void SceneParseTask::translate_materials()
         }
 
         // Sanity check: the same image under the same recipe must always resolve to the same manifest entry.
-        DBG_ASSERT_TRUE_M(image_identity_key(batch.images.at(manifest_index).importer_data) == identity_key, "Image manifest entry mismatch");
+        DBG_ASSERT_TRUE_M(image_parse_dedup_key(batch.images.at(manifest_index).importer_data) == dedup_key, "Image manifest entry mismatch");
 
         return MaterialManifestEntry::ImageInfo{.image_manifest_index = manifest_index, .sampler_index = sampler_index};
     };
@@ -469,7 +492,6 @@ void SceneParseTask::translate_mesh_groups()
             auto mesh_importer_data_opt = resolve_mesh_source(asset, file_path, mesh_group_index, primitive_index);
             DBG_ASSERT_TRUE_M(mesh_importer_data_opt.has_value(), "Unresolvable or unsupported mesh primitive source");
             MeshImporterData mesh_importer_data = mesh_importer_data_opt.value_or(MeshImporterData{});
-            mesh_importer_data.cache_path = file_path;
             batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
                 .material_index = gltf_primitive.materialIndex.has_value() ? std::optional<u32>(s_cast<u32>(gltf_primitive.materialIndex.value())) : std::nullopt,
                 .name = gltf_mesh.name.c_str(),

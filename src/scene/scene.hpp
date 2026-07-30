@@ -48,10 +48,8 @@ struct ImageRuntimeData
 
 struct ImageImporterData
 {
-    // Owning .gltf; selects the per-source cache dir only - never read or parsed.
-    std::filesystem::path cache_path = {};
     // Resolved at scene-parse: the URI image file, or a bufferView slice (even into a .glb).
-    FileByteRange source_bytes = {};
+    SourceLocation source_location = {};
     ImageFileFormat container_format = {};   // PNG | KTX2
     std::vector<u8> channel_mapping = {};    // cook recipe
     daxa::Format target_format = {};         // cook recipe
@@ -74,10 +72,8 @@ struct ImageManifestEntry
 
 struct VdbImporterData
 {
-    // Owning .vdb; selects the per-source cache dir only - never read for structure.
-    std::filesystem::path cache_path = {};
-    // Whole .vdb file: {path, 0, file_size}.
-    FileByteRange source_bytes = {};
+    // The whole .vdb file: a location with no slice.
+    SourceLocation source_location = {};
     std::vector<std::string> grid_names = {};
     std::vector<u8> channel_mapping = {};
     daxa::Format target_format = {};
@@ -94,8 +90,6 @@ struct MeshRuntimeData
 
 struct MeshImporterData
 {
-    // Owning .gltf; selects the per-source cache dir only - never read or parsed.
-    std::filesystem::path cache_path = {};
     // Resolved at scene-parse: tightly-packed byte ranges for each vertex/index stream.
     MeshAttribSource indices = {};
     MeshAttribSource positions = {};

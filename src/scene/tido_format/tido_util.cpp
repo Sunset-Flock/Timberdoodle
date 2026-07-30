@@ -30,14 +30,9 @@ auto tido_sanitize_stem(std::string const & name) -> std::string
     return out;
 }
 
-auto tido_stem(std::string const & name, u64 identity_key) -> std::string
+auto tido_artifact_path(std::filesystem::path const & store_dir, u64 artifact_key) -> std::filesystem::path
 {
-    return fmt::format("{}_{:016x}", tido_sanitize_stem(name), identity_key);
-}
-
-auto tido_artifact_path(std::filesystem::path const & cache_dir, std::string const & name, u64 identity_key) -> std::filesystem::path
-{
-    return cache_dir / (tido_stem(name, identity_key) + ".tido_bin");
+    return store_dir / fmt::format("{:02x}", artifact_key >> 56) / fmt::format("{:016x}.tido_bin", artifact_key);
 }
 
 auto tido_relative_to_assets_root(std::filesystem::path const & path) -> std::optional<std::filesystem::path>

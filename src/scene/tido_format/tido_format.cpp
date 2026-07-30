@@ -2,12 +2,15 @@
 #include "../streamer.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <string_view>
 #include <vector>
 
 #include <chrono>
 #include <thread>
+
+#include <fmt/format.h>
 
 #include "tido_util.hpp"
 #include "../../io/file_io.hpp"
@@ -36,8 +39,7 @@ auto write_file_exclusive_retry(std::filesystem::path const & path, void const *
 
 // The header region is a single JSON array [metadata_hash, descriptor]. Each element is pretty-printed
 // independently, and these are just the literal wrapper bytes stitched around them (not a re-serialization
-// of the combined structure), so the metadata-hash element's offset/length stay fixed regardless of the
-// descriptor's size - that's what try_patch_tido_metadata_hash relies on below.
+// of the combined structure).
 constexpr std::string_view TIDO_HEADER_ARRAY_PREFIX = "[\n";
 constexpr std::string_view TIDO_HEADER_ARRAY_SEPARATOR = ",\n";
 constexpr std::string_view TIDO_HEADER_ARRAY_SUFFIX = "\n]";
@@ -48,18 +50,18 @@ struct WriteTidoFileResult
     u64 file_data_offset = {};
 };
 
-// Assembles [preamble][JSON array: metadata_hash, descriptor][payload] and writes it to
-// destination_folder/<stem>.tido_bin; callers pass their already-serialized descriptor and built payload.
+// Assembles [preamble][JSON array: metadata_hash, descriptor][payload] and writes it to the artifact's
+// keyed path in the store; callers pass their already-serialized descriptor and built payload.
 auto write_tido_file(WriteTidoFileInfo const & info, std::string const & serialized_descriptor, std::span<std::byte const> data_payload) -> std::optional<WriteTidoFileResult>
 {
+    std::filesystem::path const tido_path = tido_artifact_path(info.store_dir, info.metadata_hash.cache_key);
+
     std::error_code create_destination_folder_error = {};
-    std::filesystem::create_directories(info.destination_folder, create_destination_folder_error);
+    std::filesystem::create_directories(tido_path.parent_path(), create_destination_folder_error);
 
     DBG_ASSERT_TRUE_M(
         !create_destination_folder_error || create_destination_folder_error == std::errc::file_exists,
         "write_tido_file: failed to create destination folder");
-
-    std::filesystem::path const tido_path = tido_artifact_path(info.destination_folder, info.name, info.metadata_hash.cache_key);
 
     std::vector<std::byte> header_payload = {};
     header_payload.resize(TIDO_FILE_PREAMBLE_SIZE);
@@ -81,7 +83,20 @@ auto write_tido_file(WriteTidoFileInfo const & info, std::string const & seriali
     header_payload.reserve(header_payload.size() + data_payload.size());
     header_payload.insert(header_payload.end(), data_payload.begin(), data_payload.end());
 
-    if (!write_file_exclusive_retry(tido_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+    // Write to a private temp file and rename it onto the key: a torn artifact whose header still parses would
+    // be sticky forever, since a probe only checks that a file exists at the key. The counter keeps two threads
+    // cooking the same key off each other's temp file; the rename replaces whatever is already there.
+    static std::atomic<u64> temp_file_counter = 0;
+    std::filesystem::path const temp_path = tido_path.parent_path() /
+        fmt::format("{:016x}.{}.tmp", info.metadata_hash.cache_key, temp_file_counter.fetch_add(1));
+    if (!write_file_exclusive_retry(temp_path, header_payload.data(), header_payload.size())) { return std::nullopt; }
+
+    if (!retry_while_locked([&]() { return rename_file(temp_path, tido_path); }))
+    {
+        std::error_code remove_error = {};
+        std::filesystem::remove(temp_path, remove_error);
+        return std::nullopt;
+    }
 
     return WriteTidoFileResult{.bin_source = tido_path, .file_data_offset = file_data_offset};
 }
@@ -306,30 +321,13 @@ auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & 
     return result;
 }
 
-auto try_patch_tido_metadata_hash(std::filesystem::path const & path, TidoMetadataHash const & old_hash, TidoMetadataHash const & new_hash) -> bool
+auto tido_parse_preamble(std::span<std::byte const> preamble_data) -> std::optional<TidoFilePreamble>
 {
-    // The metadata-hash block is the first element of the header's JSON array, at a fixed offset right after
-    // the preamble and the array's literal "[\n" prefix. Every field serializes fixed-width (mtime as hex,
-    // like the hashes), so serialize(new_hash) has the same length as the on-disk block (== serialize(old_hash),
-    // serialization being deterministic) and the patch can't move the payload offset. The length check is a
-    // safety net against that ever ceasing to hold - it bails rather than shift the payload.
-    std::string const old_block = serialize_tido_metadata_hash(old_hash);
-    std::string const new_block = serialize_tido_metadata_hash(new_hash);
-    if (old_block.size() != new_block.size()) { return false; }
-
-    u64 const patch_offset = TIDO_FILE_PREAMBLE_SIZE + TIDO_HEADER_ARRAY_PREFIX.size();
-    return retry_while_locked([&]() { return write_file_byte_range(path, patch_offset, new_block.data(), new_block.size()); });
-}
-
-auto tido_header_region(std::span<std::byte const> file_data) -> std::optional<std::span<std::byte const>>
-{
-    if (file_data.size() < sizeof(TidoFilePreamble)) { return std::nullopt; }
+    if (preamble_data.size() < sizeof(TidoFilePreamble)) { return std::nullopt; }
     TidoFilePreamble preamble = {};
-    std::memcpy(&preamble, file_data.data(), sizeof(TidoFilePreamble));
+    std::memcpy(&preamble, preamble_data.data(), sizeof(TidoFilePreamble));
     TidoFilePreamble const expected = {};
     if (preamble.magic != expected.magic || preamble.version != TidoFilePreamble::CURRENT_VERSION) { return std::nullopt; }
 
-    u64 const region_end = TIDO_FILE_PREAMBLE_SIZE + preamble.header_byte_length;
-    if (file_data.size() < region_end) { return std::nullopt; }
-    return file_data.subspan(TIDO_FILE_PREAMBLE_SIZE, preamble.header_byte_length);
+    return preamble;
 }

@@ -30,35 +30,7 @@ auto open_error_to_file_io_error(DWORD last_error) -> FileIoResult
 }
 } // namespace
 
-auto read_file_byte_range(FileByteRange const & range) -> std::pair<FileIoResult, std::vector<std::byte>>
-{
-    Win32Handle file = {
-        .handle = CreateFileW(
-        range.file.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ, // other readers may open concurrently, writers may not
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr)};
-    if (file.handle == INVALID_HANDLE_VALUE) { return {open_error_to_file_io_error(GetLastError()), {}}; }
-
-    LARGE_INTEGER file_size = {};
-    if (!GetFileSizeEx(file.handle, &file_size)) { return {FileIoResult::IO_FAILED, {}}; }
-    if (range.byte_offset + range.byte_length > s_cast<u64>(file_size.QuadPart)) { return {FileIoResult::OUT_OF_BOUNDS, {}}; }
-
-    LARGE_INTEGER seek_target = {};
-    seek_target.QuadPart = s_cast<LONGLONG>(range.byte_offset);
-    if (!SetFilePointerEx(file.handle, seek_target, nullptr, FILE_BEGIN)) { return {FileIoResult::IO_FAILED, {}}; }
-
-    std::vector<std::byte> data(s_cast<usize>(range.byte_length));
-    DWORD bytes_read = 0;
-    BOOL const ok = ReadFile(file.handle, data.data(), s_cast<DWORD>(data.size()), &bytes_read, nullptr);
-    if (!ok || bytes_read != data.size()) { return {FileIoResult::IO_FAILED, {}}; }
-    return {FileIoResult::SUCCESS, data};
-}
-
-auto read_file(std::filesystem::path const & path) -> std::pair<FileIoResult, std::vector<std::byte>>
+auto read_file(std::filesystem::path const & path, std::optional<ByteSlice> slice) -> std::pair<FileIoResult, std::vector<std::byte>>
 {
     Win32Handle file = {.handle = CreateFileW(
         path.c_str(),
@@ -73,7 +45,15 @@ auto read_file(std::filesystem::path const & path) -> std::pair<FileIoResult, st
     LARGE_INTEGER file_size = {};
     if (!GetFileSizeEx(file.handle, &file_size)) { return {FileIoResult::IO_FAILED, {}}; }
 
-    std::vector<std::byte> data(s_cast<usize>(file_size.QuadPart));
+    // A whole-file read can only learn its length here - which is why a whole-file location stores none.
+    ByteSlice const read_slice = slice.value_or(ByteSlice{.byte_offset = 0, .byte_length = s_cast<u64>(file_size.QuadPart)});
+    if (read_slice.byte_offset + read_slice.byte_length > s_cast<u64>(file_size.QuadPart)) { return {FileIoResult::OUT_OF_BOUNDS, {}}; }
+
+    LARGE_INTEGER seek_target = {};
+    seek_target.QuadPart = s_cast<LONGLONG>(read_slice.byte_offset);
+    if (!SetFilePointerEx(file.handle, seek_target, nullptr, FILE_BEGIN)) { return {FileIoResult::IO_FAILED, {}}; }
+
+    std::vector<std::byte> data(s_cast<usize>(read_slice.byte_length));
     DWORD bytes_read = 0;
     BOOL const ok = ReadFile(file.handle, data.data(), s_cast<DWORD>(data.size()), &bytes_read, nullptr);
     if (!ok || bytes_read != data.size()) { return {FileIoResult::IO_FAILED, {}}; }
@@ -98,29 +78,9 @@ auto write_file(std::filesystem::path const & path, void const * data, usize siz
     return FileIoResult::SUCCESS;
 }
 
-auto write_file_byte_range(std::filesystem::path const & path, u64 byte_offset, void const * data, usize size) -> FileIoResult
+auto rename_file(std::filesystem::path const & from, std::filesystem::path const & to) -> FileIoResult
 {
-    Win32Handle file = {.handle = CreateFileW(
-        path.c_str(),
-        GENERIC_WRITE,
-        0, // deny read and write to everyone else while the write is in flight
-        nullptr,
-        OPEN_EXISTING, // patch an existing file in place; never create or truncate
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr)};
-    if (file.handle == INVALID_HANDLE_VALUE) { return open_error_to_file_io_error(GetLastError()); }
-
-    LARGE_INTEGER file_size = {};
-    if (!GetFileSizeEx(file.handle, &file_size)) { return FileIoResult::IO_FAILED; }
-    if (byte_offset + size > s_cast<u64>(file_size.QuadPart)) { return FileIoResult::OUT_OF_BOUNDS; }
-
-    LARGE_INTEGER seek_target = {};
-    seek_target.QuadPart = s_cast<LONGLONG>(byte_offset);
-    if (!SetFilePointerEx(file.handle, seek_target, nullptr, FILE_BEGIN)) { return FileIoResult::IO_FAILED; }
-
-    DWORD bytes_written = 0;
-    BOOL const ok = WriteFile(file.handle, data, s_cast<DWORD>(size), &bytes_written, nullptr);
-    if (!ok || bytes_written != s_cast<DWORD>(size)) { return FileIoResult::IO_FAILED; }
+    if (!MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING)) { return open_error_to_file_io_error(GetLastError()); }
     return FileIoResult::SUCCESS;
 }
 

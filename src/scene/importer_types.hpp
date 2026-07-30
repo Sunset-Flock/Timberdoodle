@@ -12,6 +12,6 @@ enum struct ComponentType
 
 struct MeshAttribSource
 {
-    FileByteRange range = {};
+    SourceLocation location = {};
     ComponentType component_type = {};
 };

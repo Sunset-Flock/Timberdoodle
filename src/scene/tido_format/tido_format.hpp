@@ -17,9 +17,12 @@ using namespace tido::types;
 struct TidoMetadataHash
 {
     u64 cache_key = {};
+    // Informational: the artifact is validated by its key alone, nothing compares this against the source.
     i64 source_mtime_at_bake = {};
     u64 content_hash = {};
     u32 version = {};
+    // Sanitized stem of the source asset - a debugging aid for the hash-named store, never part of identity.
+    std::string name = {};
 };
 
 // Fixed-size binary preamble at byte 0 of every .tido_bin, before the JSON header region.
@@ -131,8 +134,7 @@ inline std::filesystem::path const TIDO_ASSET_CACHE_DIR = "tido_asset_cache";
 
 struct WriteTidoFileInfo
 {
-    std::filesystem::path destination_folder = {};
-    std::string name = {};
+    std::filesystem::path store_dir = {};
     TidoMetadataHash metadata_hash = {};
     std::span<std::byte const> data = {};
 };
@@ -143,12 +145,5 @@ struct MeshStreamerData;
 auto write_tido_image(WriteTidoFileInfo const & info, TidoImageDescriptor const & descriptor) -> std::optional<ImageStreamerData>;
 auto write_tido_mesh(WriteTidoFileInfo const & info, TidoMeshDescriptor const & descriptor) -> std::optional<MeshStreamerData>;
 
-// Validates the fixed preamble at the start of a .tido_bin and returns just the JSON header region that
-// follows it. nullopt if the file is too small or the preamble's magic/version does not match.
-auto tido_header_region(std::span<std::byte const> file_data) -> std::optional<std::span<std::byte const>>;
-
-// Patch only the metadata-hash header of an existing .tido_bin in place (descriptor + payload untouched).
-// The metadata fields are fixed-width, so old_hash and new_hash serialize to the same length and the patch
-// can't move the payload offset. Returns false on a write failure, or as a safety net if that length
-// invariant is ever broken (lengths differ).
-auto try_patch_tido_metadata_hash(std::filesystem::path const & path, TidoMetadataHash const & old_hash, TidoMetadataHash const & new_hash) -> bool;
+// Parses and validates the fixed preamble at the start of a .tido_bin.
+auto tido_parse_preamble(std::span<std::byte const> preamble_data) -> std::optional<TidoFilePreamble>;
