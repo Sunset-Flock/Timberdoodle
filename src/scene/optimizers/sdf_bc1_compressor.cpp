@@ -207,6 +207,38 @@ static void sBuildInterpolatedColors_Intel(std::span<i32vec3> outColors, u16 inE
 
 
 /**
+@brief Find the four scalars a BC1 block's 2-bit indices select, given a pair of endpoint colors.
+	Input endpoint colors are expected to be 16-bit RGB565.
+**/
+static void sBuildInterpolatedValues(std::span<float> outValues, u16 inEndpointColor0, u16 inEndpointColor1, f32vec3 inUnpackDot)
+{
+	DBG_ASSERT_TRUE_M(outValues.size() == 4, "There always must be 4 interpolated values");
+
+	// Find the four interpolated colors
+	std::array<i32vec3, 4> interpolated_colors_amd;
+	sBuildInterpolatedColors_AMD(interpolated_colors_amd, inEndpointColor0, inEndpointColor1);
+
+	std::array<i32vec3, 4> interpolated_colors_nvidia;
+	sBuildInterpolatedColors_nVidia(interpolated_colors_nvidia, inEndpointColor0, inEndpointColor1);
+
+	std::array<i32vec3, 4> interpolated_colors_intel;
+	sBuildInterpolatedColors_Intel(interpolated_colors_intel, inEndpointColor0, inEndpointColor1);
+
+	// Find the four interpolated values.  Work with the maximum possible value, to ensure the GPU sampled value is <= the source value on all platforms
+	for (int i = 0; i < 4; i++)
+	{
+		outValues[i] = std::max(
+			std::max(
+				sUnpackRGB888ToScalar(interpolated_colors_amd[i], inUnpackDot),
+				sUnpackRGB888ToScalar(interpolated_colors_nvidia[i], inUnpackDot)
+			),
+			sUnpackRGB888ToScalar(interpolated_colors_intel[i], inUnpackDot));
+	}
+}
+
+
+
+/**
 @brief Given a 4x4 list of input values, and a pair of endpoint colors, build a final 64-bit BC1 block
 	Input values are expected to be in [0, 1].
 	Outputs the error and the BC block
@@ -219,32 +251,13 @@ static void sBuildBC1BlockAndEvaluateError(float * outNetError, u64 * outBCBlock
 	// Declare and initialize the block
 	BC1Block block = {};
 
-	// Set endpoints.  
+	// Set endpoints.
 	block.mEndpoint0 = std::max(inEndpointColorLo, inEndpointColorHi);
 	block.mEndpoint1 = std::min(inEndpointColorLo, inEndpointColorHi);
 	DBG_ASSERT_TRUE_M(block.mEndpoint0 > block.mEndpoint1, "Endpoint 0 is expected to be greater than 1 to select 4-color interpolation");
 
-	// Find the four interpolated colors
-	std::array<i32vec3, 4> interpolated_colors_amd;
-	sBuildInterpolatedColors_AMD(interpolated_colors_amd, block.mEndpoint0, block.mEndpoint1);
-
-	std::array<i32vec3, 4> interpolated_colors_nvidia;
-	sBuildInterpolatedColors_nVidia(interpolated_colors_nvidia, block.mEndpoint0, block.mEndpoint1);
-
-	std::array<i32vec3, 4> interpolated_colors_intel;
-	sBuildInterpolatedColors_Intel(interpolated_colors_intel, block.mEndpoint0, block.mEndpoint1);
-
-	// Find the four interpolated values.  Work with the maximum possible value, to ensure the GPU sampled value is <= the source value on all platforms
 	std::array<float, 4> interpolated_values;
-	for (int i = 0; i < 4; i++)
-	{
-		interpolated_values[i] = std::max(
-			std::max(
-				sUnpackRGB888ToScalar(interpolated_colors_amd[i], inUnpackDot),
-				sUnpackRGB888ToScalar(interpolated_colors_nvidia[i], inUnpackDot)
-			),
-			sUnpackRGB888ToScalar(interpolated_colors_intel[i], inUnpackDot));
-	}
+	sBuildInterpolatedValues(interpolated_values, s_cast<u16>(block.mEndpoint0), s_cast<u16>(block.mEndpoint1), inUnpackDot);
 
 	// Choose the 2-bit index for each of the 4x4 values
 	float net_error = 0.0f;
@@ -354,4 +367,24 @@ void CompressBlockBC1SDF(u64 *outBCBlock, std::span<float> inInputData, f32vec3 
 		}
 	}
 	*outBCBlock = best_bc_block;
+}
+
+
+
+/**
+@brief Recover the 4x4 scalars a BC1 block encodes.  Output values are in [0, 1], as the encoder took them.
+**/
+void DecompressBlockBC1SDF(std::span<float> outValues, u64 const * inBCBlock, f32vec3 inUnpackDot)
+{
+	DBG_ASSERT_TRUE_M(outValues.size() == 16, "BC1 Block always compresses 4x4 region (16 values)");
+
+	BC1Block const block = *r_cast<BC1Block const *>(inBCBlock);
+
+	std::array<float, 4> interpolated_values;
+	sBuildInterpolatedValues(interpolated_values, s_cast<u16>(block.mEndpoint0), s_cast<u16>(block.mEndpoint1), inUnpackDot);
+
+	for (int output_index = 0; output_index < 16; output_index++)
+	{
+		outValues[output_index] = interpolated_values[(block.mIndices >> (output_index * 2)) & 0x3];
+	}
 }

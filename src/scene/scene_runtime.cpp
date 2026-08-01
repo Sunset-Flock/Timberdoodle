@@ -11,11 +11,9 @@ SceneRuntime::SceneRuntime(
     daxa::Device device,
     GPUContext * gpu_context,
     std::unique_ptr<ThreadPool> & thread_pool,
-    std::unique_ptr<AssetProcessor> & asset_processor,
     Importer * importer)
     : _scene{device, gpu_context},
       _thread_pool{thread_pool},
-      _asset_processor{asset_processor},
       _importer{importer},
       _device{std::move(device)}
 {
@@ -36,14 +34,27 @@ void SceneRuntime::request_import(std::filesystem::path const & path)
         DEBUG_MSG(fmt::format("[WARN][SceneRuntime::request_import] '{}' is outside the Tido Assets root '{}' - rejected",
             path.string(), TIDO_ASSETS_ROOT.string()));
         _importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
-            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SCENE,
+            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SOURCE,
             .source = path,
             .message = "source path is outside the Tido Assets root",
         }});
         return;
     }
 
-    ImporterTask task = {.data = ImporterTask::ImportScene{.path = path}};
+    // Which backend resolves the source into slots is decided by extension; the request itself names only the
+    // source, so the engine side never learns whether it is a container or a single whole-file asset.
+    if (find_source_backend(path) == nullptr)
+    {
+        DEBUG_MSG(fmt::format("[WARN][SceneRuntime::request_import] no source backend handles '{}' - rejected", path.string()));
+        _importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
+            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SOURCE,
+            .source = path,
+            .message = "no source backend handles this file extension",
+        }});
+        return;
+    }
+
+    ImporterTask task = {.data = ImporterTask::ImportSource{.path = path}};
     _importer->push_tasks(std::span{&task, 1});
 }
 
@@ -67,7 +78,7 @@ void SceneRuntime::poll()
         {
             ImporterTaskResult::Error const & error = std::get<ImporterTaskResult::Error>(result.data);
             DEBUG_MSG(fmt::format("[WARN][SceneRuntime::poll] {} of '{}' failed: {}",
-                error.kind == ImporterTaskResult::Error::TaskKind::IMPORT_SCENE ? "scene import" : "asset import",
+                error.kind == ImporterTaskResult::Error::TaskKind::IMPORT_SOURCE ? "source import" : "asset import",
                 error.source.string(), error.message));
         }
     }
@@ -96,10 +107,22 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         });
         image_local_to_global[local_index] = image_global_index;
 
-        asset_tasks.push_back(ImporterTask{.data = ImporterTask::ImportImageAsset{
-            .importer_data = std::move(importer_data),
-            .image_manifest_index = image_global_index,
-        }});
+        // The recipe's alternative decides which cook the slot needs. Everything from the manifest entry
+        // onwards is identical, and neither the entry nor the cook knows which backend produced the slot.
+        if (auto * image_importer_data = std::get_if<ImageImporterData>(&importer_data))
+        {
+            asset_tasks.push_back(ImporterTask{.data = ImporterTask::ImportImageAsset{
+                .importer_data = std::move(*image_importer_data),
+                .image_manifest_index = image_global_index,
+            }});
+        }
+        else
+        {
+            asset_tasks.push_back(ImporterTask{.data = ImporterTask::ImportVdbAsset{
+                .importer_data = std::move(std::get<VdbImporterData>(importer_data)),
+                .image_manifest_index = image_global_index,
+            }});
+        }
     }
 
     auto remap_texture_info = [&](std::optional<MaterialManifestEntry::ImageInfo> & info)
@@ -254,6 +277,18 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         spot_light_local_to_global[local_index] = spot_light_global_index;
     }
 
+    std::vector<u32> cloud_volume_local_to_global(batch.cloud_volumes.size());
+    for (u32 local_index = 0; local_index < s_cast<u32>(batch.cloud_volumes.size()); ++local_index)
+    {
+        ImporterTaskResult::SceneMetadataBatch::CloudVolume const & cloud_volume = batch.cloud_volumes[local_index];
+        cloud_volume_local_to_global[local_index] = s_cast<u32>(scene._cloud_volumes.size());
+        scene._cloud_volumes.push_back(CloudVolume{
+            .data_image_manifest_index = image_local_to_global.at(cloud_volume.data_image_index),
+            .sdf_image_manifest_index = image_local_to_global.at(cloud_volume.sdf_image_index),
+            .detail_noise_image_manifest_index = image_local_to_global.at(cloud_volume.detail_noise_image_index),
+        });
+    }
+
     // The synthetic subtree root is named after the source file by the parse; append the running import
     // count so repeat imports of the same file stay distinguishable.
     batch.entities.at(batch.root_entity_index).name += fmt::format("_{}", scene._root_render_entities.size());
@@ -274,6 +309,7 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         RenderEntity entity = {
             .transform = local_entity.transform,
             .mesh_group_manifest_index = local_entity.mesh_group_manifest_index,
+            .cloud_volume_index = local_entity.cloud_volume_index,
             .type = local_entity.type,
             .name = local_entity.name,
             .light_index = local_entity.light_index,
@@ -290,6 +326,10 @@ void SceneRuntime::apply_scene_metadata_batch(Scene & scene, ImporterTaskResult:
         if (entity.mesh_group_manifest_index.has_value())
         {
             entity.mesh_group_manifest_index = mesh_group_local_to_global.at(entity.mesh_group_manifest_index.value());
+        }
+        if (entity.cloud_volume_index.has_value())
+        {
+            entity.cloud_volume_index = cloud_volume_local_to_global.at(entity.cloud_volume_index.value());
         }
         if (entity.light_index.has_value())
         {
@@ -694,14 +734,6 @@ auto SceneRuntime::update(UpdateInfo const & info) -> daxa::ExecutableCommandLis
                 .size = sizeof(GPUMaterial),
             });
         }
-    }
-
-    // Make cloud-volume textures resident in the manifest. These still arrive through the AssetProcessor
-    // upload queue (their load path is not yet ported); they are not referenced by any material, so we
-    // only stash their runtime image id - no material update needed.
-    for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
-    {
-        _scene._image_manifest.at(texture_upload.image_manifest_index).runtime_data = ImageRuntimeData{texture_upload.image};
     }
 
     /// TODO: Taskgraph this shit.

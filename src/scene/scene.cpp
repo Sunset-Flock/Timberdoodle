@@ -1,4 +1,4 @@
-#include "scene.hpp"
+﻿#include "scene.hpp"
 
 #include <fstream>
 #include <array>
@@ -163,76 +163,6 @@ Scene::~Scene()
         _device.destroy_buffer(cloud_volume_instances_buffer.id());
     }
 }
-void Scene::start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_processor, ThreadPool * thread_pool)
-{
-    struct LoadCloudVolumeTask : Task
-    {
-        struct TaskInfo
-        {
-            AssetProcessor * asset_processor = {};
-            CloudVolume const * volume;
-        };
-
-        TaskInfo info = {};
-
-        LoadCloudVolumeTask(TaskInfo const & info)
-            : info{info}
-        {
-            chunk_count = 1;
-        }
-
-        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override{
-            {AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
-                .volumetric_data_path = std::filesystem::path(info.volume -> cloud_volume_data_path),
-                .cloud_data_image_manifest_index = info.volume->data_image_manifest_index,
-                .cloud_sdf_image_manifest_index = info.volume->sdf_image_manifest_index,
-            };
-
-        auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
-        if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
-        {
-            DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
-                info.volume->cloud_volume_data_path, AssetProcessor::to_string(ret_status)));
-        }
-        else
-        {
-            DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->cloud_volume_data_path));
-        }
-    }
-
-    {
-        AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
-            .volumetric_data_path = std::filesystem::path(info.volume->detail_noise_path),
-            .cloud_data_image_manifest_index = info.volume->detail_noise_image_manifest_index,
-            .cloud_sdf_image_manifest_index = std::numeric_limits<u32>::max(), // Currently should be unused.
-        };
-        auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
-        if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
-        {
-            DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
-                info.volume->detail_noise_path, AssetProcessor::to_string(ret_status)));
-        }
-        else
-        {
-            DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->detail_noise_path));
-        }
-    }
-};
-}
-;
-
-for (u32 cloud_volume_manifest_index : _cloud_volumes_requesting_load)
-{
-    // Launch loading of this cloud volume
-    auto task = std::make_shared<LoadCloudVolumeTask>(LoadCloudVolumeTask::TaskInfo{
-        .asset_processor = asset_processor,
-        .volume = &_cloud_volumes.at(cloud_volume_manifest_index),
-    });
-    thread_pool->async_dispatch(task, TaskPriority::LOW);
-}
-_cloud_volumes_requesting_load.clear();
-}
-
 void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas)
 {
     auto & mesh_instances = this->current_frame_mesh_instances;
@@ -568,7 +498,7 @@ void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const
     std::memcpy(host_address, &buffer_head, sizeof(CloudVolumeInstancesBufferHead));
 }
 
-void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
+void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool)
 {
     // WARNING: Currently unused (no call site anywhere). Before wiring this up (e.g. an "unload
     // scene" button), it must refuse to run - or wait - while a scene import (SceneRuntime's pending
@@ -579,7 +509,6 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
     // {
     //     thread_pool->block_on(task);
     // }
-    asset_processor->clear();
 
     // NOTE(grundlett): Destroy all GPU resources (from destructor)
     {

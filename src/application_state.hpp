@@ -2,8 +2,6 @@
 
 #include "camera.hpp"
 #include "scene/scene.hpp"
-#include "scene/asset_processor.hpp"
-#include "scene/importers/openvdb_importer.hpp"
 
 struct ApplicationState
 {
@@ -31,17 +29,4 @@ struct ApplicationState
 
     std::string desired_scene_path = {};
 
-    struct VDBManagementState
-    {
-        std::string desired_load_path = {};
-        std::string desired_save_path = {};
-        std::shared_ptr<AssetProcessor::ConvertVDBTask> convert_vdb_task = nullptr;
-        std::vector<VDBGridMetaData> vdb_grids_metadata = {};
-
-        TidoVolumetricCloudFileFormat conversion_format = {};
-        std::vector<u8> grid_included_in_conversion = {};
-        std::vector<VDBGridInfo> grids_to_load = {};
-    };
-
-    VDBManagementState vdb_management_state = {};
 };

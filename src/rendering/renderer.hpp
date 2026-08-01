@@ -7,7 +7,6 @@
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/readback.inl"
 #include "../scene/scene.hpp"
-#include "../scene/asset_processor.hpp"
 #include "../ui/ui.hpp"
 
 #include "../gpu_context.hpp"
@@ -18,7 +17,7 @@
 
 struct Renderer
 {
-    Renderer(Window *window, GPUContext *gpu_context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer, UIEngine * ui_engine);
+    Renderer(Window *window, GPUContext *gpu_context, Scene *scene, daxa::ImGuiRenderer *imgui_renderer, UIEngine * ui_engine);
     ~Renderer();
 
     void compile_pipelines();
@@ -71,7 +70,6 @@ struct Renderer
     GPUContext *gpu_context = {};
     Scene *scene = {};
     UIEngine *ui_engine = {};
-    AssetProcessor *asset_manager = {};
     daxa::TaskGraph main_task_graph;
     daxa::TaskGraph debug_task_graph;
     daxa::TaskGraph sky_task_graph;

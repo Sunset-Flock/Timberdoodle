@@ -6,14 +6,14 @@
 #include <string_view>
 
 #include "../timberdoodle.hpp"
+#include "../gpu_context.hpp"
 
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 #include "importer_types.hpp"
-#include "asset_processor.hpp"
-#include "importers/openvdb_importer.hpp"
+#include "optimizers/image_processor.hpp"
 #include "optimizers/vdb_processor.hpp"
 #include "tido_format/tido_format.hpp"
 #include "streamer.hpp"
@@ -55,6 +55,15 @@ struct ImageImporterData
     daxa::Format target_format = {};         // cook recipe
 };
 
+struct VdbImporterData
+{
+    // The whole .vdb file: a location with no slice.
+    SourceLocation source_location = {};
+    std::vector<std::string> grid_names = {};
+    std::vector<u8> channel_mapping = {};
+    daxa::Format target_format = {};
+};
+
 struct ImageManifestEntry
 {
     // List of materials that use this texture.
@@ -64,19 +73,10 @@ struct ImageManifestEntry
     std::string name = {};
 
     ImageStreamerData streamer_data = {};
-    ImageImporterData importer_data = {};
+    std::variant<ImageImporterData, VdbImporterData> importer_data = {};
     std::optional<ImageRuntimeData> runtime_data = {};
 
     auto loaded() const -> bool{ return runtime_data.has_value(); }
-};
-
-struct VdbImporterData
-{
-    // The whole .vdb file: a location with no slice.
-    SourceLocation source_location = {};
-    std::vector<std::string> grid_names = {};
-    std::vector<u8> channel_mapping = {};
-    daxa::Format target_format = {};
 };
 
 /// ================================================== MESH ==================================================
@@ -164,9 +164,6 @@ struct SpotLight
 
 struct CloudVolume
 {
-    std::string cloud_volume_data_path;
-    std::string detail_noise_path;
-
     u32 data_image_manifest_index = {};
     u32 sdf_image_manifest_index = {};
     u32 detail_noise_image_manifest_index = {};
@@ -320,7 +317,7 @@ struct Scene
     daxa::ExternalTaskBuffer cloud_volume_instances_buffer = {};
     void write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const& cloud_volume_instances);
 
-    void clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor);
+    void clear(std::unique_ptr<ThreadPool> & thread_pool);
 
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
@@ -353,10 +350,4 @@ struct Scene
     // dirty list above: this only drives async residency). SceneRuntime::update drains it to spawn stream
     // tasks; a finished stream then marks _dirty_mesh_lod_group_indices so the GPU sync uploads the real data.
     std::vector<u32> _dirty_mesh_lod_group_streaming_indices = {};
-
-    std::vector<u32> _cloud_volumes_requesting_load = {};
-
-    // Dispatches an async load task for every cloud volume in _cloud_volumes_requesting_load, then
-    // clears the request list.
-    void start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_processor, ThreadPool * thread_pool);
 };

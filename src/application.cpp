@@ -1,4 +1,4 @@
-#include "application.hpp"
+﻿#include "application.hpp"
 #include "json_utils/camera_animation.hpp"
 #include "json_utils/sky_settings.hpp"
 #include <fmt/core.h>
@@ -6,58 +6,34 @@
 
 #include <intrin.h>
 
-auto load_stbn2D(AssetProcessor & asset_processor) -> daxa::ImageId
+// Blue noise holds raw sample values, never colour, so it loads linear.
+auto load_stbn(daxa::Device & device, std::filesystem::path const & layer_zero_path) -> daxa::ImageId
 {
-    std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
-    std::filesystem::path const stbn_vec2_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_vec2_2Dx1D_128x128x64_0.png";
-
-    AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({
-        stbn_vec2_2Dx1D_128x128x64_base_path,
-        64,
-        false
+    std::optional<daxa::ImageId> image = load_nonmanifest_texture(device, {
+        .filepath = layer_zero_path,
+        .layers = 64,
+        .load_as_srgb = false,
     });
-    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
+    if (!image.has_value())
     {
-        DEBUG_MSG(fmt::format("[Renderer] ERROR failed to load Spatio Temporal Blue Noise (STBN) from path {}", stbn_vec2_2Dx1D_128x128x64_base_path.string()));
+        DEBUG_MSG(fmt::format("[Renderer] ERROR failed to load Spatio Temporal Blue Noise (STBN) from path {}", layer_zero_path.string()));
         return {};
     }
-
-    return std::get<daxa::ImageId>(ret);
+    return image.value();
 }
 
-auto load_stbnCosDir(AssetProcessor & asset_processor) -> daxa::ImageId
-{
-    std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
-    std::filesystem::path const stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_unitvec3_cosine_2Dx1D_128x128x64_0.png";
-
-    AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({
-        stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path,
-        64,
-        false
-    });
-    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
-    {
-        DEBUG_MSG(fmt::format("[Renderer] ERROR failed to load Spatio Temporal Blue Noise (STBN) from path {}", stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path.string()));
-        return {};
-    }
-
-    return std::get<daxa::ImageId>(ret);
-}
-
-std::filesystem::path const DEFAULT_CLOUD_DATA_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_data_fields.cloudbin";
-std::filesystem::path const DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_detail_noise.cloudbin";
+std::filesystem::path const DEFAULT_CLOUD_VOLUME_PATH = "assets\\Clouds\\default_cloud_volume.vdb";
 
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(6);
     _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
-    _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
     _importer = std::make_unique<Importer>(_threadpool.get());
-    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool, _asset_manager, _importer.get());
-    _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
+    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool, _importer.get());
+    _ui_engine = std::make_unique<UIEngine>(*_window, _gpu_context.get());
 
-    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene_runtime->scene_ptr(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
+    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene_runtime->scene_ptr(), &_ui_engine->imgui_renderer, _ui_engine.get());
 
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path_sun_temple.json";
@@ -66,49 +42,16 @@ Application::Application()
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\keypoints.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\exported_path.json";
 
-    _renderer->stbn2d = load_stbn2D(*_asset_manager);
+    std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
+    _renderer->stbn2d = load_stbn(_gpu_context->device, STBN_BASE_PATH / "stbn_vec2_2Dx1D_128x128x64_0.png");
     _renderer->render_context->render_data.stbn2d = std::bit_cast<daxa_ImageViewId>(_renderer->stbn2d.default_view());
-    _renderer->stbnCosDir = load_stbnCosDir(*_asset_manager);
+    _renderer->stbnCosDir = load_stbn(_gpu_context->device, STBN_BASE_PATH / "stbn_unitvec3_cosine_2Dx1D_128x128x64_0.png");
     _renderer->render_context->render_data.stbnCosDir = std::bit_cast<daxa_ImageViewId>(_renderer->stbnCosDir.default_view());
 
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    Scene & default_scene = _scene_runtime->scene();
-
-    std::string const cloud_volume_data_path = DEFAULT_CLOUD_DATA_VDB_PATH.string();
-    std::string const cloud_detail_noise_path = DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string();
-
-    CloudVolume cpu_cloud_volume = {};
-    cpu_cloud_volume.cloud_volume_data_path = cloud_volume_data_path;
-    cpu_cloud_volume.detail_noise_path = cloud_detail_noise_path;
-
-    // Preallocate manifest entries for all possible textures.
-    // This potentially wastes some manifest entries (in case the cloud volume does not use separate sdf texture for example)
-    // but I am limited by the way the image manifest currently works (extremely dependent on gltf loading).
-    // In the future this should be rewritten but for now this will work fine.
-    cpu_cloud_volume.data_image_manifest_index = s_cast<u32>(default_scene._image_manifest.size());
-    default_scene._image_manifest.push_back(ImageManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
-
-    cpu_cloud_volume.sdf_image_manifest_index = s_cast<u32>(default_scene._image_manifest.size());
-    default_scene._image_manifest.push_back(ImageManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
-
-    cpu_cloud_volume.detail_noise_image_manifest_index = s_cast<u32>(default_scene._image_manifest.size());
-    default_scene._image_manifest.push_back(ImageManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
-
-    u32 const cloud_volume_index = s_cast<u32>(default_scene._cloud_volumes.size());
-    default_scene._cloud_volumes.push_back(cpu_cloud_volume);
-
-    default_scene._cloud_volumes_requesting_load.push_back(cloud_volume_index);
-    default_scene.start_async_loads_of_dirty_cloud_volumes(_asset_manager.get(), _threadpool.get());
-
-    RenderEntityId const default_cloud_volume_entity_id = default_scene._render_entities.create_slot({
-        .transform = glm::mat4x3(glm::translate(glm::scale(glm::identity<glm::mat4x4>(), f32vec3(512.0f, 512.0f, 64.0f) * 20.0f), f32vec3(-0.5f, -0.5f, 0.3f))),
-        .cloud_volume_index = cloud_volume_index,
-        .type = EntityType::CLOUD_VOLUME,
-        .name = "Default cloud volume",
-    });
-    default_scene._dirty_render_entities.push_back(default_cloud_volume_entity_id);
+    _scene_runtime->request_import(DEFAULT_CLOUD_VOLUME_PATH);
 
     struct CompPipelinesTask : Task
     {
@@ -232,11 +175,8 @@ void Application::update()
     usize cmd_list_count = 0ull;
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
 
-    auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
-
     cmd_lists.at(cmd_list_count++) = _scene_runtime->update({
         .thread_pool = _threadpool.get(),
-        .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
     cmd_lists.at(cmd_list_count++) = _scene_runtime->create_mesh_acceleration_structures();
     _gpu_context->device.submit_commands({
@@ -252,7 +192,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_renderer->render_context, _scene_runtime->scene(), app_state, *_threadpool);
+    _ui_engine->main_update(*_renderer->render_context, _scene_runtime->scene(), app_state);
     if (_renderer->main_task_graph.get() && _ui_engine->tg_debug_ui)
     {
         _ui_engine->tg_debug_ui = _ui_engine->main_task_graph_debug_ui.update(_renderer->main_task_graph);
@@ -323,11 +263,9 @@ Application::~Application()
     // tasks (which push into the still-alive Importer).
     _importer->stop();
     _threadpool.reset();
-    auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
     // Thread pool is gone here: update won't spawn new texture streams, just flushes GPU updates.
     auto manifest_update_commands = _scene_runtime->update({
         .thread_pool = nullptr,
-        .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
     auto cmd_lists = std::array{std::move(manifest_update_commands)};
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});

@@ -13,7 +13,7 @@ using namespace tido::types;
 #include "scene/scene.hpp"
 #include "scene/scene_runtime.hpp"
 #include "scene/importers/importer.hpp"
-#include "scene/asset_processor.hpp"
+#include "scene/nonmanifest_texture.hpp"
 #include "ui/ui.hpp"
 #include "rendering/renderer.hpp"
 #include "gpu_context.hpp"
@@ -48,7 +48,6 @@ private:
     std::unique_ptr<GPUContext> _gpu_context = {};
     std::unique_ptr<Importer> _importer = {};
     std::unique_ptr<SceneRuntime> _scene_runtime = {};
-    std::unique_ptr<AssetProcessor> _asset_manager = {};
     std::unique_ptr<UIEngine> _ui_engine = {};
     std::unique_ptr<Renderer> _renderer = {};
     std::unique_ptr<ThreadPool> _threadpool = {};

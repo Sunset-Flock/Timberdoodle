@@ -4,6 +4,14 @@
 #include <cctype>
 #include <fmt/format.h>
 
+auto tido_lowercase_extension(std::filesystem::path const & path) -> std::string
+{
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](char const c) { return s_cast<char>(std::tolower(s_cast<unsigned char>(c))); });
+    return extension;
+}
+
 auto tido_fnv1a(std::span<std::byte const> bytes, u64 seed) -> u64
 {
     u64 hash = seed;

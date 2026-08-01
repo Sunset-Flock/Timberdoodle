@@ -23,7 +23,9 @@ struct ImporterTaskResult
         struct Image
         {
             std::string name = {};
-            ImageImporterData importer_data = {};
+            // The slot's recipe, whose alternative is also its type tag: encoded 2D image bytes, or grids
+            // densified out of a .vdb. Both cook into the image manifest.
+            std::variant<ImageImporterData, VdbImporterData> importer_data = {};
         };
 
         struct Material
@@ -71,12 +73,21 @@ struct ImporterTaskResult
             f32 outer_cone_angle = {};
         };
 
+        // Indices into this batch's `images`; the three volumes a cloud entity samples.
+        struct CloudVolume
+        {
+            u32 data_image_index = {};
+            u32 sdf_image_index = {};
+            u32 detail_noise_image_index = {};
+        };
+
         struct Entity
         {
             glm::mat4x3 transform = {};
             EntityType type = EntityType::UNKNOWN;
             std::string name = {};
             std::optional<u32> mesh_group_manifest_index = {};
+            std::optional<u32> cloud_volume_index = {};
             std::optional<u32> light_index = {};
             std::optional<u32> parent_index = {};
             std::optional<u32> first_child_index = {};
@@ -89,6 +100,7 @@ struct ImporterTaskResult
         std::vector<MeshGroup> mesh_groups = {};
         std::vector<PointLight> point_lights = {};
         std::vector<SpotLight> spot_lights = {};
+        std::vector<CloudVolume> cloud_volumes = {};
         std::vector<Entity> entities = {};
         // Index into `entities` of the synthetic subtree root that parents every parentless node.
         u32 root_entity_index = {};
@@ -104,7 +116,7 @@ struct ImporterTaskResult
     {
         enum struct TaskKind
         {
-            IMPORT_SCENE,
+            IMPORT_SOURCE,
             IMPORT_ASSET,
         };
         TaskKind kind = {};

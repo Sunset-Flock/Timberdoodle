@@ -322,7 +322,7 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
 
 } // namespace
 
-// ====================== ImportScene: parse -> SceneMetadataBatch (no cooking) =====================
+// ====================== gltf backend: parse -> SceneMetadataBatch (no cooking) =====================
 namespace
 {
 
@@ -372,7 +372,7 @@ void SceneParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
     {
         DEBUG_MSG(fmt::format("[WARN][SceneParseTask::callback] Loading \"{}\" Error: {}", file_path.string(), Scene::to_string(*error)));
         importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
-            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SCENE,
+            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SOURCE,
             .source = file_path,
             .message = std::string{Scene::to_string(*error)},
         }});
@@ -445,18 +445,24 @@ void SceneParseTask::translate_materials()
         return import_info;
     };
 
-    auto resolve_image_info = [&](ImporterTaskResult::SceneMetadataBatch::Image const & image_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::ImageInfo>
+    auto resolve_image_info = [&](std::string image_name, ImageImporterData importer_data, u32 const sampler_index) -> std::optional<MaterialManifestEntry::ImageInfo>
     {
-        u64 const dedup_key = image_parse_dedup_key(image_data.importer_data);
+        u64 const dedup_key = image_parse_dedup_key(importer_data);
         auto const [iterator, inserted] = image_manifest_map.try_emplace(dedup_key, s_cast<u32>(batch.images.size()));
         u32 const manifest_index = iterator->second;
         if (inserted)
         {
-            batch.images.push_back(image_data);
+            batch.images.push_back(ImporterTaskResult::SceneMetadataBatch::Image{
+                .name = std::move(image_name),
+                .importer_data = std::move(importer_data),
+            });
         }
 
         // Sanity check: the same image under the same recipe must always resolve to the same manifest entry.
-        DBG_ASSERT_TRUE_M(image_parse_dedup_key(batch.images.at(manifest_index).importer_data) == dedup_key, "Image manifest entry mismatch");
+        // Every slot this backend emits is an encoded 2D image, never a vdb one.
+        DBG_ASSERT_TRUE_M(
+            image_parse_dedup_key(std::get<ImageImporterData>(batch.images.at(manifest_index).importer_data)) == dedup_key,
+            "Image manifest entry mismatch");
 
         return MaterialManifestEntry::ImageInfo{.image_manifest_index = manifest_index, .sampler_index = sampler_index};
     };
@@ -466,7 +472,7 @@ void SceneParseTask::translate_materials()
     {
         auto const gltf_image_index = gltf_texture_to_image_index(gltf_texture_index);
         auto const gltf_texture_name = asset.images.at(gltf_image_index.value()).name;
-        return resolve_image_info({.name = gltf_texture_name.c_str(), .importer_data = default_image_import_info(texture_type, gltf_image_index.value())}, 0);
+        return resolve_image_info(gltf_texture_name.c_str(), default_image_import_info(texture_type, gltf_image_index.value()), 0);
     };
 
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
@@ -708,20 +714,11 @@ auto SceneParseTask::translate_entities() -> u32
 } // namespace
 
 
-// ==================================== Scene-parse dispatch =======================================
+// ==================================== gltf backend dispatch =======================================
 
-void dispatch_scene_parses(Importer & importer, std::vector<ImporterTask> & tasks)
+void dispatch_gltf_source(Importer & importer, std::filesystem::path const & path)
 {
-    // The gltf backend only parses scenes into a SceneMetadataBatch; the fastgltf-free asset cooks are
-    // dispatched by Importer (from the fully resolved ImporterData) before this runs.
-    auto consume_scene_task = [&](ImporterTask & task) -> bool
-    {
-        if (auto const * import_scene = std::get_if<ImporterTask::ImportScene>(&task.data))
-        {
-            importer.thread_pool->async_dispatch(std::make_shared<SceneParseTask>(import_scene->path, &importer), TaskPriority::LOW);
-            return true;
-        }
-        return false;
-    };
-    std::erase_if(tasks, consume_scene_task);
+    // The gltf backend only parses sources into a SceneMetadataBatch; the fastgltf-free asset cooks are
+    // dispatched by Importer from the fully resolved ImporterData the batch carries.
+    importer.thread_pool->async_dispatch(std::make_shared<SceneParseTask>(path, &importer), TaskPriority::LOW);
 }

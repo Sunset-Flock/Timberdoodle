@@ -377,6 +377,16 @@ auto cook_uncompressed_source(TidoImageWithData decoded, std::span<u8 const> cha
                 // Remap the recipe's channels into a tightly packed BC source.
                 FormatInfo bc_source_info = target_block;
                 bc_source_info.channel_count = s_cast<u32>(channel_mapping.size());
+                // BC1 is an RGB codec, so a single channel mapped into it is the custom scalar SDF encoding
+                // rather than a colour block. compress_image selects that encoder off an fp32 source.
+                bool const is_bc1_target =
+                    target_format == daxa::Format::BC1_RGB_UNORM_BLOCK || target_format == daxa::Format::BC1_RGB_SRGB_BLOCK ||
+                    target_format == daxa::Format::BC1_RGBA_UNORM_BLOCK || target_format == daxa::Format::BC1_RGBA_SRGB_BLOCK;
+                if (is_bc1_target && bc_source_info.channel_count == 1)
+                {
+                    bc_source_info.channel_byte_size = sizeof(f32);
+                    bc_source_info.numeric_type = FormatNumericType::SFLOAT;
+                }
                 daxa::Format const bc_source_format = get_format_from_info(bc_source_info);
                 std::vector<std::byte> bc_source(s_cast<usize>(texel_count) * get_info_from_format(bc_source_format).block_byte_size);
 
@@ -456,7 +466,7 @@ auto cook_ktx_source(std::span<std::byte const> source_bytes, ImageImporterData 
 }
 
 // Cooks one image asset: read its resolved source range, decode/transcode + BC-compress per the baked
-// recipe, and write the .tido_bin artifact keyed by its identity into the per-source cache dir.
+// recipe, and write the .tido_bin artifact into the flat store under its content-derived key.
 struct ImageCookPolicy
 {
     using ImporterData = ImageImporterData;
@@ -551,8 +561,8 @@ auto pack_processed_mesh(ProcessedMesh const & processed, std::vector<std::byte>
 }
 
 // Cooks one mesh asset: read its resolved attribute-source ranges, interpret + validate them (mesh_parse),
-// optimize into the runtime meshlet form (optimize_mesh), and write the .tido_bin artifact keyed by its
-// identity into the per-source cache dir.
+// optimize into the runtime meshlet form (optimize_mesh), and write the .tido_bin artifact into the flat
+// store under its content-derived key.
 struct MeshCookPolicy
 {
     using Descriptor = TidoMeshDescriptor;
@@ -704,8 +714,8 @@ using ImageCookTask = CookTask<ImageCookPolicy>;
 using MeshCookTask = CookTask<MeshCookPolicy>;
 using VdbCookTask = CookTask<VdbCookPolicy>;
 
-// Dispatches the fastgltf-free asset cooks (image and mesh) from their already-resolved ImporterData,
-// consuming those tasks. Scene-parse tasks are left in place for the gltf backend.
+// Dispatches the backend-agnostic asset cooks (image, mesh and vdb) from their already-resolved ImporterData,
+// consuming those tasks. Source-import tasks are left in place for the backends.
 void dispatch_asset_cooks(Importer & importer, std::vector<ImporterTask> & tasks)
 {
     auto consume_cook_task = [&](ImporterTask & task) -> bool
@@ -735,7 +745,45 @@ void dispatch_asset_cooks(Importer & importer, std::vector<ImporterTask> & tasks
     };
     std::erase_if(tasks, consume_cook_task);
 }
+
+// The open list of source backends. A new source kind is a row here plus its dispatch function; nothing else
+// in the pipeline distinguishes them.
+constexpr SourceBackend SOURCE_BACKENDS[] = {
+    {".gltf", dispatch_gltf_source},
+    {".glb",  dispatch_gltf_source},
+    {".png",  dispatch_standalone_image_source},
+    {".ktx2", dispatch_standalone_image_source},
+    {".vdb",  dispatch_cloud_volume_source},
+};
+
+// Hands every source over to the backend claiming its extension, consuming those tasks. Whether that backend
+// resolves the slots by parsing a container or by naming the file itself is entirely its own business.
+void dispatch_source_imports(Importer & importer, std::vector<ImporterTask> & tasks)
+{
+    auto consume_source_task = [&](ImporterTask & task) -> bool
+    {
+        auto const * import_source = std::get_if<ImporterTask::ImportSource>(&task.data);
+        if (import_source == nullptr) { return false; }
+
+        SourceBackend const * backend = find_source_backend(import_source->path);
+        // request_import rejects an unclaimed extension before it ever reaches the queue.
+        DBG_ASSERT_TRUE_M(backend != nullptr, "ImportSource for an extension no backend claims");
+        if (backend != nullptr) { backend->dispatch(importer, import_source->path); }
+        return true;
+    };
+    std::erase_if(tasks, consume_source_task);
+}
 } // namespace
+
+auto find_source_backend(std::filesystem::path const & path) -> SourceBackend const *
+{
+    std::string const extension = tido_lowercase_extension(path);
+    for (SourceBackend const & backend : SOURCE_BACKENDS)
+    {
+        if (backend.extension == extension) { return &backend; }
+    }
+    return nullptr;
+}
 
 Importer::Importer(ThreadPool * thread_pool)
     : thread_pool{thread_pool}
@@ -817,7 +865,7 @@ void Importer::thread_main()
         // TODO(saky): TEMP HACK - Fix once threadpool has proper task priorities
         std::sort(tasks.begin(), tasks.end(), [](ImporterTask const & a, ImporterTask const & b) {
             auto get_priority = [](ImporterTask const & task) -> u32 {
-                if (std::holds_alternative<ImporterTask::ImportScene>(task.data)) { return 0; }
+                if (std::holds_alternative<ImporterTask::ImportSource>(task.data)) { return 0; }
                 if (std::holds_alternative<ImporterTask::ImportMeshAsset>(task.data)) { return 1; }
                 if (std::holds_alternative<ImporterTask::ImportImageAsset>(task.data)) { return 2; }
                 if (std::holds_alternative<ImporterTask::ImportVdbAsset>(task.data)) { return 2; }
@@ -843,16 +891,16 @@ void Importer::thread_main()
                 auto const & import_vdb = std::get<ImporterTask::ImportVdbAsset>(task.data);
                 DEBUG_MSG(fmt::format("[Importer] dispatching vdb cook for '{}'", import_vdb.importer_data.source_location.file.string()));
             }
-            else if (std::holds_alternative<ImporterTask::ImportScene>(task.data))
+            else if (std::holds_alternative<ImporterTask::ImportSource>(task.data))
             {
-                auto const & import_scene = std::get<ImporterTask::ImportScene>(task.data);
-                DEBUG_MSG(fmt::format("[Importer] dispatching scene parse for '{}'", import_scene.path.string()));
+                auto const & import_source = std::get<ImporterTask::ImportSource>(task.data);
+                DEBUG_MSG(fmt::format("[Importer] dispatching source import for '{}'", import_source.path.string()));
             }
         }
-        // Generic, backend-agnostic asset cooks first (they act on resolved ImporterData); the gltf backend
-        // then consumes what's left - the scene-parse tasks.
+        // Generic, backend-agnostic asset cooks first (they act on resolved ImporterData); the source backends
+        // then consume what's left - the sources still to be resolved into slots.
         dispatch_asset_cooks(*this, tasks);
-        dispatch_scene_parses(*this, tasks);
+        dispatch_source_imports(*this, tasks);
         DBG_ASSERT_TRUE_M(tasks.empty(), "An ImporterTask was left unconsumed - no importer handles its provenance");
     }
 }

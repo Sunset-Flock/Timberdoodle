@@ -16,6 +16,10 @@ inline std::filesystem::path const TIDO_ASSETS_ROOT = "assets";
 
 auto tido_relative_to_assets_root(std::filesystem::path const & path) -> std::optional<std::filesystem::path>;
 
+// A path's extension folded to lowercase, dot included, so extension matching does not depend on how a file
+// happened to be named. Empty if the path has no extension.
+auto tido_lowercase_extension(std::filesystem::path const & path) -> std::string;
+
 auto tido_fnv1a(std::span<std::byte const> bytes, u64 seed = 0xcbf29ce484222325ull) -> u64;
 
 // Folds a file range into an FNV-1a hash without materializing it, reading through a fixed scratch buffer so

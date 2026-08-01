@@ -65,8 +65,8 @@ inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_bu
 }
 
 Renderer::Renderer(
-    Window * window, GPUContext * gpu_context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer, UIEngine * ui_engine)
-    : render_context{std::make_unique<RenderContext>(gpu_context)}, window{window}, gpu_context{gpu_context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
+    Window * window, GPUContext * gpu_context, Scene * scene, daxa::ImGuiRenderer * imgui_renderer, UIEngine * ui_engine)
+    : render_context{std::make_unique<RenderContext>(gpu_context)}, window{window}, gpu_context{gpu_context}, scene{scene}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
 {
     meshlet_instances = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");

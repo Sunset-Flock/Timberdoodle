@@ -41,10 +41,10 @@ add_executable(${PROJECT_NAME}
     "src/daxa_helper.cpp"
     "src/scene/scene.cpp"
     "src/scene/scene_runtime.cpp"
-    "src/scene/asset_processor.cpp"
+    "src/scene/nonmanifest_texture.cpp"
     "src/scene/importers/importer.cpp"
     "src/scene/importers/gltf_importer.cpp"
-    "src/scene/importers/openvdb_importer.cpp"
+    "src/scene/importers/standalone_importer.cpp"
     "src/scene/streamer.cpp"
     "src/scene/optimizers/image_compressor.cpp"
     "src/scene/optimizers/image_processor.cpp"
@@ -109,4 +109,35 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(${PROJECT_NAME} PRIVATE Dwmapi)
+endif()
+
+# Standalone converter recovering a .vdb from a cooked .cloudbin. Developer-local and gitignored, so the
+# target only exists where the source does.
+if(TIDO_ENABLE_UTILS_VDB_LOADER AND EXISTS "${CMAKE_SOURCE_DIR}/tools/cloudbin_to_vdb/main.cpp")
+    add_executable(cloudbin_to_vdb
+        "tools/cloudbin_to_vdb/main.cpp"
+        "src/scene/optimizers/sdf_bc1_compressor.cpp"
+        "src/scene/optimizers/vdb_processor.cpp"
+        "src/scene/optimizers/image_processor.cpp"
+        "src/scene/optimizers/image_compressor.cpp"
+        "src/multithreading/thread_pool.cpp"
+        "src/scene/tido_format/tido_format.cpp"
+        "src/scene/tido_format/tido_util.cpp"
+        "src/json_utils/tido_format.cpp"
+        "src/io/file_io.cpp"
+    )
+    target_compile_features(cloudbin_to_vdb PRIVATE cxx_std_20)
+    # The tool verifies its output by running the importer's own vdb_parse over it.
+    target_compile_definitions(cloudbin_to_vdb PRIVATE TIDO_BUILT_WITH_UTILS_VDB_LOADER=true)
+    target_link_libraries(cloudbin_to_vdb PRIVATE
+        fmt::fmt
+        glm::glm
+        daxa::daxa
+        nlohmann_json::nlohmann_json
+        simdjson::simdjson
+        KTX::ktx
+        png_static
+        CMP_Core
+        openvdb_static
+    )
 endif()
