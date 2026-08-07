@@ -35,6 +35,7 @@ add_executable(${PROJECT_NAME}
     "src/ui/widgets/scene_graph.cpp"
     "src/ui/widgets/property_viewer.cpp"
     "src/ui/widgets/camera_path_editor.cpp"
+    "src/ui/widgets/sky_settings_panel.cpp"
     "src/rendering/renderer.cpp"
     "src/rendering/pgi/pgi.cpp"
     "src/multithreading/thread_pool.cpp"
