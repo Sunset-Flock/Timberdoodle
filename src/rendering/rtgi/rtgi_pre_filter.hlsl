@@ -424,9 +424,9 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
         }
         filtered_diffuse  = acc_sh;
         filtered_diffuse2 = acc_cocg;
-        if (do_clamp && rtgi.pre_blur_firefly_energy_compensation_enabled != 0)
+        if (do_clamp && rtgi.pre_blur_firefly_energy_compensation_enabled != 0 && all(energy_post > 1e-8f))
         {
-            firefly_energy_factor = energy_pre / max(energy_post, 1e-6f);
+            firefly_energy_factor = energy_pre / max(energy_post, 1e-8f);
         }
     }
 

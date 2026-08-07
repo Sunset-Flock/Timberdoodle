@@ -9,6 +9,20 @@
 
 [[vk::push_constant]] RtgiPreBlurPush rtgi_pre_blur_push;
 
+// Spatial resampling (poor-man's ReSTIR) for the pre-blur.
+//   0 = original behaviour: geometry/normal/perceptual/ray-count weighted tap AVERAGE, with the firefly
+//       energy compensation applied as a per-tap weight multiply (firefly_factor_image).
+//   1 = weighted-reservoir spatial resample. The center pixel + Poisson taps become RIS candidates,
+//       importance = the (firefly-clamped) tap brightness (sh_y.w). One candidate is stochastically KEPT
+//       and written back weighted by mean_brightness / picked_brightness (the unbiased RIS contribution
+//       weight). Result: the output BRIGHTNESS collapses to the firefly-weighted neighbourhood mean --
+//       the SAME weighting as the old average, so the firefly energy compensation is preserved exactly --
+//       while the DIRECTION + CHROMA come from the single resampled tap instead of an averaged lobe.
+// NOTE: this reuses each tap's already-clamped SH value directly; it does NOT reconnect (re-aim each
+//       neighbour's hit from this pixel), which would need the ray list + hit distance -- neither is an
+//       attachment of this pass. Adding real reconnection is a follow-up head change, out of scope here.
+#define RTGI_PRE_BLUR_SPATIAL_RESTIR 1
+
 float2 rand_concentric_sample_disc_center_focus()
 {
     float r = rand();
@@ -51,7 +65,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const uint thread_seed =
         iter_shift * push.iteration +
         frame_seed +
-        // dtid.x * prime_shift1 + dtid.y* prime_shift2 +
+        dtid.x * prime_shift1 + dtid.y* prime_shift2 +
         // (dtid.y & 0x1) * 2 + (dtid.x & 0x1) +
         0;
     rand_seed(thread_seed);
@@ -102,16 +116,30 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const bool ray_count_sample_weighting = rtgi_settings.pre_blur_ray_count_sample_weighting != 0;
     const float center_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.ray_count_image.get()[dtid.xy])) : 1.0f;
 
+    const float RESTIR_IMPORTANCE_FLOOR = 1e-6f;
+#if RTGI_PRE_BLUR_SPATIAL_RESTIR
+    // Weighted-reservoir spatial resample. The held sample supplies the OUTPUT direction + chroma; the
+    // output brightness is the firefly-weighted neighbourhood mean (r_wsum / r_wnorm), which matches the
+    // old average's weighting exactly. Seed the reservoir with the center pixel as candidate 0 (self-reuse).
+    float4 r_held_sh   = push.attach.rtgi_diffuse_before.get()[dtid.xy];
+    uint2  r_held_index = dtid; // only the held tap's CoCg survives -> load it once after the loop, not per tap
+    float  r_held_importance = max(r_held_sh.w, RESTIR_IMPORTANCE_FLOOR);
+    const float center_ff   = firefly_energy_compensation_allowed ? push.attach.firefly_factor_image.get()[dtid.xy] : 1.0f;
+    const float center_conf = center_ray_count_weight; // geom == normal == perceptual == 1 for self
+    float r_wsum  = center_conf * center_ff * r_held_importance; // Sum of selection weights (conf * ff * importance)
+    float r_wnorm = center_conf * center_ff;                     // Sum of mean weights      (conf * ff)
+#else
     float valid_sample_count = 1.0f;
     float weight_accum = ( firefly_energy_compensation_allowed ? push.attach.firefly_factor_image.get()[dtid.xy] : 1.0f ) * valid_sample_count * center_ray_count_weight;
     float4 blurred_accum = push.attach.rtgi_diffuse_before.get()[dtid.xy] * weight_accum;
     float2 blurred_accum2 = push.attach.rtgi_diffuse2_before.get()[dtid.xy].rg * weight_accum;
+#endif
 
     const uint poisson_offset = rtgi_settings.animate_noise ? (uint(push.attach.globals.trunk_flt_frame_index) & 7u) : 0u;
     for (uint s = 0; s < samples - 1; ++s)
     {
         //const float2 disc_noise = rand_concentric_sample_disc_center_focus();
-        const float2 disc_noise = mul(disc_rotation, g_Poisson8[(s + poisson_offset) & 7u].xy);
+        const float2 disc_noise = mul(disc_rotation, g_Poisson16[(s + poisson_offset) & 15u].xy);
         const float2 sample_2d = disc_noise * blur_radius;
         const float3 sample_ndc = pixel.ndc + float3(ss_gradient * sample_2d * inv_half_res_render_target_size * 2.0f, 0.0f);
         // Wiggle does two things:
@@ -128,7 +156,6 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // Load sample data
         const PixelData sample = calc_pixel_data(sample_index, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
         const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
-        const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
         const float sample_radiance_mean_perceptual = push.attach.perceptual_radiance_image.get()[sample_index.xy];
 
         const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
@@ -143,23 +170,45 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // Hacky, but works:
         // * clamped fireflys are distributed to more pixels, this recovers lost energy from the firefly clamp
         // * as bright pixels are spread much more than others, this increases their temporal stability by a lot, allowing a higher firefly ceiling and more temporal stability
-        const float firefly_power = firefly_energy_compensation_allowed ? push.attach.firefly_factor_image.get()[sample_index.xy] : 1.0f;
+        const float firefly_power = firefly_energy_compensation_allowed ? (push.attach.firefly_factor_image.get()[sample_index.xy]) : 1.0f;
 
         const float sample_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.ray_count_image.get()[sample_index.xy])) : 1.0f;
 
-        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * firefly_power * perceptual_difference_weight * sample_ray_count_weight);
+        const bool is_sky = sample.ndc.z == 0.0f;
 
         #if 0
         if (all(dtid.xy == half_res_render_target_size/2))
         {
-            // push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
-
             write_debug_image(push.attach.debug_image.get(), -1, sample_index, lerp(float4(1,0,0,2), float4(0,1,0,2), perceptual_difference_weight), 2);
         }
         #endif
 
+#if RTGI_PRE_BLUR_SPATIAL_RESTIR
+        // === RIS spatial resample: stream this tap into the reservoir ===
+        // The selection/mean weights use the SAME product as the old average (conf * firefly_power), so the
+        // output brightness (the firefly-weighted mean) is bit-for-bit the old energy-compensated value. The
+        // reservoir only changes which single tap donates the output's direction + chroma.
+        const bool valid = !is_sky && !out_of_bounds;
+        const float conf = valid ? (geometric_weight * normal_weight * perceptual_difference_weight * sample_ray_count_weight) : 0.0f;
+        if (conf > 0.0f)
+        {
+            const float sample_importance = max(sample_sh_y.w, RESTIR_IMPORTANCE_FLOOR); // firefly-clamped brightness
+            const float mean_w = conf * firefly_power;                                   // firefly_power == ff at iter 0, else 1
+            const float sel_w  = mean_w * sample_importance;
+            r_wsum  += sel_w;
+            r_wnorm += mean_w;
+            // Weighted reservoir sampling: keep this candidate with probability sel_w / r_wsum.
+            if (rand() * r_wsum < sel_w)
+            {
+                r_held_sh = sample_sh_y;
+                r_held_index = sample_index;
+                r_held_importance = sample_importance;
+            }
+        }
+#else
+        const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
+        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * firefly_power * perceptual_difference_weight * sample_ray_count_weight);
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
-        const bool is_sky = sample.ndc.z == 0.0f;
         if (!is_sky)
         {
             // Accumulate blurred diffuse
@@ -168,10 +217,21 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
             blurred_accum2 += weight * sample_cocg;
             valid_sample_count += geometric_weight > 0.0f;
         }
+#endif
     }
 
+#if RTGI_PRE_BLUR_SPATIAL_RESTIR
+    // Unbiased RIS contribution weight: W = mean_brightness / picked_brightness. The output luminance
+    // collapses to the firefly-weighted neighbourhood mean (bounded by it, hue preserved because Y and
+    // CoCg scale together), while the held sample's lobe direction + chroma survive.
+    const float restir_mean = r_wsum * rcp(max(r_wnorm, 1e-8f));
+    const float restir_W = restir_mean * rcp(max(r_held_importance, RESTIR_IMPORTANCE_FLOOR));
+    float4 blurry_sh_y = r_held_sh * restir_W;
+    float2 blurry_cocg = push.attach.rtgi_diffuse2_before.get()[r_held_index].rg * restir_W;
+#else
     float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.00001f);
     float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.00001f);
+#endif
 
     push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = blurry_sh_y;
     push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = blurry_cocg;

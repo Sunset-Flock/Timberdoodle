@@ -286,6 +286,30 @@ namespace tido
                                 }
                             }
 
+                            ImGui::SeparatorText("Programmed Move");
+                            ImGui::InputFloat3("move velocity (cam rel)", &auto_move_velocity.x);
+                            ImGui::InputFloat("yaw speed (deg/s)", &auto_move_yaw_speed);
+                            ImGui::InputFloat("pitch speed (deg/s)", &auto_move_pitch_speed);
+                            ImGui::InputFloat("move duration (s)", &auto_move_duration);
+                            ImGui::Checkbox("screenshot at end of move", &auto_move_screenshot);
+                            ImGui::Checkbox("return to start after move", &auto_move_return_to_start);
+                            ImGui::BeginDisabled(auto_move_time_remaining > 0.0f);
+                            if (ImGui::Button("Programmed Move"))
+                            {
+                                // Capture the start pose so it can be restored after the move.
+                                auto_move_start_position = camera.position;
+                                auto_move_start_yaw = camera.yaw;
+                                auto_move_start_pitch = camera.pitch;
+                                auto_move_return_pending = false;
+                                auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
+                            }
+                            ImGui::EndDisabled();
+                            if (auto_move_time_remaining > 0.0f)
+                            {
+                                ImGui::SameLine();
+                                ImGui::Text("moving... %.2fs left", auto_move_time_remaining);
+                            }
+
                             ImGui::SeparatorText("Observer Camera");
                             {
                                 bool draw_from_observer = render_context.render_data.settings.draw_from_observer != 0;
@@ -360,6 +384,45 @@ namespace tido
                     draw_with_bg_rect(histogram_settings, 8, bg_3);
 
                     ImGui::PopStyleColor(3);
+
+                    // Auto-move stepping: run every frame while active (kept outside the
+                    // "Camera" collapsing header so collapsing it does not stop a move).
+                    if (auto_move_time_remaining > 0.0f)
+                    {
+                        auto & camera = app_state.camera_controller;
+                        f32 const dt = app_state.delta_time;
+                        // Camera-relative basis: input x = right, y = up, z = forward.
+                        f32vec3 const fwd = glm::normalize(camera.forward);
+                        f32vec3 const right = glm::normalize(glm::cross(fwd, camera.up));
+                        f32vec3 const cam_up = glm::normalize(glm::cross(right, fwd));
+                        f32vec3 const world_vel =
+                            auto_move_velocity.x * right +
+                            auto_move_velocity.y * cam_up +
+                            auto_move_velocity.z * fwd;
+                        camera.position += world_vel * dt;
+                        // Optional rotation over the animation (process_input rebuilds
+                        // forward from yaw/pitch after the UI, so this takes effect).
+                        camera.yaw += auto_move_yaw_speed * dt;
+                        camera.pitch += auto_move_pitch_speed * dt;
+                        auto_move_time_remaining -= dt;
+                        if (auto_move_time_remaining <= 0.0f)
+                        {
+                            // This was the last frame the camera moves -> capture it.
+                            auto_move_time_remaining = 0.0f;
+                            if (auto_move_screenshot) { app_state.request_screenshot = true; }
+                            // Defer the reset one frame so the screenshot captures the
+                            // end pose before the camera snaps back to the start.
+                            auto_move_return_pending = auto_move_return_to_start;
+                        }
+                    }
+                    else if (auto_move_return_pending)
+                    {
+                        auto & camera = app_state.camera_controller;
+                        camera.position = auto_move_start_position;
+                        camera.yaw = auto_move_start_yaw;
+                        camera.pitch = auto_move_start_pitch;
+                        auto_move_return_pending = false;
+                    }
                 }
                 ImGui::EndChild();
             }

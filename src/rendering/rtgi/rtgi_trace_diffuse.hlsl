@@ -253,18 +253,37 @@ void ray_gen_from_list_body()
     // likely), giving an extra decorrelating dimension. Gated by animate_noise so frozen-noise stays frozen.
     const float history_count = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[pixel_xy]);
     const uint history_seed   = rtgi_settings.animate_noise ? uint(max(history_count, 0.0f)) * prime_shift3 : 0u;
-    // Seed ONCE per pixel+frame (NOT per ray). Each ray is a separate shader invocation, so we advance
-    // the per-pixel RNG sequence to this ray's slot instead of folding sample_index into the seed:
-    // re-seeding per ray with base + sample_index*prime does NOT decorrelate (a single PCG step barely
-    // mixes nearby seeds), which made a pixel's N rays near-duplicates. rand_cosine_sample_hemi draws 2
-    // values, so skip sample_index*2 to land on a fresh, decorrelated pair — mirroring how the classic
-    // per-pixel trace draws sequentially across its sample loop.
-    rand_seed(frame_seed + history_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2);
-    [loop] for (uint skip = 0u; skip < sample_index * 2u; ++skip) { rand(); }
-
     const float3 world_tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
     const float3x3 tbn         = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
-    const float3 sample_dir    = mul(tbn, rand_cosine_sample_hemi());
+
+    // Ray direction. The repacked/redistribution path previously ALWAYS drew rand_cosine_sample_hemi, so
+    // trace_use_stbn did nothing here — STBN only worked on the classic per-pixel path (shade_ray_gen).
+    // Mirror that path: when trace_use_stbn is set, draw the blue-noise cosine direction indexed by the
+    // pixel's screen coordinate (pixel_index, the same full-res coord shade_ray_gen uses).
+    float3 importance_rand_hemi_sample;
+    if (rtgi_settings.trace_use_stbn != 0)
+    {
+        // STBN z-slice = frame + sample_index. The per-ray offset MUST be an integer slice step: a pixel's
+        // rays are decorrelated by reading different (blue-noise-decorrelated) temporal slices at the same
+        // xy texel. rand() CANNOT do this -- it returns [0,1) and the frame arg is an int, so `+ rand()`
+        // truncates to zero and every ray of the pixel reads the same slice -> IDENTICAL direction.
+        // animate_noise off -> slices 0..N-1 per pixel, frozen across frames but still distinct per ray.
+        const int stbn_frame = (rtgi_settings.animate_noise ? int(push.attach.globals.trunk_flt_frame_index) : 0) + int(sample_index);
+        importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, stbn_frame);
+    }
+    else
+    {
+        // Seed ONCE per pixel+frame (NOT per ray). Each ray is a separate shader invocation, so we advance
+        // the per-pixel RNG sequence to this ray's slot instead of folding sample_index into the seed:
+        // re-seeding per ray with base + sample_index*prime does NOT decorrelate (a single PCG step barely
+        // mixes nearby seeds), which made a pixel's N rays near-duplicates. rand_cosine_sample_hemi draws 2
+        // values, so skip sample_index*2 to land on a fresh, decorrelated pair — mirroring how the classic
+        // per-pixel trace draws sequentially across its sample loop.
+        rand_seed(frame_seed + history_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2);
+        [loop] for (uint skip = 0u; skip < sample_index * 2u; ++skip) { rand(); }
+        importance_rand_hemi_sample = rand_cosine_sample_hemi();
+    }
+    const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
 
     RayPayload payload = {};
     payload.dtid = pixel_xy;
