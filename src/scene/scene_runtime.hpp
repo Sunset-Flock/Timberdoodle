@@ -15,11 +15,11 @@ struct Importer;
 
 /**
  * SceneRuntime is the center point of scene management. It owns a Scene (the passive manifest +
- * GPU-mirror container) and drives its whole import/stream lifecycle: it pushes ImporterTasks to the
- * Importer (an ImportSource per requested load, then one ImportAsset per manifest entry a metadata
- * batch produced), spawns and collects the async texture/mesh stream tasks, and each frame applies
- * the importer's results to the Scene's manifests and records the GPU manifest sync. It is the only
- * thing that mutates the Scene, always from the main thread.
+ * GPU-mirror container) and drives its residency lifecycle: it asks the Importer to import a source,
+ * spawns and collects the async texture/mesh stream tasks, and each frame applies the importer's
+ * results to the Scene's manifests and records the GPU manifest sync. It is the only thing that
+ * mutates the Scene, always from the main thread. Production is the Importer's half: it queues the
+ * cooks for the slots it publishes, so nothing here can cause one.
  */
 struct SceneRuntime
 {
@@ -60,9 +60,8 @@ private:
     std::vector<std::shared_ptr<MeshStreamTask>> _inflight_mesh_streams = {};
     std::vector<u32> _mesh_as_build_queue = {};
 
-    // Appends `batch`'s entries (metadata-only) and emits one ImportAsset task per texture/mesh entry,
-    // each carrying the entry's freshly assigned global manifest index.
-    void apply_scene_metadata_batch(Scene & scene, ImporterTaskResult::SceneMetadataBatch batch, std::vector<ImporterTask> & asset_tasks);
-    // Fills in the cooked artifact `cooked_asset` targets (manifest_index is already global) and marks it dirty for streaming.
-    void apply_cooked_asset(Scene & scene, ImporterTaskResult::CookedAsset cooked_asset);
+    // Applies `batch`'s modifications - each element creates an entry or modifies the one it names -
+    // returning where the created ones landed so the producer can name them later. The Scene itself keeps no
+    // record of which source an entry came from.
+    auto apply_scene_metadata_batch(Scene & scene, ImporterTaskResult::SceneMetadataBatch batch) -> ImporterTaskResult::AppliedBatch;
 };

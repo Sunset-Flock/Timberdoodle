@@ -46,24 +46,6 @@ struct ImageRuntimeData
     daxa::ImageId image = {};
 };
 
-struct ImageImporterData
-{
-    // Resolved at scene-parse: the URI image file, or a bufferView slice (even into a .glb).
-    SourceLocation source_location = {};
-    ImageFileFormat container_format = {};   // PNG | KTX2
-    std::vector<u8> channel_mapping = {};    // cook recipe
-    daxa::Format target_format = {};         // cook recipe
-};
-
-struct VdbImporterData
-{
-    // The whole .vdb file: a location with no slice.
-    SourceLocation source_location = {};
-    std::vector<std::string> grid_names = {};
-    std::vector<u8> channel_mapping = {};
-    daxa::Format target_format = {};
-};
-
 struct ImageManifestEntry
 {
     // List of materials that use this texture.
@@ -73,7 +55,6 @@ struct ImageManifestEntry
     std::string name = {};
 
     ImageStreamerData streamer_data = {};
-    std::variant<ImageImporterData, VdbImporterData> importer_data = {};
     std::optional<ImageRuntimeData> runtime_data = {};
 
     auto loaded() const -> bool{ return runtime_data.has_value(); }
@@ -88,16 +69,6 @@ struct MeshRuntimeData
     daxa_u32 lod_count = {};
 };
 
-struct MeshImporterData
-{
-    // Resolved at scene-parse: tightly-packed byte ranges for each vertex/index stream.
-    MeshAttribSource indices = {};
-    MeshAttribSource positions = {};
-    MeshAttribSource normals = {};
-    std::optional<MeshAttribSource> uvs = {};
-    u32 vertex_count = {};   // shared by positions/normals/uvs
-    u32 index_count = {};
-};
 
 struct MeshLodGroupManifestEntry
 {
@@ -106,7 +77,6 @@ struct MeshLodGroupManifestEntry
     std::string name = {};
 
     MeshStreamerData streamer_data = {};
-    MeshImporterData importer_data = {};
     std::optional<MeshRuntimeData> runtime_data = {};
 
     auto loaded() const -> bool{ return runtime_data.has_value(); }

@@ -571,6 +571,7 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool)
         _mesh_group_manifest.clear();
         _point_lights.clear();
         _spot_lights.clear();
+        _cloud_volumes.clear();
 
         // Discard any pending dirty indices; the manifests they referred to are gone.
         _dirty_material_indices.clear();
