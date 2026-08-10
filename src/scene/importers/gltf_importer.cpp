@@ -341,6 +341,9 @@ struct SceneParseTask final : SourceParseTask
         : request{std::move(request)}
     {
         chunk_count = 1;
+        // Set here rather than in the callback so a parse that fails before emitting anything still names
+        // the source it belongs to.
+        parsed.source_index = this->request.source_index;
     }
 
     void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override;
@@ -377,7 +380,6 @@ void SceneParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
     }
     asset = std::move(std::get<fastgltf::Asset>(parse_result));
 
-    parsed.source_index = request.source_index;
     translate_materials();
     translate_mesh_groups();
     translate_entities();

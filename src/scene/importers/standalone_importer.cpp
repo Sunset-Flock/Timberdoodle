@@ -21,14 +21,16 @@ auto slot_name(std::filesystem::path const & path, std::string const & recipe_na
 struct ImageParseTask final : SourceParseTask
 {
     SourceImportRequest request = {};
-    explicit ImageParseTask(SourceImportRequest request) : request{std::move(request)} { chunk_count = 1; }
+    // source_index is set here rather than in the callback so a parse that fails before emitting anything
+    // still names the source it belongs to.
+    explicit ImageParseTask(SourceImportRequest request) : request{std::move(request)} { chunk_count = 1; parsed.source_index = this->request.source_index; }
     void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override;
 };
 
 struct VdbParseTask final : SourceParseTask
 {
     SourceImportRequest request = {};
-    explicit VdbParseTask(SourceImportRequest request) : request{std::move(request)} { chunk_count = 1; }
+    explicit VdbParseTask(SourceImportRequest request) : request{std::move(request)} { chunk_count = 1; parsed.source_index = this->request.source_index; }
     void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override;
 };
 
@@ -64,7 +66,6 @@ void ImageParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
         });
     };
 
-    parsed.source_index = request.source_index;
     if (request.recipes.empty())
     {
         // An import that authored no recipe has no way to say what the image is for, so it gets the sRGB
@@ -102,7 +103,6 @@ void VdbParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u
         return;
     }
 
-    parsed.source_index = request.source_index;
     for (SlotRecipe const & recipe : request.recipes)
     {
         auto const * vdb_recipe = std::get_if<VdbSlotRecipe>(&recipe);

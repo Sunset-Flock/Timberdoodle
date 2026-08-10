@@ -87,7 +87,7 @@ Importer::Importer(ThreadPool * thread_pool, Scene & scene)
 
 Importer::~Importer() = default;
 
-void Importer::request_import(std::filesystem::path const & path, std::vector<SlotRecipe> recipes)
+auto Importer::request_import(std::filesystem::path const & path, std::vector<SlotRecipe> recipes) -> std::optional<u32>
 {
     constexpr std::array<SourceBackend, 5> SOURCE_BACKENDS = {
         SourceBackend{".gltf", parse_gltf_source},
@@ -97,7 +97,7 @@ void Importer::request_import(std::filesystem::path const & path, std::vector<Sl
         SourceBackend{".vdb",  parse_vdb_source},
     };
 
-    if (!path.has_filename() || !path.has_parent_path()) { return; }
+    if (!path.has_filename() || !path.has_parent_path()) { return std::nullopt; }
 
     // Don't allow importing outside the Tido Assets root.
     // TODO(msaky): This is here so that the cache is transferrable so we can key assets by their relative path.
@@ -106,7 +106,7 @@ void Importer::request_import(std::filesystem::path const & path, std::vector<Sl
     {
         DEBUG_MSG(fmt::format("[WARN][Importer::request_import] '{}' is outside the Tido Assets root '{}' - rejected",
             path.string(), TIDO_ASSETS_ROOT.string()));
-        return;
+        return std::nullopt;
     }
 
     std::string const extension = tido_lowercase_extension(path);
@@ -114,7 +114,7 @@ void Importer::request_import(std::filesystem::path const & path, std::vector<Sl
     if (backend_it == SOURCE_BACKENDS.end())
     {
         DEBUG_MSG(fmt::format("[WARN][Importer::request_import] no source backend handles '{}' - rejected", path.string()));
-        return;
+        return std::nullopt;
     }
 
     // One row per source, imported once. Importing a path twice would create a second full set of manifest
@@ -124,7 +124,7 @@ void Importer::request_import(std::filesystem::path const & path, std::vector<Sl
     if (!inserted)
     {
         DEBUG_MSG(fmt::format("[WARN][Importer::request_import] '{}' is already imported - dropped", path.string()));
-        return;
+        return std::nullopt;
     }
     _sources.push_back(ImportedSource{.path = path});
     u32 const source_index = registered->second;
@@ -138,6 +138,17 @@ void Importer::request_import(std::filesystem::path const & path, std::vector<Sl
     });
     thread_pool->async_dispatch(task, TaskPriority::LOW);
     _inflight_parses.push_back(std::move(task));
+    return source_index;
+}
+
+auto Importer::import_stage(u32 source_index) const -> ImportStage
+{
+    return _sources.at(source_index).stage;
+}
+
+auto Importer::source_images(u32 source_index) const -> ManifestRange
+{
+    return _sources.at(source_index).images;
 }
 
 void Importer::publish_import(Scene & scene, ParsedSource parsed)
@@ -286,6 +297,8 @@ void Importer::publish_import(Scene & scene, ParsedSource parsed)
         source_index, parsed.images.size(), parsed.materials.size(), parsed.meshes.size()));
 
     source.outstanding_cooks = s_cast<u32>(parsed.images.size() + parsed.meshes.size());
+    // A source with nothing to cook is finished the moment its entries exist.
+    source.stage = source.outstanding_cooks == 0 ? ImportStage::COOKED : ImportStage::PUBLISHED;
     dispatch_cooks(source_index);
 }
 
@@ -343,6 +356,7 @@ void Importer::resolve_cook(Scene & scene, CookTask & cook)
     if (cook.identifier.generation != source.generation) { return; }
 
     source.outstanding_cooks -= 1;
+    if (source.outstanding_cooks == 0) { source.stage = ImportStage::COOKED; }
 
     // Which manifest the result belongs in is the alternative it holds, so a cook that produced nothing has
     // nowhere to be written rather than a flag saying not to.
@@ -386,7 +400,13 @@ void Importer::tick(Scene & scene)
     });
     for (std::shared_ptr<SourceParseTask> const & task : finished_parses)
     {
-        if (task->failed) { continue; }
+        // A failed parse leaves its row empty forever, so it has to be recorded - otherwise nothing can tell
+        // it apart from a parse still in flight.
+        if (task->failed)
+        {
+            _sources.at(task->parsed.source_index).stage = ImportStage::PARSE_FAILED;
+            continue;
+        }
         publish_import(scene, std::move(task->parsed));
     }
 

@@ -108,6 +108,16 @@ struct ManifestRange
     u32 count = {};
 };
 
+// How far an import has got. COOKED is not resident: streaming is the Scene's business, so the Importer has
+// nothing truthful to say about it.
+enum struct ImportStage
+{
+    REQUESTED,
+    PARSE_FAILED,
+    PUBLISHED,
+    COOKED,
+};
+
 // Imported source represents one logical source file and everything that has been imported from it.
 // An imported source would for example be a glTF file or a VDB file containing three grids.
 struct ImportedSource
@@ -115,6 +125,7 @@ struct ImportedSource
     std::filesystem::path path = {};
     // Increased when the source is reloaded - used to track the version of the source.
     u32 generation = {};
+    ImportStage stage = ImportStage::REQUESTED;
 
     // Ranges of manifest entries that this source created and thus owns.
     ManifestRange images = {};
@@ -138,8 +149,8 @@ struct ImportedSource
     std::vector<MeshImporterData> mesh_cook_inputs = {};
 
     // Indexed by an image cook's slot_index.
-    // How much of this source is still cooking. Nothing reads it yet - it is what a reload will check before
-    // replacing entries a cook still in flight is going to write.
+    // How much of this source is still cooking. Drives the step to COOKED, and is what a reload will check
+    // before replacing entries a cook still in flight is going to write.
     u32 outstanding_cooks = {};
 };
 
@@ -195,8 +206,14 @@ struct Importer
     Importer(ThreadPool * thread_pool, Scene & scene);
     ~Importer();
 
-    void request_import(std::filesystem::path const & path, std::vector<SlotRecipe> recipes = {});
+    // The returned index names this import for the rest of its life - it is what every later query, and
+    // eventually reload, takes. Nullopt when the path is rejected and no source was created.
+    auto request_import(std::filesystem::path const & path, std::vector<SlotRecipe> recipes = {}) -> std::optional<u32>;
     void tick(Scene & scene);
+
+    auto import_stage(u32 source_index) const -> ImportStage;
+    // The image manifest entries this source created. Only populated from PUBLISHED onwards.
+    auto source_images(u32 source_index) const -> ManifestRange;
 
     ThreadPool * thread_pool = {};
 
