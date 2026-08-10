@@ -322,23 +322,23 @@ static auto parse_gltf_file(std::filesystem::path const & file_path) -> std::var
 
 } // namespace
 
-// ====================== gltf backend: parse -> SourceImportResult (no cooking) =====================
+// ====================== gltf backend: parse -> ParsedSource (no cooking) =====================
 namespace
 {
 
-// Parses one glTF/GLB file on a ThreadPool worker and translates it into a SourceImportResult: the scene
+// Parses one glTF/GLB file on a ThreadPool worker and translates it into a ParsedSource: the scene
 // metadata the engine should apply, and the cook requests that will produce the artifacts it is missing.
-// Never touches the Scene or the cache; the Importer publishes the batch and queues the cooks.
+// Never touches the Scene or the cache; the Importer publishes the parse and queues the cooks.
 //
 // Materials, mesh groups and entities are translated in that order because each wires up references to
 // what the previous one produced. Image cooks are deduplicated on image_parse_dedup_key - several textures
 // can share one image, differing only by sampler, and that image must be cooked only once - which is why a
 // single cook carries a list of the material slots consuming it.
 
-struct SceneParseTask final : Task
+struct SceneParseTask final : SourceParseTask
 {
-    SceneParseTask(SourceImportRequest request, Importer * importer)
-        : request{std::move(request)}, importer{importer}
+    explicit SceneParseTask(SourceImportRequest request)
+        : request{std::move(request)}
     {
         chunk_count = 1;
     }
@@ -347,11 +347,8 @@ struct SceneParseTask final : Task
 
   private:
     SourceImportRequest request = {};
-    Importer * importer = {};
 
     fastgltf::Asset asset;
-
-    SourceImportResult import_result = {};
 
     void translate_materials();
     void translate_mesh_groups();
@@ -361,30 +358,34 @@ struct SceneParseTask final : Task
 
 void SceneParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
+    // A container discovers its own slots, so it has nothing to apply a recipe to. Overriding one needs a
+    // recipe that can name the slot it applies to, which does not exist yet.
+    if (!request.recipes.empty())
+    {
+        DEBUG_MSG(fmt::format("[WARN][SceneParseTask] '{}' imported with recipes; a container discovers its own slots and cannot apply one",
+            request.path.string()));
+        failed = true;
+        return;
+    }
+
     auto parse_result = parse_gltf_file(request.path);
     if (auto const * error = std::get_if<Scene::LoadManifestErrorCode>(&parse_result))
     {
         DEBUG_MSG(fmt::format("[WARN][SceneParseTask::callback] Loading \"{}\" Error: {}", request.path.string(), Scene::to_string(*error)));
-        importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
-            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SOURCE,
-            .source = request.path,
-            .message = std::string{Scene::to_string(*error)},
-        }});
+        failed = true;
         return;
     }
     asset = std::move(std::get<fastgltf::Asset>(parse_result));
 
-    import_result.batch.source_index = request.source_index;
+    parsed.source_index = request.source_index;
     translate_materials();
     translate_mesh_groups();
     translate_entities();
-
-    importer->publish_source_import(std::move(import_result));
 }
 
 void SceneParseTask::translate_materials()
 {
-    // image_parse_dedup_key -> index into import_result.image_cooks
+    // image_parse_dedup_key -> index into parsed.images
     std::unordered_map<u64, u32> image_manifest_map = {};
 
     auto gltf_texture_to_image_index = [&](u32 const gltf_texture_index) -> std::optional<u32>
@@ -434,31 +435,31 @@ void SceneParseTask::translate_materials()
     // Register one material texture slot as a consumer of an image's cook, creating that cook the first time
     // the image is seen under this recipe. The binding itself is left empty: what a slot samples until its
     // own image is cooked is a stand-in the parse knows nothing about, so publishing fills it in.
-    auto bind_material_texture = [&](u32 const batch_material_index, MaterialTextureSlot const texture_type, u32 const gltf_texture_index) -> bool
+    auto bind_material_texture = [&](u32 const local_material_index, MaterialTextureSlot const texture_type, u32 const gltf_texture_index) -> bool
     {
         auto const gltf_image_index = gltf_texture_to_image_index(gltf_texture_index);
         if (!gltf_image_index.has_value()) { return false; }
 
         ImageImporterData importer_data = default_image_import_info(texture_type, gltf_image_index.value());
         u64 const dedup_key = image_parse_dedup_key(importer_data);
-        auto const [iterator, inserted] = image_manifest_map.try_emplace(dedup_key, s_cast<u32>(import_result.image_cooks.size()));
+        auto const [iterator, inserted] = image_manifest_map.try_emplace(dedup_key, s_cast<u32>(parsed.images.size()));
         u32 const cook_index = iterator->second;
         if (inserted)
         {
-            import_result.image_cooks.push_back(ImageCookRequest{
-                .target = ImageCookTarget{.name = asset.images.at(gltf_image_index.value()).name.c_str()},
-                .importer_data = std::move(importer_data),
+            parsed.images.push_back(ParsedSource::Image{
+                .name = asset.images.at(gltf_image_index.value()).name.c_str(),
             });
+            parsed.image_cook_inputs.push_back(std::move(importer_data));
         }
 
         // Sanity check: the same image under the same recipe must always resolve to the same cook.
         // Every slot this backend emits is an encoded 2D image, never a vdb one.
         DBG_ASSERT_TRUE_M(
-            image_parse_dedup_key(std::get<ImageImporterData>(import_result.image_cooks.at(cook_index).importer_data)) == dedup_key,
+            image_parse_dedup_key(std::get<ImageImporterData>(parsed.image_cook_inputs.at(cook_index))) == dedup_key,
             "Image cook request mismatch");
 
-        import_result.image_cooks.at(cook_index).target.consumers.push_back(MaterialTextureConsumer{
-            .batch_material_index = batch_material_index,
+        parsed.images.at(cook_index).bound_materials.push_back(ImageMaterialBinding{
+            .material_index = local_material_index,
             .slot = texture_type,
         });
         return true;
@@ -467,30 +468,30 @@ void SceneParseTask::translate_materials()
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
     {
         auto const & material = asset.materials.at(material_index);
-        u32 const batch_material_index = s_cast<u32>(import_result.batch.materials.size());
+        u32 const local_material_index = s_cast<u32>(parsed.materials.size());
         bool has_opacity_texture = false;
         if (material.pbrData.baseColorTexture.has_value())
         {
-            bind_material_texture(batch_material_index, MaterialTextureSlot::DIFFUSE, s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
+            bind_material_texture(local_material_index, MaterialTextureSlot::DIFFUSE, s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
         }
         if(material.alphaMode == fastgltf::AlphaMode::Mask && material.pbrData.baseColorTexture.has_value())
         {
-            has_opacity_texture = bind_material_texture(batch_material_index, MaterialTextureSlot::OPACITY, s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
+            has_opacity_texture = bind_material_texture(local_material_index, MaterialTextureSlot::OPACITY, s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
         }
         if (material.normalTexture.has_value())
         {
-            bind_material_texture(batch_material_index, MaterialTextureSlot::NORMAL, s_cast<u32>(material.normalTexture.value().textureIndex));
+            bind_material_texture(local_material_index, MaterialTextureSlot::NORMAL, s_cast<u32>(material.normalTexture.value().textureIndex));
         }
         // if (material.pbrData.metallicRoughnessTexture.has_value())
         // {
-        //     bind_material_texture(batch_material_index, MaterialTextureSlot::ROUGHNESS_METALNESS, s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex));
+        //     bind_material_texture(local_material_index, MaterialTextureSlot::ROUGHNESS_METALNESS, s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex));
         // }
 
         bool const alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask && has_opacity_texture;
 
         // Texture bindings stay empty here and are filled with their stand-ins at publish; the cooks
         // registered above carry which slots to rebind once the real images exist.
-        import_result.batch.materials.push_back(ImporterTaskResult::SceneMetadataBatch::Material{
+        parsed.materials.push_back(MaterialWrite{
             .alpha_discard_enabled = alpha_discard_enabled,
             .double_sided = material.doubleSided,
             .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
@@ -503,36 +504,29 @@ void SceneParseTask::translate_materials()
 
 void SceneParseTask::translate_mesh_groups()
 {
-    using SceneRef = ImporterTaskResult::SceneMetadataBatch::SceneRef;
-
     /// NOTE: fastgltf::Mesh is a MeshGroup, fastgltf::Primitive is a Mesh (MeshLodGroup).
-    import_result.batch.mesh_groups.reserve(asset.meshes.size());
+    parsed.mesh_groups.reserve(asset.meshes.size());
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); ++mesh_group_index)
     {
         auto const & gltf_mesh = asset.meshes.at(mesh_group_index);
-        auto & mesh_group = import_result.batch.mesh_groups.emplace_back(std::vector<SceneRef>{}, gltf_mesh.name.c_str());
-        mesh_group.mesh_lod_groups.reserve(gltf_mesh.primitives.size());
+        auto & mesh_group = parsed.mesh_groups.emplace_back(std::vector<u32>{}, gltf_mesh.name.c_str());
+        mesh_group.local_mesh_indices.reserve(gltf_mesh.primitives.size());
 
         for (u32 primitive_index = 0; primitive_index < s_cast<u32>(gltf_mesh.primitives.size()); ++primitive_index)
         {
             auto const & gltf_primitive = gltf_mesh.primitives.at(primitive_index);
 
-            u32 const batch_mesh_index = s_cast<u32>(import_result.batch.mesh_lod_groups.size());
+            u32 const local_mesh_index = s_cast<u32>(parsed.meshes.size());
             auto mesh_importer_data_opt = resolve_mesh_source(asset, request.path, mesh_group_index, primitive_index);
             DBG_ASSERT_TRUE_M(mesh_importer_data_opt.has_value(), "Unresolvable or unsupported mesh primitive source");
-            MeshImporterData mesh_importer_data = mesh_importer_data_opt.value_or(MeshImporterData{});
-            // Created without an artifact: this group references it right below, so it cannot wait for a cook.
-            import_result.batch.mesh_lod_groups.push_back(ImporterTaskResult::SceneMetadataBatch::MeshLodGroup{
-                .material = gltf_primitive.materialIndex.has_value()
-                    ? std::optional<SceneRef>(SceneRef{.kind = SceneRef::Kind::BATCH_ELEMENT, .index = s_cast<u32>(gltf_primitive.materialIndex.value())})
+            parsed.meshes.push_back(ParsedSource::Mesh{
+                .local_material_index = gltf_primitive.materialIndex.has_value()
+                    ? std::optional<u32>(s_cast<u32>(gltf_primitive.materialIndex.value()))
                     : std::nullopt,
                 .name = gltf_mesh.name.c_str(),
             });
-            import_result.mesh_cooks.push_back(MeshCookRequest{
-                .batch_mesh_index = batch_mesh_index,
-                .importer_data = std::move(mesh_importer_data),
-            });
-            mesh_group.mesh_lod_groups.push_back(SceneRef{.kind = SceneRef::Kind::BATCH_ELEMENT, .index = batch_mesh_index});
+            parsed.mesh_cook_inputs.push_back(std::move(mesh_importer_data_opt).value_or(MeshImporterData{}));
+            mesh_group.local_mesh_indices.push_back(local_mesh_index);
         }
     }
 }
@@ -548,20 +542,20 @@ auto SceneParseTask::translate_light(fastgltf::Light const & light) -> u32
     {
         case fastgltf::LightType::Point:
         {
-            ImporterTaskResult::SceneMetadataBatch::PointLight cpu_point_light = {};
+            PointLightWrite cpu_point_light = {};
             cpu_point_light.position = f32vec3{0.0f, 0.0f, 0.0f}; // Filled/updated later when processing scene graph
             cpu_point_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
             // Converting candella to watt - blender (https://projects.blender.org/blender/blender-addons/issues/91035).
             cpu_point_light.intensity = (light.intensity * 4.0f * glm::pi<f32>()) / LUMENS_PER_WATT;
             // When the cutoff is not specified attempt to calculate one based on a minimum energy.
             cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity / E_min));
-            u32 const index = s_cast<u32>(import_result.batch.point_lights.size());
-            import_result.batch.point_lights.push_back(cpu_point_light);
+            u32 const index = s_cast<u32>(parsed.point_lights.size());
+            parsed.point_lights.push_back(cpu_point_light);
             return index;
         }
         case fastgltf::LightType::Spot:
         {
-            ImporterTaskResult::SceneMetadataBatch::SpotLight cpu_spot_light = {};
+            SpotLightWrite cpu_spot_light = {};
             cpu_spot_light.transform = {}; // Filled/updated later when processing scene graph
             cpu_spot_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
             // Converting candella to watt - https://google.github.io/filament/Filament.md.html#lighting
@@ -570,8 +564,8 @@ auto SceneParseTask::translate_light(fastgltf::Light const & light) -> u32
             cpu_spot_light.outer_cone_angle = light.outerConeAngle.value();
             DBG_ASSERT_TRUE_M(light.range.has_value(), "Currently no auto deduce of range from intensity for spot lights");
             cpu_spot_light.cutoff = light.range.value();
-            u32 const index = s_cast<u32>(import_result.batch.spot_lights.size());
-            import_result.batch.spot_lights.push_back(cpu_spot_light);
+            u32 const index = s_cast<u32>(parsed.spot_lights.size());
+            parsed.spot_lights.push_back(cpu_spot_light);
             return index;
         }
         case fastgltf::LightType::Directional:
@@ -588,17 +582,12 @@ auto SceneParseTask::translate_light(fastgltf::Light const & light) -> u32
 
 void SceneParseTask::translate_entities()
 {
-    using SceneRef = ImporterTaskResult::SceneMetadataBatch::SceneRef;
-
     /// NOTE: fastgltf::Node is Entity
     DBG_ASSERT_TRUE_M(asset.nodes.size() != 0, "[ERROR][SceneParseTask::translate_entities()] Empty node array - what to do now?");
 
     u32 const node_count = s_cast<u32>(asset.nodes.size());
-    // The imported subtree's root entity, parenting every parentless node entity (wired below), sits one
-    // past the node entities in this batch's local index space (node index == local index).
-    u32 const root_entity_index = node_count;
-
-    std::vector<ImporterTaskResult::SceneMetadataBatch::Entity> node_entities(node_count + 1);
+    // node index == local index. Nodes left unparented here are adopted by the root publish gives the source.
+    std::vector<ParsedSource::Entity> node_entities(node_count);
 
     for (u32 node_index = 0; node_index < node_count; node_index++)
     {
@@ -625,14 +614,14 @@ void SceneParseTask::translate_entities()
         };
 
         fastgltf::Node const & node = asset.nodes[node_index];
-        ImporterTaskResult::SceneMetadataBatch::Entity & r_ent = node_entities[node_index];
-        r_ent.mesh_group = node.meshIndex.has_value()
-            ? std::optional<SceneRef>(SceneRef{.kind = SceneRef::Kind::BATCH_ELEMENT, .index = s_cast<u32>(node.meshIndex.value())})
+        ParsedSource::Entity & r_ent = node_entities[node_index];
+        r_ent.local_mesh_group_index = node.meshIndex.has_value()
+            ? std::optional<u32>(s_cast<u32>(node.meshIndex.value()))
             : std::nullopt;
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
 
-        r_ent.light = std::nullopt;
+        r_ent.local_light_index = std::nullopt;
 
         DBG_ASSERT_TRUE_M(
             s_cast<u32>(node.lightIndex.has_value()) +
@@ -644,7 +633,7 @@ void SceneParseTask::translate_entities()
         if (node.lightIndex.has_value())
         {
             fastgltf::Light const & light = asset.lights.at(node.lightIndex.value());
-            r_ent.light = SceneRef{.kind = SceneRef::Kind::BATCH_ELEMENT, .index = translate_light(light)};
+            r_ent.local_light_index = translate_light(light);
             r_ent.type = light.type == fastgltf::LightType::Point ? EntityType::POINT_LIGHT : EntityType::SPOT_LIGHT;
         }
         else if (node.meshIndex.has_value())
@@ -677,46 +666,16 @@ void SceneParseTask::translate_entities()
         }
     }
 
-    /// NOTE: Find all root render entities (aka render entities that have no parent) and store them as
-    //        Child root entites under scene root node
-    ImporterTaskResult::SceneMetadataBatch::Entity & root_r_ent = node_entities[root_entity_index];
-    root_r_ent = ImporterTaskResult::SceneMetadataBatch::Entity{
-        .transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
-        .type = EntityType::ROOT,
-        .name = request.path.filename().replace_extension("").string(),
-    };
-
-    std::optional<u32> root_r_ent_prev_child_node_index = {};
-    for (u32 node_index = 0; node_index < node_count; node_index++)
-    {
-        if (!node_entities[node_index].parent_index.has_value())
-        {
-            node_entities[node_index].parent_index = root_entity_index;
-            if (!root_r_ent_prev_child_node_index.has_value()) // First child
-            {
-                node_entities[root_entity_index].first_child_index = node_index;
-            }
-            else // We have other root children already
-            {
-                node_entities[root_r_ent_prev_child_node_index.value()].next_sibling_index = node_index;
-            }
-            root_r_ent_prev_child_node_index = node_index;
-        }
-    }
-
-    import_result.batch.entity_subtree = ImporterTaskResult::SceneMetadataBatch::EntitySubtree{
-        .entities = std::move(node_entities),
-        .root_entity_index = root_entity_index,
-    };
+    parsed.entities = std::move(node_entities);
 }
 } // namespace
 
 
 // ==================================== gltf backend dispatch =======================================
 
-void dispatch_gltf_source(Importer & importer, SourceImportRequest const & request)
+auto parse_gltf_source(SourceImportRequest const & request) -> std::shared_ptr<SourceParseTask>
 {
-    // The gltf backend only parses sources; the fastgltf-free asset cooks are dispatched by Importer from
-    // the cook requests the parse emits alongside the batch.
-    importer.thread_pool->async_dispatch(std::make_shared<SceneParseTask>(request, &importer), TaskPriority::LOW);
+    // The gltf backend only parses sources; the fastgltf-free asset cooks are dispatched by the Importer from
+    // the slots the parse emits.
+    return std::make_shared<SceneParseTask>(request);
 }

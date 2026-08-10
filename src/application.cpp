@@ -24,13 +24,43 @@ auto load_stbn(daxa::Device & device, std::filesystem::path const & layer_zero_p
 
 std::filesystem::path const DEFAULT_CLOUD_VOLUME_PATH = "assets\\Clouds\\default_cloud_volume.vdb";
 
+// The three volumes a cloud is made of: the modelling fields the raymarch samples as one BC6 volume, the
+// normalized SDF the custom BC1 encoder packs, and the four channel erosion noise. A .vdb naming its grids
+// differently fails the cook. Authored here until the project document can carry them - the importer takes
+// recipes and knows nothing about clouds.
+static auto cloud_volume_recipes() -> std::vector<SlotRecipe>
+{
+    return {
+        VdbSlotRecipe{
+            .name = "cloud data",
+            .grid_names = {"density", "detail_type", "density_scale"},
+            .channel_mapping = {0, 1, 2},
+            .target_format = daxa::Format::BC6H_UFLOAT_BLOCK,
+        },
+        VdbSlotRecipe{
+            .name = "cloud sdf",
+            .grid_names = {"sdf_normalized"},
+            .channel_mapping = {0},
+            .target_format = daxa::Format::BC1_RGBA_UNORM_BLOCK,
+        },
+        VdbSlotRecipe{
+            .name = "cloud erosion noise",
+            .grid_names = {"detail_noise_0", "detail_noise_1", "detail_noise_2", "detail_noise_3"},
+            .channel_mapping = {0, 1, 2, 3},
+            .target_format = daxa::Format::R16G16B16A16_SFLOAT,
+        },
+    };
+}
+
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(6);
     _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
-    _importer = std::make_unique<Importer>(_threadpool.get());
-    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool, _importer.get());
+    // The Scene has to exist first: the Importer publishes the editor's stand-in images into it before its
+    // constructor returns.
+    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool);
+    _importer = std::make_unique<Importer>(_threadpool.get(), _scene_runtime->scene());
     _ui_engine = std::make_unique<UIEngine>(*_window, _gpu_context.get());
 
     _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene_runtime->scene_ptr(), &_ui_engine->imgui_renderer, _ui_engine.get());
@@ -51,7 +81,7 @@ Application::Application()
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    _scene_runtime->request_import(DEFAULT_CLOUD_VOLUME_PATH);
+    _importer->request_import(DEFAULT_CLOUD_VOLUME_PATH, cloud_volume_recipes());
 
     struct CompPipelinesTask : Task
     {
@@ -79,7 +109,7 @@ using FpMicroSeconds = std::chrono::duration<float, std::chrono::microseconds::p
 
 void Application::load_scene(std::filesystem::path const & path)
 {
-    _scene_runtime->request_import(path);
+    _importer->request_import(path);
 }
 
 auto Application::run() -> i32
@@ -154,11 +184,11 @@ void Application::update()
 {
     if (!app_state.desired_scene_path.empty())
     {
-        _scene_runtime->request_import(app_state.desired_scene_path);
+        load_scene(app_state.desired_scene_path);
         app_state.desired_scene_path.clear();
     }
 
-    _scene_runtime->poll();
+    _importer->tick(_scene_runtime->scene());
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
@@ -175,9 +205,7 @@ void Application::update()
     usize cmd_list_count = 0ull;
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
 
-    cmd_lists.at(cmd_list_count++) = _scene_runtime->update({
-        .thread_pool = _threadpool.get(),
-    });
+    cmd_lists.at(cmd_list_count++) = _scene_runtime->update(_threadpool.get());
     cmd_lists.at(cmd_list_count++) = _scene_runtime->create_mesh_acceleration_structures();
     _gpu_context->device.submit_commands({
         .command_lists = std::span{cmd_lists.data(), cmd_list_count},
@@ -258,15 +286,11 @@ void Application::update()
 
 Application::~Application()
 {
-    // Stop the importer orchestration thread first: still-queued tasks are dropped and nothing new is
-    // dispatched into the pool; the pool reset below then joins the in-flight parse/cook/cache-write
-    // tasks (which push into the still-alive Importer).
-    _importer->stop();
+    // Joins the in-flight parse/cook/cache-write tasks. The Importer is still alive and still holds them, so
+    // they have somewhere to write; nothing polls them again, so what they produce is simply dropped.
     _threadpool.reset();
     // Thread pool is gone here: update won't spawn new texture streams, just flushes GPU updates.
-    auto manifest_update_commands = _scene_runtime->update({
-        .thread_pool = nullptr,
-    });
+    auto manifest_update_commands = _scene_runtime->update(nullptr);
     auto cmd_lists = std::array{std::move(manifest_update_commands)};
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
     _gpu_context->device.wait_idle();

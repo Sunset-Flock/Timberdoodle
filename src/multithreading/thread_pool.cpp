@@ -1,6 +1,17 @@
 #include "thread_pool.hpp"
 using namespace tido::types;
 
+void run_task_inline(Task & task)
+{
+    task.not_finished.store(task.chunk_count, std::memory_order_relaxed);
+    task.dispatched.store(true, std::memory_order_release);
+    for (u32 chunk_index = 0; chunk_index < task.chunk_count; ++chunk_index)
+    {
+        task.callback(chunk_index, EXTERNAL_THREAD_INDEX);
+    }
+    task.not_finished.store(0, std::memory_order_release);
+}
+
 ThreadPool::~ThreadPool()
 {
     {
@@ -37,9 +48,8 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
         current_chunk.task->callback(current_chunk.chunk_index, thread_index);
 
         lock.lock();
-        current_chunk.task->not_finished -= 1;
         // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
-        if (current_chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
+        if (current_chunk.task->not_finished.fetch_sub(1, std::memory_order_acq_rel) == 1) { shared_data->work_done.notify_all(); }
     }
 }
 
@@ -60,6 +70,7 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
 {
     // Don't need mutex here as no thread is working on this task yet
     task->not_finished = task->chunk_count;
+    task->dispatched.store(true, std::memory_order_release);
     auto & selected_queue = priority == TaskPriority::HIGH ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
 
     std::unique_lock lock{shared_data->threadpool_mutex};
@@ -74,7 +85,7 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
     shared_data->work_available.notify_all();
 
     // Each iteration runs whatever chunk is available high priority first.
-    while (task->not_finished != 0)
+    while (!task->is_finished())
     {
         std::deque<TaskChunk> * source_queue = nullptr;
         if (!shared_data->high_priority_tasks.empty()) { source_queue = &shared_data->high_priority_tasks; }
@@ -90,9 +101,8 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
             chunk.task->callback(chunk.chunk_index, EXTERNAL_THREAD_INDEX);
             lock.lock();
 
-            chunk.task->not_finished -= 1;
             // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
-            if (chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
+            if (chunk.task->not_finished.fetch_sub(1, std::memory_order_acq_rel) == 1) { shared_data->work_done.notify_all(); }
         }
         else
         {
@@ -101,7 +111,7 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
             // Sleep until some task finishes (workers signal work_done when any task's last chunk completes).
             // Our task's own completion is guaranteed to wake us.
             shared_data->work_done.wait(lock, [&]
-                { return task->not_finished == 0; });
+                { return task->is_finished(); });
         }
     }
 }
@@ -109,6 +119,7 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
 void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priority)
 {
     task->not_finished = task->chunk_count;
+    task->dispatched.store(true, std::memory_order_release);
     auto & selected_queue = priority == TaskPriority::HIGH ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
     {
         std::lock_guard lock(shared_data->threadpool_mutex);
@@ -129,5 +140,5 @@ void ThreadPool::block_on(std::shared_ptr<Task> task)
 {
     std::unique_lock lock{shared_data->threadpool_mutex};
     shared_data->work_done.wait(lock, [&]
-        { return task->not_finished == 0; });
+        { return task->is_finished(); });
 }

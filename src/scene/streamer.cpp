@@ -87,7 +87,6 @@ void ImageStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]
     device.collect_garbage();
 
     result = image;
-    finished.store(true, std::memory_order_release);
 }
 
 void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
@@ -145,5 +144,4 @@ void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
 
         result.push_back(mesh);
     }
-    finished.store(true, std::memory_order_release);
 }

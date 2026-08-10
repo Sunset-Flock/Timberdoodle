@@ -147,9 +147,9 @@ Scene::~Scene()
 
     for (auto & image : _image_manifest)
     {
-        if (image.runtime_data.has_value())
+        if (image.runtime_image.has_value())
         {
-            _device.destroy_image(std::bit_cast<daxa::ImageId>(image.runtime_data.value().image));
+            _device.destroy_image(std::bit_cast<daxa::ImageId>(image.runtime_image.value()));
         }
     }
 
@@ -280,14 +280,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                 cloud_volume_instance.albedo = 1.0f;
                 cloud_volume_instance.density_scale = 0.1f;
 
-                cloud_volume_instance.cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_data.value_or({.image = daxa::ImageId{}}).image.default_view();
-                cloud_volume_instance.cloud_sdf_texture = _image_manifest.at(cloud_volume.sdf_image_manifest_index).runtime_data.value_or({.image = daxa::ImageId{}}).image.default_view();
-                cloud_volume_instance.detail_noise_texture = _image_manifest.at(cloud_volume.detail_noise_image_manifest_index).runtime_data.value_or({.image = daxa::ImageId{}}).image.default_view();
+                cloud_volume_instance.cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_image.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_sdf_texture = _image_manifest.at(cloud_volume.sdf_image_manifest_index).runtime_image.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.detail_noise_texture = _image_manifest.at(cloud_volume.detail_noise_image_manifest_index).runtime_image.value_or(daxa::ImageId{}).default_view();
 
                 cloud_volume_instance.texture_size = {0u, 0u, 0u};
                 if(_image_manifest.at(cloud_volume.data_image_manifest_index).loaded())
                 {
-                    daxa::ImageId cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_data.value().image;
+                    daxa::ImageId cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_image.value();
                     daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
                     cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
                 }
@@ -540,9 +540,9 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool)
 
         for (auto & texture : _image_manifest)
         {
-            if (texture.runtime_data.has_value())
+            if (texture.runtime_image.has_value())
             {
-                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_data.value().image));
+                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_image.value()));
             }
             // if (texture.secondary_runtime_texture.has_value())
             // {

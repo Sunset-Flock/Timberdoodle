@@ -31,8 +31,6 @@ struct ImageStreamTask : Task
 
     daxa::ImageId result = {};
 
-    std::atomic<bool> finished = false;
-
     void callback(u32 chunk_index, u32 thread_index) override;
 };
 
@@ -53,8 +51,6 @@ struct MeshStreamTask : Task
     std::string name = {};
 
     std::vector<GPUMesh> result = {};
-
-    std::atomic<bool> finished = false;
 
     void callback(u32 chunk_index, u32 thread_index) override;
 };

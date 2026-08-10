@@ -25,10 +25,19 @@ struct Task
     virtual ~Task() = default;
     virtual void callback(u32 chunk_index, u32 thread_index) = 0;
 
+    auto is_finished() const -> bool
+    {
+        return dispatched.load(std::memory_order_acquire) && not_finished.load(std::memory_order_acquire) == 0;
+    }
+
     u32 chunk_count = {};
-    u32 not_finished = {};
+    std::atomic<bool> dispatched = false;
+    std::atomic<u32> not_finished = {};
     u32 started = {};
 };
+
+// Runs every chunk on the calling thread and leaves the task finished, without touching the queues.
+void run_task_inline(Task & task);
 
 struct TaskChunk
 {

@@ -1,36 +1,38 @@
 #include "importer.hpp"
 
-#include <array>
-
 #include <fmt/format.h>
 
 #include "../tido_format/tido_util.hpp"
 
-// ============ standalone backends: whole-file source -> SourceImportResult (no cooking) ============
+// ============ whole-file backends: one source -> one image slot per recipe ============
+// Resolving a whole-file source is the whole of the work: the location is the file itself, so there is
+// nothing to read and nothing to parse.
 namespace
 {
 
-using SceneBatch = ImporterTaskResult::SceneMetadataBatch;
-
-// The subtree root every source gets: the asset needs a durable place in the scene tree even with nothing
-// under it.
-auto make_source_root(std::string name) -> SceneBatch::EntitySubtree
+// The manifest name for one slot. A recipe that names itself is one of several cut from the same file, so it
+// says which; a lone slot is just the source.
+auto slot_name(std::filesystem::path const & path, std::string const & recipe_name) -> std::string
 {
-    SceneBatch::EntitySubtree subtree = {};
-    subtree.entities.push_back(SceneBatch::Entity{
-        .transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
-        .type = EntityType::ROOT,
-        .name = std::move(name),
-    });
-    subtree.root_entity_index = 0;
-    return subtree;
+    std::string const stem = path.stem().string();
+    return recipe_name.empty() ? stem : fmt::format("{} {}", stem, recipe_name);
 }
 
-} // namespace
+struct ImageParseTask final : SourceParseTask
+{
+    SourceImportRequest request = {};
+    explicit ImageParseTask(SourceImportRequest request) : request{std::move(request)} { chunk_count = 1; }
+    void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override;
+};
 
-// Resolving a whole-file source needs no I/O and no parse - the location is the file itself - so this runs
-// inline on the importer thread rather than costing a ThreadPool dispatch the way the gltf parse does.
-void dispatch_standalone_image_source(Importer & importer, SourceImportRequest const & request)
+struct VdbParseTask final : SourceParseTask
+{
+    SourceImportRequest request = {};
+    explicit VdbParseTask(SourceImportRequest request) : request{std::move(request)} { chunk_count = 1; }
+    void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override;
+};
+
+void ImageParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
     std::string const extension = tido_lowercase_extension(request.path);
     std::optional<ImageFileFormat> const container_format = [&]() -> std::optional<ImageFileFormat>
@@ -42,116 +44,98 @@ void dispatch_standalone_image_source(Importer & importer, SourceImportRequest c
     // Only reachable if the backend table gains an extension this mapping does not know about.
     if (!container_format.has_value())
     {
-        importer.push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
-            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SOURCE,
-            .source = request.path,
-            .message = fmt::format("no image container format for extension '{}'", extension),
-        }});
+        DEBUG_MSG(fmt::format("[WARN][StandaloneImageParseTask] no image container format for extension '{}' of '{}'",
+            extension, request.path.string()));
+        failed = true;
         return;
     }
 
-    // An import that authored no recipe has no way to say what the image is for, so it gets the sRGB colour
-    // one - the only assumption a lone image file supports.
-    ImageSlotRecipe const recipe = request.image_recipe.value_or(ImageSlotRecipe{
-        .channel_mapping = {0, 1, 2},
-        .target_format = daxa::Format::BC1_RGB_SRGB_BLOCK,
-    });
-
-    std::string const stem = request.path.stem().string();
-    SourceImportResult import_result = {};
-    import_result.batch.source_index = request.source_index;
-    import_result.batch.entity_subtree = make_source_root(stem);
-    // No image element here: nothing references a lone image, so its entry is created by the batch carrying
-    // its finished cook rather than existing empty until then.
-    import_result.image_cooks.push_back(ImageCookRequest{
-        .target = ImageCookTarget{.name = stem},
-        .importer_data = ImageImporterData{
+    auto emit_slot = [&](ImageSlotRecipe const & recipe)
+    {
+        // A lone image places nothing: it is an entry in the manifest, not something in the scene tree.
+        parsed.images.push_back(ParsedSource::Image{
+            .name = slot_name(request.path, recipe.name),
+        });
+        parsed.image_cook_inputs.push_back(ImageImporterData{
             .source_location = SourceLocation{.file = request.path},
             .container_format = container_format.value(),
             .channel_mapping = recipe.channel_mapping,
             .target_format = recipe.target_format,
-        },
-    });
-    importer.publish_source_import(std::move(import_result));
+        });
+    };
+
+    parsed.source_index = request.source_index;
+    if (request.recipes.empty())
+    {
+        // An import that authored no recipe has no way to say what the image is for, so it gets the sRGB
+        // colour one - the only assumption a lone image file supports.
+        emit_slot(ImageSlotRecipe{.channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC1_RGB_SRGB_BLOCK});
+        return;
+    }
+    // Several recipes over one file are the same bytes cooked several ways: one read, and as many artifacts
+    // as there are distinct recipes.
+    for (SlotRecipe const & recipe : request.recipes)
+    {
+        auto const * image_recipe = std::get_if<ImageSlotRecipe>(&recipe);
+        // Emitting the slots that do match would leave the import short of what it asked for, which surfaces
+        // much later as a manifest entry nothing filled in.
+        if (image_recipe == nullptr)
+        {
+            DEBUG_MSG(fmt::format("[WARN][StandaloneImageParseTask] '{}' given a recipe that does not describe an image slot",
+                request.path.string()));
+            failed = true;
+            return;
+        }
+        emit_slot(*image_recipe);
+    }
 }
 
-auto build_vdb_source_import(SourceImportRequest const & request, std::span<VdbSlotRecipe const> recipes)
-    -> SourceImportResult
+void VdbParseTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    std::string const stem = request.path.stem().string();
-
-    SourceImportResult import_result = {};
-    import_result.batch.source_index = request.source_index;
-    for (VdbSlotRecipe const & recipe : recipes)
+    // Nothing can assume what a .vdb holds - which grids it has and what they mean is authored, never
+    // inferred - so an import that names no slots has nothing to produce.
+    if (request.recipes.empty())
     {
-        // Created empty and filled by its cook, because a CloudVolume and the entity placing it reference
-        // these entries from the parse and so cannot wait for the artifacts.
-        u32 const batch_image_index = s_cast<u32>(import_result.batch.images.size());
-        import_result.batch.images.push_back(SceneBatch::Image{
-            .name = fmt::format("{} {}", stem, recipe.name),
+        DEBUG_MSG(fmt::format("[WARN][VdbParseTask] '{}' imported with no recipes; a .vdb has no slots until it is told which grids to take",
+            request.path.string()));
+        failed = true;
+        return;
+    }
+
+    parsed.source_index = request.source_index;
+    for (SlotRecipe const & recipe : request.recipes)
+    {
+        auto const * vdb_recipe = std::get_if<VdbSlotRecipe>(&recipe);
+        // Emitting the slots that do match would leave the import short of what it asked for, which surfaces
+        // much later as a manifest entry nothing filled in.
+        if (vdb_recipe == nullptr)
+        {
+            DEBUG_MSG(fmt::format("[WARN][VdbParseTask] '{}' given a recipe that does not describe a vdb slot",
+                request.path.string()));
+            failed = true;
+            return;
+        }
+        // Every slot reads the whole file; only the grid selection and the cook differ.
+        parsed.images.push_back(ParsedSource::Image{
+            .name = slot_name(request.path, vdb_recipe->name),
         });
-        import_result.image_cooks.push_back(ImageCookRequest{
-            .target = ImageCookTarget{.batch_image_index = batch_image_index},
-            .importer_data = VdbImporterData{
-                .source_location = SourceLocation{.file = request.path},
-                .grid_names = recipe.grid_names,
-                .channel_mapping = recipe.channel_mapping,
-                .target_format = recipe.target_format,
-            },
+        parsed.image_cook_inputs.push_back(VdbImporterData{
+            .source_location = SourceLocation{.file = request.path},
+            .grid_names = vdb_recipe->grid_names,
+            .channel_mapping = vdb_recipe->channel_mapping,
+            .target_format = vdb_recipe->target_format,
         });
     }
-    import_result.batch.entity_subtree = make_source_root(stem);
-    return import_result;
 }
 
-void dispatch_cloud_volume_source(Importer & importer, SourceImportRequest const & request)
+} // namespace
+
+auto parse_image_source(SourceImportRequest const & request) -> std::shared_ptr<SourceParseTask>
 {
-    // The three modelling fields the raymarch samples as one BC6 volume, the normalized SDF the custom BC1
-    // encoder packs, and the four channel erosion noise. A .vdb naming its grids differently fails the cook.
-    static std::array<VdbSlotRecipe, 3> const CLOUD_VOLUME_RECIPES = {
-        VdbSlotRecipe{
-            .name = "cloud data",
-            .grid_names = {"density", "detail_type", "density_scale"},
-            .channel_mapping = {0, 1, 2},
-            .target_format = daxa::Format::BC6H_UFLOAT_BLOCK,
-        },
-        VdbSlotRecipe{
-            .name = "cloud sdf",
-            .grid_names = {"sdf_normalized"},
-            .channel_mapping = {0},
-            .target_format = daxa::Format::BC1_RGBA_UNORM_BLOCK,
-        },
-        VdbSlotRecipe{
-            .name = "cloud erosion noise",
-            .grid_names = {"detail_noise_0", "detail_noise_1", "detail_noise_2", "detail_noise_3"},
-            .channel_mapping = {0, 1, 2, 3},
-            .target_format = daxa::Format::R16G16B16A16_SFLOAT,
-        },
-    };
-    // Slot order is the recipe order above; the volume samples all three together.
-    constexpr u32 CLOUD_DATA_SLOT = 0;
-    constexpr u32 CLOUD_SDF_SLOT = 1;
-    constexpr u32 CLOUD_DETAIL_NOISE_SLOT = 2;
+    return std::make_shared<ImageParseTask>(request);
+}
 
-    SourceImportResult import_result = build_vdb_source_import(request, CLOUD_VOLUME_RECIPES);
-    import_result.batch.cloud_volumes.push_back(SceneBatch::CloudVolume{
-        .data_image = {.kind = SceneBatch::SceneRef::Kind::BATCH_ELEMENT, .index = CLOUD_DATA_SLOT},
-        .sdf_image = {.kind = SceneBatch::SceneRef::Kind::BATCH_ELEMENT, .index = CLOUD_SDF_SLOT},
-        .detail_noise_image = {.kind = SceneBatch::SceneRef::Kind::BATCH_ELEMENT, .index = CLOUD_DETAIL_NOISE_SLOT},
-    });
-
-    SceneBatch::EntitySubtree & subtree = import_result.batch.entity_subtree.value();
-    // The volume's placement is not in the .vdb, so it keeps the size the runtime has always given the default
-    // cloud volume until the project document can carry an authored transform.
-    u32 const cloud_entity_index = s_cast<u32>(subtree.entities.size());
-    subtree.entities.push_back(SceneBatch::Entity{
-        .transform = glm::mat4x3(glm::translate(glm::scale(glm::identity<glm::mat4x4>(), f32vec3(512.0f, 512.0f, 64.0f) * 20.0f), f32vec3(-0.5f, -0.5f, 0.3f))),
-        .type = EntityType::CLOUD_VOLUME,
-        .name = request.path.stem().string(),
-        .cloud_volume = SceneBatch::SceneRef{.kind = SceneBatch::SceneRef::Kind::BATCH_ELEMENT, .index = 0},
-        .parent_index = subtree.root_entity_index,
-    });
-    subtree.entities.at(subtree.root_entity_index).first_child_index = cloud_entity_index;
-
-    importer.publish_source_import(std::move(import_result));
+auto parse_vdb_source(SourceImportRequest const & request) -> std::shared_ptr<SourceParseTask>
+{
+    return std::make_shared<VdbParseTask>(request);
 }

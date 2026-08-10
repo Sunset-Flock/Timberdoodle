@@ -12,7 +12,6 @@
 #include "../shader_shared/geometry_pipeline.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
-#include "importer_types.hpp"
 #include "optimizers/image_processor.hpp"
 #include "optimizers/vdb_processor.hpp"
 #include "tido_format/tido_format.hpp"
@@ -40,12 +39,6 @@ struct CPUMeshInstanceCounts
 
 
 /// ================================================== IMAGE ==================================================
-struct ImageRuntimeData
-{
-    // The live GPU handle for this texture; empty until the streamer has made it resident.
-    daxa::ImageId image = {};
-};
-
 struct ImageManifestEntry
 {
     // List of materials that use this texture.
@@ -55,9 +48,10 @@ struct ImageManifestEntry
     std::string name = {};
 
     ImageStreamerData streamer_data = {};
-    std::optional<ImageRuntimeData> runtime_data = {};
+    // The live GPU image; absent until the streamer has made this entry resident.
+    std::optional<daxa::ImageId> runtime_image = {};
 
-    auto loaded() const -> bool{ return runtime_data.has_value(); }
+    auto loaded() const -> bool{ return runtime_image.has_value(); }
 };
 
 /// ================================================== MESH ==================================================
