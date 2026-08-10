@@ -67,7 +67,7 @@ func directional_vsm_entry_task(
     {
         if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
-            GPUMaterial material = push.attachments.material_manifest[instanced_meshlet.material_index];
+            SurfaceMaterial material = *as_surface_material(push.attachments.material_manifest + instanced_meshlet.material_index);
             enable_backface_culling = !material.alpha_discard_enabled && !material.double_sided_enabled;
         }
     }
@@ -202,7 +202,7 @@ void directional_vsm_entry_fragment_masked(
     {
         if(daxa_prim_in.material_index != INVALID_MANIFEST_INDEX)
         {
-            const GPUMaterial material = deref_i(push.attachments.material_manifest, daxa_prim_in.material_index);
+            const SurfaceMaterial material = *as_surface_material(push.attachments.material_manifest + daxa_prim_in.material_index);
             float alpha = 1.0;
             if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {

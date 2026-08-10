@@ -10,6 +10,11 @@
 #include "shared.inl"
 #include "visbuffer.inl"
 
+#if defined(__cplusplus)
+#include <algorithm>
+#include <cstring>
+#endif
+
 #define INVALID_MESHLET_INDEX (~(0u))
 
 #define MAX_MESHLET_INSTANCES TRIANGLE_ID_MAX_MESHLET_INSTANCES
@@ -90,23 +95,37 @@ struct GPUMeshLodGroup
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshLodGroup, 4)
 
-struct GPUMaterial
+#define MATERIAL_TYPE_SURFACE 0
+
+// GLSL shares this struct and has no sizeof, so the payload cannot be a computed array bound. The assert
+// below pins this to the largest material type, so it fails the build rather than silently drifting.
+#define GPU_MATERIAL_PAYLOAD_U64S 9
+
+struct SurfaceMaterial
 {
     daxa_ImageViewId diffuse_texture_id;
     daxa_ImageViewId opacity_texture_id;
     daxa_ImageViewId normal_texture_id;
     daxa_ImageViewId roughnes_metalness_id;
-    daxa_b32 alpha_discard_enabled;  
+    daxa_b32 alpha_discard_enabled;
     daxa_b32 double_sided_enabled;
     daxa_b32 blend_enabled;
     daxa_b32 normal_compressed_bc5_rg;
     daxa_f32vec3 base_color;
     daxa_f32vec3 emissive_color;
 };
+
+// One entry per material of any type: a tag naming the type, and a payload holding exactly that type.
+// The payload is u64 so it stays 8 byte aligned for the image ids the material types put in it.
+struct GPUMaterial
+{
+    daxa_u32 material_type;
+    daxa_u64 payload[GPU_MATERIAL_PAYLOAD_U64S];
+};
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
-static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
+static const SurfaceMaterial SURFACE_MATERIAL_FALLBACK = SurfaceMaterial(
     daxa_ImageViewId(0),
     daxa_ImageViewId(0),
     daxa_ImageViewId(0),
@@ -118,6 +137,33 @@ static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
     daxa_f32vec3(1,1,1),
     daxa_f32vec3(0,0,0)
 );
+#endif
+
+#if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
+// Unchecked: the caller must already know the material's type. Passes that can shade any material switch on
+// material_type first; the raster passes only ever reach surface materials and cast straight to one.
+SurfaceMaterial * as_surface_material(GPUMaterial * material)
+{
+    return (SurfaceMaterial *)(&material.payload);
+}
+#endif
+
+#if defined(__cplusplus)
+// Every material type belongs in this list.
+inline constexpr daxa_u32 GPU_MATERIAL_PAYLOAD_REQUIRED_U64S = (std::max({sizeof(SurfaceMaterial)}) + 7u) / 8u;
+static_assert(GPU_MATERIAL_PAYLOAD_U64S == GPU_MATERIAL_PAYLOAD_REQUIRED_U64S,
+    "set GPU_MATERIAL_PAYLOAD_U64S to GPU_MATERIAL_PAYLOAD_REQUIRED_U64S - the largest material type in whole u64s");
+
+template <typename MaterialT>
+inline auto pack_material(daxa_u32 material_type, MaterialT const & material) -> GPUMaterial
+{
+    static_assert(sizeof(MaterialT) <= sizeof(GPUMaterial::payload), "material type outgrew GPU_MATERIAL_PAYLOAD_U64S");
+    static_assert(alignof(MaterialT) <= alignof(daxa_u64), "material type needs more alignment than the payload has");
+    GPUMaterial ret = {};
+    ret.material_type = material_type;
+    std::memcpy(&ret.payload, &material, sizeof(MaterialT));
+    return ret;
+}
 #endif
 
 #if DAXA_SHADER

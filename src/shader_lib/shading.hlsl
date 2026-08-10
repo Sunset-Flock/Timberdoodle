@@ -25,14 +25,14 @@ typedef uint ShadingQuality;
 
 func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
 {
-    GPUMaterial material = {};
+    SurfaceMaterial material = {};
     if (tri_geo.material_index == INVALID_MANIFEST_INDEX)
     {
-        material = GPU_MATERIAL_FALLBACK;
+        material = SURFACE_MATERIAL_FALLBACK;
     }
     else
     {
-        material = globals.scene.materials[tri_geo.material_index];
+        material = *as_surface_material(globals.scene.materials + tri_geo.material_index);
     }
 
     MaterialPointData ret = {};

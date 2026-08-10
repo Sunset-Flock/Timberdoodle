@@ -90,7 +90,7 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
         let masked_data = reinterpret<FragmentMaskedData>(extra);
         if (masked_data.material_index != INVALID_MANIFEST_INDEX)
         {
-            GPUMaterial material = deref_i(masked_data.materials, masked_data.material_index);
+            SurfaceMaterial material = *as_surface_material(masked_data.materials + masked_data.material_index);
             float alpha = 1.0;
             if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
@@ -349,10 +349,10 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].pass_counts[1];
     const MeshletInstance meshlet_instance = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, meshlet_instance_index);
 
-    bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
+    bool cull_backfaces = !SURFACE_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
-        GPUMaterial material = draw_p.materials[meshlet_instance.material_index];
+        SurfaceMaterial material = *as_surface_material(draw_p.materials + meshlet_instance.material_index);
         cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
     }
 
@@ -810,12 +810,12 @@ func entry_task_meshlet_cull(
     payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
 
-    bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
+    bool cull_backfaces = !SURFACE_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (valid_meshlet)
     {
         if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
         {
-            GPUMaterial material = push.materials[meshlet_instance.material_index];
+            SurfaceMaterial material = *as_surface_material(push.materials + meshlet_instance.material_index);
             cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
         }
     }

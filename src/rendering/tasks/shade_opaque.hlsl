@@ -763,10 +763,10 @@ void entry_main_cs(
         }
 
 
-        GPUMaterial material = GPU_MATERIAL_FALLBACK;
+        SurfaceMaterial material = SURFACE_MATERIAL_FALLBACK;
         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
         {
-            material = AT.material_manifest[tri_geo.material_index];
+            material = *as_surface_material(AT.material_manifest + tri_geo.material_index);
         }
 
         MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(

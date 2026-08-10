@@ -367,18 +367,18 @@ auto SceneRuntime::update(ThreadPool * thread_pool) -> daxa::ExecutableCommandLi
         {
             u32 const material_manifest_idx = dirty_materials[i];
             MaterialManifestEntry const & material = _scene._material_manifest.at(material_manifest_idx);
-            GPUMaterial gpu_material = {};
-            gpu_material.diffuse_texture_id = resolve_texture_id(material.diffuse_info).default_view();
-            gpu_material.opacity_texture_id = resolve_texture_id(material.opacity_mask_info).default_view();
-            gpu_material.normal_texture_id = resolve_texture_id(material.normal_info).default_view();
-            gpu_material.roughnes_metalness_id = resolve_texture_id(material.roughness_metalness_info).default_view();
-            gpu_material.alpha_discard_enabled = material.alpha_discard_enabled;
-            gpu_material.normal_compressed_bc5_rg = normal_is_bc5_rg(material.normal_info);
-            gpu_material.base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
-            gpu_material.emissive_color = std::bit_cast<daxa_f32vec3>(material.emissive_color);
-            gpu_material.double_sided_enabled = material.double_sided;
-            gpu_material.blend_enabled = material.blend_enabled;
-            staging_ptr[i] = gpu_material;
+            SurfaceMaterial surface_material = {};
+            surface_material.diffuse_texture_id = resolve_texture_id(material.diffuse_info).default_view();
+            surface_material.opacity_texture_id = resolve_texture_id(material.opacity_mask_info).default_view();
+            surface_material.normal_texture_id = resolve_texture_id(material.normal_info).default_view();
+            surface_material.roughnes_metalness_id = resolve_texture_id(material.roughness_metalness_info).default_view();
+            surface_material.alpha_discard_enabled = material.alpha_discard_enabled;
+            surface_material.normal_compressed_bc5_rg = normal_is_bc5_rg(material.normal_info);
+            surface_material.base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
+            surface_material.emissive_color = std::bit_cast<daxa_f32vec3>(material.emissive_color);
+            surface_material.double_sided_enabled = material.double_sided;
+            surface_material.blend_enabled = material.blend_enabled;
+            staging_ptr[i] = pack_material(MATERIAL_TYPE_SURFACE, surface_material);
             recorder.copy_buffer_to_buffer({
                 .src_buffer = material_staging_buffer,
                 .dst_buffer = _scene._gpu_material_manifest.id(),

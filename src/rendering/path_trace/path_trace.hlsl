@@ -226,10 +226,10 @@ void ray_gen()
                         tri_point.world_normal = flip_normal_on_face_normal(tri_point.world_normal, tri_point.face_normal);
 
                         float3 normal = tri_point.world_normal;
-                        GPUMaterial material = GPU_MATERIAL_FALLBACK;
+                        SurfaceMaterial material = SURFACE_MATERIAL_FALLBACK;
                         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
                         {
-                            material = AT.globals.scene.materials[tri_geo.material_index];
+                            material = *as_surface_material(AT.globals.scene.materials + tri_geo.material_index);
                         }
 
                         MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(
