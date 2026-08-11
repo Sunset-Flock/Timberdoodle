@@ -6,6 +6,7 @@
 
 #include "rtgi_trace_diffuse.inl"
 #include "rtgi_trace_diffuse_shared.hlsl"
+#include "rtgi_guide_resample.inl"
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/raytracing.hlsl"
@@ -13,6 +14,7 @@
 #include "shader_lib/pgi.hlsl"
 
 #include "rtgi_shared.hlsl"
+#include "rtgi_guided_sampling.hlsl"
 #include "shader_lib/debug.glsl"
 
 #define GOLDEN_RATIO 1.6181
@@ -154,18 +156,38 @@ void shade_ray_gen(uint2 dtid)
         const float3x3 tbn         = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
         const float3 sample_pos    = rt_calc_ray_start(world_position, face_normal, primary_ray);
 
+        // Pioneer-guided direction support -- see the matching block (and rtgi_guided_sampling.hlsl) in
+        // ray_gen_from_list_body for the full explanation. Read once per pixel, reused by every ray below.
+        // Already half-res-pixel-aligned, no addressing needed.
+        float4 pixel_guide_sh_y = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        if (rtgi_settings.pioneer_guiding_enabled)
+        {
+            pixel_guide_sh_y = push.attach.guide_sh_y.get()[dtid];
+        }
+
         for (uint i = 0u; i < write_count; ++i)
         {
-            float3 importance_rand_hemi_sample;
+            float3 sample_dir;
+            // Correction weight for pioneer-guided sampling; 1.0 (no-op) unless that branch fires below --
+            // see the matching comment in ray_gen_from_list_body.
+            float guided_weight = 1.0f;
             if (rtgi_settings.trace_use_stbn != 0)
             {
                 const uint stbn_frame_seed = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0u;
                 rand_seed(stbn_frame_seed + i * prime_shift1);
-                importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, (rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0) + rand());
+                const float3 importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, (rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0) + rand());
+                sample_dir = mul(tbn, importance_rand_hemi_sample);
+            }
+            else if (rtgi_settings.pioneer_guiding_enabled)
+            {
+                // Returns a WORLD-space direction directly (builds its own basis internally) -- does NOT
+                // go through `tbn`, unlike the other two branches.
+                sample_dir = rtgi_sample_guided_diffuse_dir(
+                    face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, guided_weight);
             }
             else
             {
-                importance_rand_hemi_sample = rand_cosine_sample_hemi();
+                sample_dir = mul(tbn, rand_cosine_sample_hemi());
             }
 
             RayPayload payload = {};
@@ -182,14 +204,14 @@ void shade_ray_gen(uint2 dtid)
             ray.Origin    = sample_pos - primary_ray * ws_px_size;
             ray.TMax      = t_max;
             ray.TMin      = ws_px_size * 0.5f;
-            const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
             const uint flags = {};
             rtgi_trace_and_shade(ray, flags, payload);
 
             // Write this ray's result into the shared ray list (same layout the blend pass produced), so
             // the pre-filter re-blends (and per-ray firefly-clamps) it identically to the repacked path.
-            const float3 ray_rgb = payload.color * RTGI_RADIANCE_SCALE;
+            // guided_weight folds in the pioneer-guided-sampling correction (1.0 = no-op unless it fired).
+            const float3 ray_rgb = payload.color * guided_weight * RTGI_RADIANCE_SCALE;
             push.attach.ray_result[my_offset + i] = RtgiRayResult(ray_rgb, payload.t, compress_normal_octahedral_32(sample_dir));
 
             mean_perceptual_rgb += linear_to_perceptual_rgb(ray_rgb, push.attach.globals.inv_exposure) * inv_samples;
@@ -256,11 +278,34 @@ void ray_gen_from_list_body()
     const float3 world_tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
     const float3x3 tbn         = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
 
+    // Pioneer-guided direction support: read the same-frame, lag-free guide built by the pioneer trace +
+    // spatial RIS resample (rtgi_guide_resample.hlsl) -- already half-res-pixel-aligned, no addressing
+    // needed. Feeds rtgi_sample_guided_diffuse_dir below. See rtgi_guided_sampling.hlsl.
+    float4 pixel_guide_sh_y = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    if (rtgi_settings.pioneer_guiding_enabled)
+    {
+        pixel_guide_sh_y = push.attach.guide_sh_y.get()[pixel_xy];
+    }
+
+    // Seed ONCE per pixel+frame (NOT per ray). Each ray is a separate shader invocation, so we advance
+    // the per-pixel RNG sequence to this ray's slot instead of folding sample_index into the seed:
+    // re-seeding per ray with base + sample_index*prime does NOT decorrelate (a single PCG step barely
+    // mixes nearby seeds), which made a pixel's N rays near-duplicates. Downstream draws (2 for plain
+    // cosine, a variable count for guided sampling) start from this ray's own decorrelated slot regardless
+    // of how many rand() calls they end up consuming — mirrors how the classic per-pixel trace draws
+    // sequentially across its sample loop. Harmless no-op for the STBN branch below, which never calls rand().
+    rand_seed(frame_seed + history_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2);
+    [loop] for (uint skip = 0u; skip < sample_index * 2u; ++skip) { rand(); }
+
     // Ray direction. The repacked/redistribution path previously ALWAYS drew rand_cosine_sample_hemi, so
     // trace_use_stbn did nothing here — STBN only worked on the classic per-pixel path (shade_ray_gen).
     // Mirror that path: when trace_use_stbn is set, draw the blue-noise cosine direction indexed by the
     // pixel's screen coordinate (pixel_index, the same full-res coord shade_ray_gen uses).
-    float3 importance_rand_hemi_sample;
+    float3 sample_dir;
+    // Correction weight for pioneer-guided sampling (importance-sampling ratio); multiplied into the
+    // traced radiance below. Stays 1.0 (no-op) for STBN/plain-cosine sampling, which need no such weight
+    // because their pdf's cos(theta)/PI cancels exactly against the Lambertian estimator's own numerator.
+    float guided_weight = 1.0f;
     if (rtgi_settings.trace_use_stbn != 0)
     {
         // STBN z-slice = frame + sample_index. The per-ray offset MUST be an integer slice step: a pixel's
@@ -269,21 +314,21 @@ void ray_gen_from_list_body()
         // truncates to zero and every ray of the pixel reads the same slice -> IDENTICAL direction.
         // animate_noise off -> slices 0..N-1 per pixel, frozen across frames but still distinct per ray.
         const int stbn_frame = (rtgi_settings.animate_noise ? int(push.attach.globals.trunk_flt_frame_index) : 0) + int(sample_index);
-        importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, stbn_frame);
+        const float3 importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, stbn_frame);
+        sample_dir = mul(tbn, importance_rand_hemi_sample);
+    }
+    else if (rtgi_settings.pioneer_guiding_enabled)
+    {
+        // rtgi_sample_guided_diffuse_dir builds its own basis internally (around either face_normal or the
+        // SH dominant direction) and returns a WORLD-space direction directly -- unlike the other two
+        // branches, it does NOT go through the pre-built `tbn` here.
+        sample_dir = rtgi_sample_guided_diffuse_dir(
+            face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, guided_weight);
     }
     else
     {
-        // Seed ONCE per pixel+frame (NOT per ray). Each ray is a separate shader invocation, so we advance
-        // the per-pixel RNG sequence to this ray's slot instead of folding sample_index into the seed:
-        // re-seeding per ray with base + sample_index*prime does NOT decorrelate (a single PCG step barely
-        // mixes nearby seeds), which made a pixel's N rays near-duplicates. rand_cosine_sample_hemi draws 2
-        // values, so skip sample_index*2 to land on a fresh, decorrelated pair — mirroring how the classic
-        // per-pixel trace draws sequentially across its sample loop.
-        rand_seed(frame_seed + history_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2);
-        [loop] for (uint skip = 0u; skip < sample_index * 2u; ++skip) { rand(); }
-        importance_rand_hemi_sample = rand_cosine_sample_hemi();
+        sample_dir = mul(tbn, rand_cosine_sample_hemi());
     }
-    const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
 
     RayPayload payload = {};
     payload.dtid = pixel_xy;
@@ -303,7 +348,8 @@ void ray_gen_from_list_body()
 
     // Store the raw hit distance; the blend pass converts it to bounded shortness [0,1] per ray and
     // averages over the pixel's rays into the ray-length texture for a stable denoiser guide.
-    push.attach.ray_result[ray_index] = RtgiRayResult(payload.color * RTGI_RADIANCE_SCALE, payload.t, compress_normal_octahedral_32(sample_dir));
+    // guided_weight folds in the pioneer-guided-sampling correction (1.0 = no-op unless that path fired).
+    push.attach.ray_result[ray_index] = RtgiRayResult(payload.color * guided_weight * RTGI_RADIANCE_SCALE, payload.t, compress_normal_octahedral_32(sample_dir));
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)
     {
@@ -313,12 +359,114 @@ void ray_gen_from_list_body()
     }
 }
 
-// Single raygen entry point. Switches on the setting so both trace paths can share one pipeline
+// Pioneer trace, gated by rtgi_settings.pioneer_guiding_enabled. Dispatched at a SPARSE grid --
+// 1/RTGI_GUIDE_PIONEER_GRID_DIV resolution of the half-res trace grid in each axis -- one ray per cell.
+// Which half-res pixel each cell samples ROTATES every frame (a simple mod-DIV cycle through the
+// DIVxDIV sub-positions), so the sparse pattern isn't fixed; entry_guide_resample_horizontal/vertical
+// (rtgi_guide_resample.hlsl) MUST use the exact same rotation formula to find each cell's sampled pixel
+// back. This pass writes raw per-cell data only -- no averaging, no history -- rtgi_guide_resample.hlsl's
+// separable resample is what actually produces the per-pixel guide the main trace reads.
+void pioneer_ray_gen(uint2 pioneer_dtid)
+{
+    let push = rtgi_trace_diffuse_push;
+    let rtgi_settings = push.attach.globals.rtgi_settings;
+
+    // Same rotation formula entry_guide_resample uses to map a candidate cell back to a half-res pixel.
+    // Gated by animate_noise so a frozen frame keeps a fixed pioneer pattern instead of still cycling.
+    // trunk_flt_frame_index, not raw frame_index -- RTGI convention (see globals.inl); mod-DIV is
+    // unaffected since DIV (4) divides the 4096 truncation period evenly.
+    const uint rotation_frame = rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
+    const uint2 rotation = uint2(
+        rotation_frame % RTGI_GUIDE_PIONEER_GRID_DIV,
+        (rotation_frame / RTGI_GUIDE_PIONEER_GRID_DIV) % RTGI_GUIDE_PIONEER_GRID_DIV);
+    const uint2 pixel_xy = pioneer_dtid * RTGI_GUIDE_PIONEER_GRID_DIV + rotation;
+
+    const uint2 half_res_size = push.attach.globals.settings.render_target_size >> 1u;
+    // .w < 0 is the invalid/no-data sentinel entry_guide_resample skips as a RIS candidate -- brightness
+    // Y is otherwise always >= 0, so it's unambiguous. Covers both the out-of-bounds edge cells (grid is
+    // ceil-divided, so the rotated pixel can fall outside on the last row/column) and disocclusion.
+    if (any(pixel_xy >= half_res_size))
+    {
+        push.attach.pioneer_hit_y.get()[pioneer_dtid] = float4(0.0f, 0.0f, 0.0f, -1.0f);
+        return;
+    }
+
+    const float depth = push.attach.view_cam_half_res_depth.get()[pixel_xy];
+    if (depth == 0.0f)
+    {
+        push.attach.pioneer_hit_y.get()[pioneer_dtid] = float4(0.0f, 0.0f, 0.0f, -1.0f);
+        return;
+    }
+
+    const CameraInfo camera = push.attach.globals.view_camera;
+    const float2 pixel_index = float2(pixel_xy * 2u) + 0.5f;
+    const float3 world_position = pixel_index_to_world_space(camera, pixel_index, depth);
+    const float3 face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[pixel_xy].r);
+    const float3 primary_ray = normalize(world_position - camera.position);
+    const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
+    const float ws_px_size = calc_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
+
+    // Plain cosine sampling -- pioneer rays ARE the raw signal being gathered, so they must not guide
+    // off anything themselves. Seeded per pixel+frame like the other paths' per-pixel seeds.
+    const uint prime_shift1 = 9629u;
+    const uint prime_shift2 = 10069u;
+    const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index * 257u : 0u;
+    rand_seed(frame_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2);
+
+    const float3 world_tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
+    const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
+    const float3 sample_dir = mul(tbn, rand_cosine_sample_hemi());
+
+    RayPayload payload = {};
+    payload.dtid = pixel_xy;
+
+    const float3 sample_pos = rt_calc_ray_start(world_position, face_normal, primary_ray);
+    RayDesc ray = {};
+    ray.Origin    = sample_pos - primary_ray * ws_px_size;
+    ray.Direction = sample_dir;
+    ray.TMin      = ws_px_size * 0.5f;
+    // Bounded (unlike the main trace's effectively-unbounded rays) -- the pioneer trace only needs nearby
+    // bounce lighting to build a useful direction guide; see the field comment in rtgi.inl.
+    ray.TMax      = rtgi_settings.guide_pioneer_trace_max_distance;
+    const uint flags = {};
+    rtgi_trace_and_shade(ray, flags, payload);
+
+    // Store a RECONNECTION payload, not a baked SH-Y direction: the ray's actual hit position X (world
+    // space) plus the direction-independent brightness Y measured there. The traced surface is Lambertian
+    // (this whole pipeline only does diffuse GI), so its exitant radiance is the SAME in every exit
+    // direction -- Y needs no per-receiver re-derivation, ever. What changes per receiver is only the
+    // DIRECTION from the receiver to X, and that's deliberately not computed here: baking `sample_dir` in
+    // now would make it only valid for THIS pixel, defeating the point of storing X at all. Every reuse
+    // downstream (H/V passes) just carries (X, Y) forward unchanged; entry_guide_resolve is the one place
+    // that turns this into a real direction, computed fresh for whichever half-res pixel actually consumes
+    // it as a guide. On a sky miss payload.t is a huge sentinel (see shade_miss) that's WAY past this
+    // ray's own TMax -- clamp to ray.TMax (the pioneer trace's bounded, finite max distance) before
+    // building the position. Two reasons: (1) pioneer_hit_y is stored as R16G16B16A16_SFLOAT (half
+    // float, max finite ~65504) -- origin + direction*1e12 overflows that to +-Inf on write, which then
+    // turns into a NaN reconnection direction downstream (entry_guide_resolve) that silently slips past
+    // the `dot(normal, recon_dir) <= 0` guard (NaN comparisons are always false) and NaNs the guide's
+    // SH-Y, which rtgi_sh_dominant_direction then falls back to the surface normal for -- i.e. exactly
+    // the sky-miss-guided rays (bright, likely to win the RIS pick) silently losing their real direction.
+    // (2) ray.TMax is still "far enough" for the same reason 1e12 was meant to be: any nearby receiver's
+    // parallax against a point that far along sample_dir is negligible, so reconnection still reproduces
+    // ~sample_dir for every receiver, same as the original intent, just representable.
+    const float3 hit_position = ray.Origin + ray.Direction * min(payload.t, ray.TMax);
+    const float Y = linear_to_y_co_cg(payload.color).x;
+    // max(...,0) keeps Y unambiguous against the negative invalid sentinel above.
+    push.attach.pioneer_hit_y.get()[pioneer_dtid] = float4(hit_position, max(Y, 0.0f));
+}
+
+// Single raygen entry point. Switches on the setting so all trace paths can share one pipeline
 // (avoids daxa's single-handle raygen SBT limitation). The task graph only ever dispatches one of
-// the two paths per frame — with the matching dispatch shape — based on the same setting.
+// the paths per task — with the matching dispatch shape — based on push/settings values.
 [shader("raygeneration")]
 void ray_gen()
 {
+    if (rtgi_trace_diffuse_push.is_pioneer_pass)
+    {
+        pioneer_ray_gen(DispatchRaysIndex().xy);
+        return;
+    }
     if (rtgi_trace_diffuse_push.attach.globals.rtgi_settings.use_repacked_ray_dispatch)
     {
         ray_gen_from_list_body();

@@ -36,11 +36,6 @@ uint2 rtgi_reproject_corner(int2 origin)
     return uint2(origin + 1); // origin in [-1, size-1] -> [0, size]
 }
 
-float2 rtgi_reproject_gather_uv(uint2 corner_plus_one, float2 inv_half_res_render_target_size)
-{
-    return float2(corner_plus_one) * inv_half_res_render_target_size; // == (origin + 1) * inv_size
-}
-
 // Parallax stretch penalty, [0,1]. A surface seen at a grazing angle covers very few pixels; when camera
 // motion makes it much less grazing — e.g. a wall revealed by moving sideways, going from a 1-pixel strip
 // covering 10 meters to a 10-pixel-wide wall — its thin previous-frame history is reprojected/stretched
@@ -490,16 +485,16 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     //   y (green)  = fast mean - std dev
     //   z (blue)   = fast mean
     //   w (yellow) = slow-history radiance (brightness)
-    // const uint2 tape_center_pixel = uint2(half_res_render_target_size) / 2;
-    // if (all(dtid == tape_center_pixel))
-    // {
-    //     const float fast_std_dev_absolute = accumulated_fast_mean * reprojected_fast_temporal_variance;
-    //     push.attach.globals.readback.debug_value = float4(
-    //         accumulated_fast_mean + fast_std_dev_absolute,
-    //         accumulated_fast_mean,
-    //         accumulated_fast_mean - fast_std_dev_absolute,
-    //         reprojected_diffuse.w);
-    // }
+    const uint2 tape_center_pixel = uint2(half_res_render_target_size) / 2;
+    if (all(dtid == tape_center_pixel))
+    {
+        const float fast_std_dev_absolute = accumulated_fast_mean * reprojected_fast_temporal_variance;
+        push.attach.globals.readback.debug_value = float4(
+            reprojected_diffuse.w,
+            accumulated_fast_mean,
+            fast_std_dev_absolute,
+        0);
+    }
 
     // No-ray pixel (repacked dispatch only): this geometry pixel received no ray from the budget this
     // frame, so there is no new radiance to integrate. As long as we have valid history (not a

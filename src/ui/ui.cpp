@@ -764,6 +764,9 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);
                     ImGui::Checkbox("Ray Redistribution", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_ray_redistribution));
                     ImGui::Checkbox("Trace Use STBN", reinterpret_cast<bool *>(&render_data.rtgi_settings.trace_use_stbn));
+                    ImGui::Checkbox("Pioneer Guided Ray Bending", reinterpret_cast<bool *>(&render_data.rtgi_settings.pioneer_guiding_enabled));
+                    ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.guide_concentration, 0.0f, 1.0f);
+                    ImGui::SliderFloat("Pioneer Trace Max Distance (m)", &render_data.rtgi_settings.guide_pioneer_trace_max_distance, 1.0f, 1024.0f);
                     ImGui::SliderFloat("Ambient Occlusion Guide Max Pixel Range", &render_data.rtgi_settings.max_visibility_pixel_range, 1.0f, 128.0f);
                     ImGui::TreePop();
                 }

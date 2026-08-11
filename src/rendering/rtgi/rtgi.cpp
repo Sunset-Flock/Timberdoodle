@@ -3,6 +3,7 @@
 #include "rtgi_trace_diffuse.inl"
 #include "rtgi_distribute_rays.inl"
 #include "rtgi_blend_rays.inl"
+#include "rtgi_guide_resample.inl"
 
 auto rtgi_default_settings() -> RtgiSettings
 {
@@ -51,6 +52,9 @@ auto rtgi_default_settings() -> RtgiSettings
         .use_repacked_ray_dispatch            = 1,
         .use_ray_redistribution               = 1,
         .trace_use_stbn                       = 0,
+        .pioneer_guiding_enabled               = 1,
+        .guide_concentration                   = 0.92f,
+        .guide_pioneer_trace_max_distance      = 256.0f,
     };
 }
 #include "rtgi_pre_filter.inl"
@@ -82,6 +86,29 @@ inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * 
     ti.recorder.trace_rays({
         .width = trace_target.size.x,
         .height = trace_target.size.y,
+        .depth = 1,
+        .shader_binding_table = rt_pipeline.sbt,
+    });
+}
+
+// Pioneer trace, gated by rtgi_settings.pioneer_guiding_enabled -- see pioneer_ray_gen in rtgi_trace_diffuse.hlsl.
+// Dispatched at the sparse pioneer grid size (pioneer_hit_y's extent), sharing the SAME ray tracing
+// pipeline as the classic/repacked trace (is_pioneer_pass selects the raygen body).
+inline void rtgi_trace_pioneer_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiTraceDiffuseH::Info::AT;
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"RTGI", "GUIDE_PIONEER_TRACE">());
+    RtgiTraceDiffusePush push = {
+        .is_pioneer_pass = true,
+    };
+    push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+    auto const & pioneer_target = ti.info(AT.pioneer_hit_y).value();
+    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
+    ti.recorder.set_pipeline(*rt_pipeline.pipeline);
+    ti.recorder.push_constant(push);
+    ti.recorder.trace_rays({
+        .width = pioneer_target.size.x,
+        .height = pioneer_target.size.y,
         .depth = 1,
         .shader_binding_table = rt_pipeline.sbt,
     });
@@ -233,6 +260,24 @@ inline void rtgi_blend_rays_callback(daxa::TaskInterface ti, RenderContext * ren
     dispatch_image_relative(RtgiBlendRaysPush(), ti, render_context, AT.perceptual_rgb_shortness, RTGI_BLEND_RAYS_X, RenderTimes::index<"RTGI", "BLEND_RAYS">(), rtgi_blend_rays_compile_info().name);
 }
 
+inline void rtgi_guide_resample_horizontal_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiGuideResampleHorizontalH::Info::AT;
+    dispatch_image_relative(RtgiGuideResampleHorizontalPush(), ti, render_context, AT.h_resample_hit_y, RTGI_GUIDE_RESAMPLE_X, RenderTimes::index<"RTGI", "GUIDE_RESAMPLE_H">(), rtgi_guide_resample_horizontal_compile_info().name);
+}
+
+inline void rtgi_guide_resample_vertical_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiGuideResampleVerticalH::Info::AT;
+    dispatch_image_relative(RtgiGuideResampleVerticalPush(), ti, render_context, AT.pioneer_guide_hit_y, RTGI_GUIDE_RESAMPLE_X, RenderTimes::index<"RTGI", "GUIDE_RESAMPLE_V">(), rtgi_guide_resample_vertical_compile_info().name);
+}
+
+inline void rtgi_guide_resolve_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiGuideResolveH::Info::AT;
+    dispatch_image_relative(RtgiGuideResolvePush(), ti, render_context, AT.guide_sh_y, RTGI_GUIDE_RESAMPLE_X, RenderTimes::index<"RTGI", "GUIDE_RESOLVE">(), rtgi_guide_resolve_compile_info().name);
+}
+
 ///
 /// === Transient Images ===
 ///
@@ -346,6 +391,53 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "rtgi_reproject_weights_image",
     });
 
+    auto const pioneer_grid_size = daxa::Extent3D{
+        round_up_div(half_res_image_size.x, RTGI_GUIDE_PIONEER_GRID_DIV),
+        round_up_div(half_res_image_size.y, RTGI_GUIDE_PIONEER_GRID_DIV),
+        1,
+    };
+    auto pioneer_hit_y_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = pioneer_grid_size,
+        .name = "rtgi_pioneer_hit_y_image",
+    });
+    auto guide_sh_y_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = half_res_image_size,
+        .name = "rtgi_guide_sh_y_image",
+    });
+    auto guide_confidence_image = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = half_res_image_size,
+        .name = "rtgi_guide_confidence_image",
+    });
+    // Intermediate, pioneer-resolution-sized: horizontal pass's per-row pick + (weight, valid_count),
+    // consumed by the vertical pass. See rtgi_guide_resample.hlsl for the two-stage reservoir math.
+    auto h_resample_hit_y_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = pioneer_grid_size,
+        .name = "rtgi_h_resample_hit_y_image",
+    });
+    auto h_resample_weight_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = pioneer_grid_size,
+        .name = "rtgi_h_resample_weight_image",
+    });
+    // Intermediate, ALSO pioneer-resolution-sized: the vertical pass's own output (one RIS pick per
+    // pioneer cell). entry_guide_resolve upsamples this to the final half-res guide_sh_y_image/
+    // guide_confidence_image above.
+    auto pioneer_guide_hit_y_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = pioneer_grid_size,
+        .name = "rtgi_pioneer_guide_hit_y_image",
+    });
+    auto pioneer_guide_confidence_image = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = pioneer_grid_size,
+        .name = "rtgi_pioneer_guide_confidence_image",
+    });
+    bool const pioneer_guiding_enabled = info.render_context.render_data.rtgi_settings.pioneer_guiding_enabled != 0;
+
     // == Repacked ray dispatch resources =====================================
     const u32 half_res_pixels = half_res_image_size.x * half_res_image_size.y;
     // Oversized so the list holds one base ray per pixel PLUS the adaptive extra-ray budget.
@@ -370,6 +462,78 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     });
 
     info.tg.clear_buffer({.buffer = ray_counters_buffer, .name = "rtgi_ray_counters_clear"});
+
+    if (pioneer_guiding_enabled)
+    {
+        info.tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>("RtgiGuidePioneerTrace")
+            .head_views(RtgiTraceDiffuseH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .debug_image = info.debug_image,
+                .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
+                .ray_count_image = ray_count_image,
+                .rtgi_sample_count = half_res_sample_count_history.current(),
+                .ray_counters = ray_counters_buffer,
+                .ray_list = ray_list_buffer,
+                .ray_result = ray_result_buffer,
+                .pixel_ray_alloc = pixel_ray_alloc_image,
+                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
+                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .pioneer_hit_y = pioneer_hit_y_image,
+                .guide_sh_y = guide_sh_y_image,
+                .guide_confidence = guide_confidence_image,
+                .meshlet_instances = info.meshlet_instances,
+                .mesh_instances = info.mesh_instances,
+                .sky = info.sky,
+                .sky_transmittance = info.sky_transmittance,
+                .light_mask_volume = info.light_mask_volume,
+                .pgi_color = info.pgi_color,
+                .pgi_visibility = info.pgi_visibility,
+                .pgi_info = info.pgi_info,
+                .pgi_requests = info.pgi_requests,
+                .tlas = info.tlas,
+                .vsm_globals = info.vsm_globals,
+                .vsm_point_lights = info.vsm_point_lights,
+                .vsm_spot_lights = info.vsm_spot_lights,
+                .vsm_memory_block = info.vsm_memory_block,
+                .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+            })
+            .executes(rtgi_trace_pioneer_callback, &info.render_context));
+
+        info.tg.add_task(daxa::HeadTask<RtgiGuideResampleHorizontalH::Info>()
+            .head_views(RtgiGuideResampleHorizontalH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
+                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .pioneer_hit_y = pioneer_hit_y_image,
+                .h_resample_hit_y = h_resample_hit_y_image,
+                .h_resample_weight = h_resample_weight_image,
+            })
+            .executes(rtgi_guide_resample_horizontal_callback, &info.render_context));
+
+        info.tg.add_task(daxa::HeadTask<RtgiGuideResampleVerticalH::Info>()
+            .head_views(RtgiGuideResampleVerticalH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
+                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .h_resample_hit_y = h_resample_hit_y_image,
+                .h_resample_weight = h_resample_weight_image,
+                .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
+                .pioneer_guide_confidence = pioneer_guide_confidence_image,
+            })
+            .executes(rtgi_guide_resample_vertical_callback, &info.render_context));
+
+        info.tg.add_task(daxa::HeadTask<RtgiGuideResolveH::Info>()
+            .head_views(RtgiGuideResolveH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
+                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
+                .pioneer_guide_confidence = pioneer_guide_confidence_image,
+                .guide_sh_y = guide_sh_y_image,
+                .guide_confidence = guide_confidence_image,
+            })
+            .executes(rtgi_guide_resolve_callback, &info.render_context));
+    }
 
     info.tg.add_task(daxa::HeadTask<RtgiTemporalReprojectH::Info>()
         .head_views(RtgiTemporalReprojectH::Info::Views{
@@ -405,6 +569,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .pixel_ray_alloc = pixel_ray_alloc_image,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                    .pioneer_hit_y = pioneer_hit_y_image,
+                    .guide_sh_y = guide_sh_y_image,
+                    .guide_confidence = guide_confidence_image,
                     .meshlet_instances = info.meshlet_instances,
                     .mesh_instances = info.mesh_instances,
                     .sky = info.sky,
@@ -455,6 +622,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .pixel_ray_alloc = pixel_ray_alloc_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .pioneer_hit_y = pioneer_hit_y_image,
+                .guide_sh_y = guide_sh_y_image,
+                .guide_confidence = guide_confidence_image,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.mesh_instances,
                 .sky = info.sky,

@@ -21,8 +21,19 @@ DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(RtgiRayCounters), ray_counters)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayEntry), ray_list)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RtgiRayResult), ray_result)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, pixel_ray_alloc)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth) 
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_face_normals)
+// Pioneer guide direction, gated by rtgi_settings.pioneer_guiding_enabled. Written by the pioneer
+// raygen dispatch (is_pioneer_pass == true, sparse grid) and rtgi_guide_resample.hlsl (full half-res,
+// spatial RIS over the pioneer grid). See rtgi_guide_resample.inl.
+// .xyz = the pioneer ray's actual hit position (world space), .w = direction-independent brightness Y
+// at that hit (Lambertian exitant radiance is the same in every exit direction, so no direction is
+// baked in here) -- a reconnection payload, not a baked SH-Y lobe. Every stage downstream reuses (X, Y)
+// as-is; only entry_guide_resolve ever turns it into a real direction, computed fresh relative to
+// whichever half-res pixel actually consumes it as a guide. See rtgi_guide_resample.hlsl.
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, pioneer_hit_y)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, guide_sh_y)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, guide_confidence)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, sky)
@@ -45,4 +56,8 @@ struct RtgiTraceDiffusePush
 {
     daxa_BufferPtr(RtgiTraceDiffuseH::AttachmentShaderBlob) attach;
     daxa::b32 debug_primary_trace;
+    // Selects the pioneer raygen body (sparse guide-building pass) instead of the classic/repacked main
+    // trace body. Set by the dedicated pioneer-trace task; false everywhere else. See ray_gen() in
+    // rtgi_trace_diffuse.hlsl.
+    daxa::b32 is_pioneer_pass;
 };

@@ -80,6 +80,25 @@ struct RtgiSettings
     // 1 = draw ray directions from spatiotemporal blue-noise (stbnCosDir) during tracing, 0 = plain
     // per-thread hash cosine sampling. STBN gives lower-variance, better-distributed samples per frame.
     daxa_i32 trace_use_stbn;
+
+    // Pioneer guiding: bends every diffuse ray toward a guide direction built by a same-frame, sparse
+    // pioneer trace + spatial RIS resample (rtgi_guide_resample.hlsl), instead of sampling a plain
+    // cosine hemisphere. See rtgi_sample_guided_diffuse_dir in rtgi_guided_sampling.hlsl. 0 = off
+    // (plain cosine/STBN sampling only), 1 = on.
+    daxa_i32 pioneer_guiding_enabled;
+
+    // How hard every ray bends toward its guide direction, only meaningful while pioneer_guiding_enabled --
+    // NOT derived from how directional any individual pixel's own history reads. [0,1]: 0 = identity
+    // (plain cosine hemisphere), 1 = collapsed onto the guide point. See rtgi_concentration_to_kappa in
+    // rtgi_guided_sampling.hlsl for the exact mapping.
+    daxa_f32 guide_concentration;
+
+    // Max ray length (in meters/world units) for the spatial-pretrace pioneer rays (pioneer_ray_gen). The
+    // pioneer trace only needs to find NEARBY bounce lighting to build a useful direction guide -- unlike
+    // the main trace's effectively-unbounded rays, letting a pioneer ray travel arbitrarily far just
+    // spends its budget on a direction irrelevant to the guided pixel's local neighborhood. A plain value
+    // (not a graph-shape setting), read straight into ray.TMax every frame -- no rebuild trigger needed.
+    daxa_f32 guide_pioneer_trace_max_distance;
 };
 
 struct RtgiRayCounters

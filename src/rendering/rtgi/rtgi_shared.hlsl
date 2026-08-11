@@ -47,6 +47,14 @@ func rtgi_unpack_fast_count(uint packed) -> float
     return float((packed >> 10u) & RTGI_COUNT_FAST_MASK) * 0.25f;
 }
 
+// Converts a stored reproject_corner (see rtgi_temporal.hlsl's rtgi_reproject_corner) into the UV to
+// Gather the reprojected 2x2 history block from. Used by the accumulate pass to read the reprojection
+// metadata written this frame by the reproject pass.
+func rtgi_reproject_gather_uv(uint2 corner_plus_one, float2 inv_half_res_render_target_size) -> float2
+{
+    return float2(corner_plus_one) * inv_half_res_render_target_size; // == (origin + 1) * inv_size
+}
+
 struct PixelData
 {
     float2 uv;

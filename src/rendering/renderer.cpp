@@ -223,6 +223,9 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_upscale_diffuse_compile_info()},
         {rtgi_distribute_rays_compile_info()},
         {rtgi_blend_rays_compile_info()},
+        {rtgi_guide_resample_horizontal_compile_info()},
+        {rtgi_guide_resample_vertical_compile_info()},
+        {rtgi_guide_resolve_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
@@ -1335,7 +1338,8 @@ auto Renderer::prepare_frame(
         render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled ||
         render_context->render_data.rtgi_settings.post_blur_mode != render_context->prev_rtgi_settings.post_blur_mode ||
         render_context->render_data.rtgi_settings.post_blur_atrous_iterations != render_context->prev_rtgi_settings.post_blur_atrous_iterations ||
-        render_context->render_data.rtgi_settings.use_repacked_ray_dispatch != render_context->prev_rtgi_settings.use_repacked_ray_dispatch;
+        render_context->render_data.rtgi_settings.use_repacked_ray_dispatch != render_context->prev_rtgi_settings.use_repacked_ray_dispatch ||
+        render_context->render_data.rtgi_settings.pioneer_guiding_enabled != render_context->prev_rtgi_settings.pioneer_guiding_enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
