@@ -30,9 +30,11 @@ struct PlaceholderSource
 // The fills are neutral so a pending asset reads as plausibly lit rather than announcing itself. Each recipe
 // matches the one the real asset in that slot is cooked with, so a stand-in and the artifact replacing it
 // are the same kind of image.
-auto placeholder_sources() -> std::array<PlaceholderSource, s_cast<usize>(MaterialTextureSlot::COUNT)> const &
+// Only the slots a 2D stand-in makes sense for, so this is a list of the placeholders that exist rather than
+// one entry per slot. A slot with none binds nothing until its own artifact arrives.
+auto placeholder_sources() -> std::span<PlaceholderSource const>
 {
-    static std::array<PlaceholderSource, s_cast<usize>(MaterialTextureSlot::COUNT)> const SOURCES = {
+    static std::array<PlaceholderSource, 4> const SOURCES = {
         // Mid grey once the sRGB target decodes it.
         PlaceholderSource{MaterialTextureSlot::DIFFUSE, "editor/placeholders/placeholder_diffuse.png",
             {.channel_mapping = {0, 1, 2}, .target_format = daxa::Format::BC1_RGB_SRGB_BLOCK}},

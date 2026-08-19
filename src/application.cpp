@@ -52,6 +52,50 @@ static auto cloud_volume_recipes() -> std::vector<SlotRecipe>
     };
 }
 
+// Where the one cloud sits, as the unit cube its transform maps: a slab above the scene, in a Z-up world.
+// Provisional - placement is composition, so it belongs to the project document once that exists.
+static constexpr f32vec3 CLOUD_VOLUME_ORIGIN = {-5120.0f, -5120.0f, 384.0f};
+static constexpr f32vec3 CLOUD_VOLUME_SIZE = {10240.0f, 10240.0f, 1280.0f};
+
+// The composition the importer deliberately does not do: a .vdb parse emits three images and knows nothing
+// about clouds, so what binds them into one material and places it is authored here. Runs once, as soon as
+// the import has published - the entries exist from that point, and residency follows on its own.
+static void compose_cloud_volume(Scene & scene, ManifestRange const & images)
+{
+    DBG_ASSERT_TRUE_M(images.count == 3, "The cloud volume import must produce exactly the three volumes a cloud is made of");
+
+    MaterialWrite const material_write = {
+        .payload = CloudMaterialWrite{.albedo = 1.0f, .density_scale = 0.1f},
+        .name = "default cloud volume",
+    };
+    u32 const material_index = create_materials(scene, std::array{material_write});
+
+    // Slot order follows the recipes the import was made with.
+    set_material_texture(scene, material_index, MaterialTextureSlot::CLOUD_DATA,
+        MaterialManifestEntry::ImageInfo{.image_manifest_index = images.base + 0});
+    set_material_texture(scene, material_index, MaterialTextureSlot::CLOUD_SDF,
+        MaterialManifestEntry::ImageInfo{.image_manifest_index = images.base + 1});
+    set_material_texture(scene, material_index, MaterialTextureSlot::CLOUD_DETAIL_NOISE,
+        MaterialManifestEntry::ImageInfo{.image_manifest_index = images.base + 2});
+
+    EntitySubtreeWrite subtree = {};
+    subtree.entities.push_back(EntitySubtreeWrite::Entity{
+        .transform = glm::mat4x3(
+            glm::vec3(CLOUD_VOLUME_SIZE.x, 0.0f, 0.0f),
+            glm::vec3(0.0f, CLOUD_VOLUME_SIZE.y, 0.0f),
+            glm::vec3(0.0f, 0.0f, CLOUD_VOLUME_SIZE.z),
+            std::bit_cast<glm::vec3>(CLOUD_VOLUME_ORIGIN)),
+        .type = EntityType::CLOUD_VOLUME,
+        .name = "default cloud volume",
+        .material_manifest_index = material_index,
+    });
+    subtree.root_entity_index = 0;
+    create_entity_subtree(scene, std::move(subtree));
+
+    DEBUG_MSG(fmt::format("[Application] composed cloud volume: material {} over images {}..{}",
+        material_index, images.base, images.base + images.count - 1));
+}
+
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(6);
@@ -81,7 +125,7 @@ Application::Application()
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    _importer->request_import(DEFAULT_CLOUD_VOLUME_PATH, cloud_volume_recipes());
+    app_state.cloud_source_index = _importer->request_import(DEFAULT_CLOUD_VOLUME_PATH, cloud_volume_recipes());
 
     struct CompPipelinesTask : Task
     {
@@ -189,6 +233,21 @@ void Application::update()
     }
 
     _importer->tick(_scene_runtime->scene());
+
+    if (app_state.cloud_source_index.has_value())
+    {
+        ImportStage const stage = _importer->import_stage(app_state.cloud_source_index.value());
+        if (stage == ImportStage::PUBLISHED || stage == ImportStage::COOKED)
+        {
+            compose_cloud_volume(_scene_runtime->scene(), _importer->source_images(app_state.cloud_source_index.value()));
+            app_state.cloud_source_index.reset();
+        }
+        else if (stage == ImportStage::PARSE_FAILED)
+        {
+            DEBUG_MSG(fmt::format("[Application] cloud volume import failed to parse - no cloud will be placed"));
+            app_state.cloud_source_index.reset();
+        }
+    }
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 

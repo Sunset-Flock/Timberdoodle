@@ -426,6 +426,10 @@ void SceneParseTask::translate_materials()
                 import_info.channel_mapping = {0, 1};       import_info.target_format = daxa::Format::BC5_UNORM_BLOCK;  break;
             case MaterialTextureSlot::ROUGHNESS_METALNESS:
                 import_info.channel_mapping = {0, 1, 2, 3}; import_info.target_format = daxa::Format::BC7_UNORM_BLOCK;  break;
+            // A glTF has no volumes, so a cloud slot reaching here is a mis-routed import.
+            case MaterialTextureSlot::CLOUD_DATA:
+            case MaterialTextureSlot::CLOUD_SDF:
+            case MaterialTextureSlot::CLOUD_DETAIL_NOISE:
             case MaterialTextureSlot::COUNT:
             default:
                 DBG_ASSERT_TRUE_M(false, "Unhandled texture type in default_image_import_info");
@@ -494,11 +498,13 @@ void SceneParseTask::translate_materials()
         // Texture bindings stay empty here and are filled with their stand-ins at publish; the cooks
         // registered above carry which slots to rebind once the real images exist.
         parsed.materials.push_back(MaterialWrite{
-            .alpha_discard_enabled = alpha_discard_enabled,
-            .double_sided = material.doubleSided,
-            .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
-            .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
-            .emissive_color = f32vec3(material.emissiveFactor[0] * material.emissiveStrength, material.emissiveFactor[1] * material.emissiveStrength, material.emissiveFactor[2] * material.emissiveStrength),
+            .payload = SurfaceMaterialWrite{
+                .alpha_discard_enabled = alpha_discard_enabled,
+                .double_sided = material.doubleSided,
+                .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
+                .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
+                .emissive_color = f32vec3(material.emissiveFactor[0] * material.emissiveStrength, material.emissiveFactor[1] * material.emissiveStrength, material.emissiveFactor[2] * material.emissiveStrength),
+            },
             .name = material.name.c_str(),
         });
     }

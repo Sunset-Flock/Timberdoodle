@@ -255,11 +255,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
         bool const is_entity_dirty = r_ent->dirty;
         r_ent->dirty = false;
 
-        if (r_ent->cloud_volume_index.has_value())
+        
+        if (r_ent->type == EntityType::CLOUD_VOLUME && r_ent->material_manifest_index.has_value())
         {
-            DBG_ASSERT_TRUE_M(r_ent->type == EntityType::CLOUD_VOLUME, "IMPOSSIBLE CASE! Only cloud volume entities can have cloud volume index");
-            auto const & cloud_volume = _cloud_volumes.at(r_ent->cloud_volume_index.value());
-
+            if(_material_manifest.at(r_ent->material_manifest_index.value()).cloud() == nullptr)
+            {
+                DBG_ASSERT_TRUE_M(false, "process_entities: cloud volume entity references a material that is not a cloud material");
+                continue;
+            }
             // ===================================== Calculate instance AABB =======================================
             {
                 const f32vec3 cloud_bottom_left_corner = s_cast<f32vec3>((mat_4x3_to_4x4(r_ent->combined_transform) * f32vec4(0.0f, 0.0f, 0.0f, 1.0f)));
@@ -277,23 +280,9 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
             {
                 CloudVolumeInstance cloud_volume_instance = {};
                 cloud_volume_instance.transform = std::bit_cast<daxa_f32mat4x3>(r_ent->combined_transform);
-                cloud_volume_instance.albedo = 1.0f;
-                cloud_volume_instance.density_scale = 0.1f;
-
-                cloud_volume_instance.cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_image.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.cloud_sdf_texture = _image_manifest.at(cloud_volume.sdf_image_manifest_index).runtime_image.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.detail_noise_texture = _image_manifest.at(cloud_volume.detail_noise_image_manifest_index).runtime_image.value_or(daxa::ImageId{}).default_view();
-
-                cloud_volume_instance.texture_size = {0u, 0u, 0u};
-                if(_image_manifest.at(cloud_volume.data_image_manifest_index).loaded())
-                {
-                    daxa::ImageId cloud_data_texture = _image_manifest.at(cloud_volume.data_image_manifest_index).runtime_image.value();
-                    daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
-                    cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
-                }
+                cloud_volume_instance.material_index = r_ent->material_manifest_index.value();
                 ret.cloud_volume_instances.instances.push_back(cloud_volume_instance);
             }
-
         }
 
         if (r_ent->light_index.has_value())
@@ -355,9 +344,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                     bool is_blend = false;
                     if (mesh_lod_group.material_index.has_value())
                     {
-                        auto const & material = _material_manifest.at(mesh_lod_group.material_index.value());
-                        is_alpha_discard = material.alpha_discard_enabled;
-                        is_blend = material.blend_enabled;
+                        // A mesh only ever carries a surface material; anything else leaves it opaque.
+                        auto const * surface = _material_manifest.at(mesh_lod_group.material_index.value()).surface();
+                        DBG_ASSERT_TRUE_M(surface != nullptr, "Mesh lod group references a material that is not a surface material");
+                        if (surface != nullptr)
+                        {
+                            is_alpha_discard = surface->alpha_discard_enabled;
+                            is_blend = surface->blend_enabled;
+                        }
                     }
 
                     // Put this mesh into appropriate drawlist for prepass
@@ -571,7 +565,6 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool)
         _mesh_group_manifest.clear();
         _point_lights.clear();
         _spot_lights.clear();
-        _cloud_volumes.clear();
 
         // Discard any pending dirty indices; the manifests they referred to are gone.
         _dirty_material_indices.clear();

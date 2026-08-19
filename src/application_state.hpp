@@ -28,5 +28,7 @@ struct ApplicationState
     std::chrono::time_point<std::chrono::steady_clock> last_time_point = {};
 
     std::string desired_scene_path = {};
+    // TODO(msaky): Hack, remove once we have a proper way of loading cloud materials from sources.
+    std::optional<u32> cloud_source_index = {};
 
 };

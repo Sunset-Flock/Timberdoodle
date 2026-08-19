@@ -76,6 +76,8 @@ struct MeshLodGroupManifestEntry
     auto loaded() const -> bool{ return runtime_data.has_value(); }
 };
 
+// One entry per material whatever its type; the alternative it holds is what decides which GPU material type
+// it is packed into and which texture slots may be bound on it.
 struct MaterialManifestEntry
 {
     struct ImageInfo
@@ -83,17 +85,35 @@ struct MaterialManifestEntry
         u32 image_manifest_index = {};
         u32 sampler_index = {};
     };
-    std::optional<ImageInfo> diffuse_info = {};
-    std::optional<ImageInfo> opacity_mask_info = {};
-    std::optional<ImageInfo> normal_info = {};
-    std::optional<ImageInfo> roughness_metalness_info = {};
-    bool alpha_discard_enabled = {};
-    bool double_sided = {};
-    bool blend_enabled = {};
-    bool is_metal = {};
-    f32vec3 base_color = {};
-    f32vec3 emissive_color = {};
+
+    struct Surface
+    {
+        std::optional<ImageInfo> diffuse_info = {};
+        std::optional<ImageInfo> opacity_mask_info = {};
+        std::optional<ImageInfo> normal_info = {};
+        std::optional<ImageInfo> roughness_metalness_info = {};
+        bool alpha_discard_enabled = {};
+        bool double_sided = {};
+        bool blend_enabled = {};
+        bool is_metal = {};
+        f32vec3 base_color = {};
+        f32vec3 emissive_color = {};
+    };
+
+    struct Cloud
+    {
+        std::optional<ImageInfo> data_info = {};
+        std::optional<ImageInfo> sdf_info = {};
+        std::optional<ImageInfo> detail_noise_info = {};
+        f32 albedo = {};
+        f32 density_scale = {};
+    };
+
+    std::variant<Surface, Cloud> payload = Surface{};
     std::string name = {};
+
+    auto surface() const -> Surface const * { return std::get_if<Surface>(&payload); }
+    auto cloud() const -> Cloud const * { return std::get_if<Cloud>(&payload); }
 };
 
 struct MeshGroupManifestEntry
@@ -126,14 +146,6 @@ struct SpotLight
     daxa_BufferPtr(GPUSpotLight) spot_light_ptr;
 };
 
-struct CloudVolume
-{
-    u32 data_image_manifest_index = {};
-    u32 sdf_image_manifest_index = {};
-    u32 detail_noise_image_manifest_index = {};
-};
-
-
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
@@ -160,7 +172,9 @@ struct RenderEntity
     std::optional<RenderEntityId> next_sibling = {};
     std::optional<RenderEntityId> parent = {};
     std::optional<u32> mesh_group_manifest_index = {};
-    std::optional<u32> cloud_volume_index = {};
+    // A material the entity itself carries, rather than one reached through its meshes. What the material's
+    // type is decides what the entity renders as - a cloud material makes it a volume.
+    std::optional<u32> material_manifest_index = {};
     EntityType type = EntityType::UNKNOWN;
     std::string name = {};
     std::optional<u32> light_index = {};
@@ -298,7 +312,6 @@ struct Scene
 
     std::vector<PointLight> _point_lights = {};
     std::vector<SpotLight> _spot_lights = {};
-    std::vector<CloudVolume> _cloud_volumes = {};
 
     // Manifest indices that changed (were added, or had their runtime data updated) since the last GPU
     // manifest sync. Every manifest that is mirrored on the GPU owns one; SceneRuntime is the only thing

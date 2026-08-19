@@ -3,6 +3,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "../timberdoodle.hpp"
@@ -31,14 +32,25 @@ void write_image_name(Scene & scene, u32 image_manifest_index, std::string name)
 void set_image_artifact(Scene & scene, u32 image_manifest_index, ImageStreamerData streamer_data);
 
 // Everything about a material except its textures, which are set one slot at a time - a rebind changes one
-// binding and must not have to restate the other three.
-struct MaterialWrite
+// binding and must not have to restate the others.
+struct SurfaceMaterialWrite
 {
     bool alpha_discard_enabled = {};
     bool double_sided = {};
     bool blend_enabled = {};
     f32vec3 base_color = {};
     f32vec3 emissive_color = {};
+};
+
+struct CloudMaterialWrite
+{
+    f32 albedo = {};
+    f32 density_scale = {};
+};
+
+struct MaterialWrite
+{
+    std::variant<SurfaceMaterialWrite, CloudMaterialWrite> payload = SurfaceMaterialWrite{};
     std::string name = {};
 };
 auto create_materials(Scene & scene, std::span<MaterialWrite const> materials) -> u32;
@@ -81,15 +93,6 @@ struct SpotLightWrite
 };
 auto create_spot_lights(Scene & scene, std::span<SpotLightWrite const> lights) -> u32;
 
-// The three volumes a cloud entity samples.
-struct CloudVolumeWrite
-{
-    u32 data_image = {};
-    u32 sdf_image = {};
-    u32 detail_noise_image = {};
-};
-auto create_cloud_volumes(Scene & scene, std::span<CloudVolumeWrite const> cloud_volumes) -> u32;
-
 /// One import's entity hierarchy, created as a unit. Entities are identified by a slotmap id rather than a
 /// manifest index, so every id has to exist before the parent/child/sibling links can reference them - which
 /// is why this is the one write that takes a whole subtree rather than a single element. Its links stay
@@ -102,7 +105,7 @@ struct EntitySubtreeWrite
         EntityType type = EntityType::UNKNOWN;
         std::string name = {};
         std::optional<u32> mesh_group_manifest_index = {};
-        std::optional<u32> cloud_volume_index = {};
+        std::optional<u32> material_manifest_index = {};
         std::optional<u32> light_index = {};
         std::optional<u32> parent_index = {};
         std::optional<u32> first_child_index = {};

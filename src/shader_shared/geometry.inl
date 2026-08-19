@@ -96,6 +96,7 @@ struct GPUMeshLodGroup
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshLodGroup, 4)
 
 #define MATERIAL_TYPE_SURFACE 0
+#define MATERIAL_TYPE_CLOUD 1
 
 // GLSL shares this struct and has no sizeof, so the payload cannot be a computed array bound. The assert
 // below pins this to the largest material type, so it fails the build rather than silently drifting.
@@ -113,6 +114,15 @@ struct SurfaceMaterial
     daxa_b32 normal_compressed_bc5_rg;
     daxa_f32vec3 base_color;
     daxa_f32vec3 emissive_color;
+};
+
+struct CloudMaterial
+{
+    daxa_ImageViewId cloud_data_texture;
+    daxa_ImageViewId cloud_sdf_texture;
+    daxa_ImageViewId detail_noise_texture;
+    daxa_f32 albedo;
+    daxa_f32 density_scale;
 };
 
 // One entry per material of any type: a tag naming the type, and a payload holding exactly that type.
@@ -146,11 +156,16 @@ SurfaceMaterial * as_surface_material(GPUMaterial * material)
 {
     return (SurfaceMaterial *)(&material.payload);
 }
+
+CloudMaterial * as_cloud_material(GPUMaterial * material)
+{
+    return (CloudMaterial *)(&material.payload);
+}
 #endif
 
 #if defined(__cplusplus)
 // Every material type belongs in this list.
-inline constexpr daxa_u32 GPU_MATERIAL_PAYLOAD_REQUIRED_U64S = (std::max({sizeof(SurfaceMaterial)}) + 7u) / 8u;
+inline constexpr daxa_u32 GPU_MATERIAL_PAYLOAD_REQUIRED_U64S = static_cast<daxa_u32>((std::max({sizeof(SurfaceMaterial), sizeof(CloudMaterial)}) + 7u) / 8u);
 static_assert(GPU_MATERIAL_PAYLOAD_U64S == GPU_MATERIAL_PAYLOAD_REQUIRED_U64S,
     "set GPU_MATERIAL_PAYLOAD_U64S to GPU_MATERIAL_PAYLOAD_REQUIRED_U64S - the largest material type in whole u64s");
 

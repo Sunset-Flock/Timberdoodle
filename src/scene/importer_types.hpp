@@ -11,8 +11,6 @@
 using namespace tido::types;
 
 /// --- Importer types ---
-/// What a backend resolves a slot down to: where its bytes are and how to cook them. Editor-side only - a
-/// manifest entry holds none of this, and the engine never sees it.
 
 enum struct ComponentType
 {
@@ -21,14 +19,15 @@ enum struct ComponentType
     U32,
 };
 
-// Which of a material's four texture bindings is meant - the role a cook recipe is picked for, and what
-// decides which stand-in a slot is bound to until its own image is cooked.
 enum struct MaterialTextureSlot
 {
     DIFFUSE,
     OPACITY,
     NORMAL,
     ROUGHNESS_METALNESS,
+    CLOUD_DATA,
+    CLOUD_SDF,
+    CLOUD_DETAIL_NOISE,
     COUNT,
 };
 

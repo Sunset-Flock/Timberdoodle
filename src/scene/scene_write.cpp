@@ -19,11 +19,31 @@ auto create_materials(Scene & scene, std::span<MaterialWrite const> materials) -
         MaterialWrite const & material = materials[local_index];
         // Texture bindings are left alone: they are set one slot at a time, and `is_metal` is the engine's.
         MaterialManifestEntry & entry = scene._material_manifest.emplace_back();
-        entry.alpha_discard_enabled = material.alpha_discard_enabled;
-        entry.double_sided = material.double_sided;
-        entry.blend_enabled = material.blend_enabled;
-        entry.base_color = material.base_color;
-        entry.emissive_color = material.emissive_color;
+        std::visit([&](auto const & write)
+        {
+            using T = std::decay_t<decltype(write)>;
+            if constexpr (std::is_same_v<T, SurfaceMaterialWrite>)
+            {
+                entry.payload = MaterialManifestEntry::Surface{
+                    .alpha_discard_enabled = write.alpha_discard_enabled,
+                    .double_sided = write.double_sided,
+                    .blend_enabled = write.blend_enabled,
+                    .base_color = write.base_color,
+                    .emissive_color = write.emissive_color,
+                };
+            }
+            else if constexpr (std::is_same_v<T, CloudMaterialWrite>)
+            {
+                entry.payload = MaterialManifestEntry::Cloud{
+                    .albedo = write.albedo,
+                    .density_scale = write.density_scale,
+                };
+            }
+            else
+            {
+                DBG_ASSERT_TRUE_M(false, "create_materials: material write has no manifest payload");
+            }
+        }, material.payload);
         entry.name = material.name;
         scene._dirty_material_indices.push_back(base + local_index);
     }
@@ -56,23 +76,60 @@ void set_material_texture(Scene & scene, u32 material_manifest_index, MaterialTe
     {
         DBG_ASSERT_TRUE_M(binding->image_manifest_index < scene._image_manifest.size(),
             "Texture binding references an invalid manifest index");
-        // The entry now knows a material samples it, so it can re-sync that material on becoming resident. A
-        // binding this replaces leaves its old entry a stale back-reference, which only costs a redundant
-        // dirty on an entry nothing is sampling through any more.
-        scene._image_manifest.at(binding->image_manifest_index).material_manifest_indices.push_back(material_manifest_index);
     }
 
     MaterialManifestEntry & entry = scene._material_manifest.at(material_manifest_index);
+    // A slot belongs to exactly one material type, so binding one on a material of another type is a producer
+    // bug. Nothing is written in that case, which keeps a rejected bind from leaving a back-reference behind.
+    auto expect_surface = [&]() -> MaterialManifestEntry::Surface *
+    {
+        auto * const surface = std::get_if<MaterialManifestEntry::Surface>(&entry.payload);
+        DBG_ASSERT_TRUE_M(surface != nullptr, "set_material_texture: surface slot bound on a material that is not a surface");
+        return surface;
+    };
+    auto expect_cloud = [&]() -> MaterialManifestEntry::Cloud *
+    {
+        auto * const cloud = std::get_if<MaterialManifestEntry::Cloud>(&entry.payload);
+        DBG_ASSERT_TRUE_M(cloud != nullptr, "set_material_texture: cloud slot bound on a material that is not a cloud");
+        return cloud;
+    };
+
+    bool bound = false;
+    // The slot's binding as it was before this call, taken by value: the pointer form would be read after the
+    // field it points at has already been overwritten below.
+    std::optional<MaterialManifestEntry::ImageInfo> previous_binding = {};
     switch (slot)
     {
-        case MaterialTextureSlot::DIFFUSE:             entry.diffuse_info = binding; break;
-        case MaterialTextureSlot::OPACITY:             entry.opacity_mask_info = binding; break;
-        case MaterialTextureSlot::NORMAL:              entry.normal_info = binding; break;
-        case MaterialTextureSlot::ROUGHNESS_METALNESS: entry.roughness_metalness_info = binding; break;
+        case MaterialTextureSlot::DIFFUSE:             if (auto * m = expect_surface()) { previous_binding = m->diffuse_info; m->diffuse_info = binding;                           bound = true; } break;
+        case MaterialTextureSlot::OPACITY:             if (auto * m = expect_surface()) { previous_binding = m->opacity_mask_info; m->opacity_mask_info = binding;                 bound = true; } break;
+        case MaterialTextureSlot::NORMAL:              if (auto * m = expect_surface()) { previous_binding = m->normal_info; m->normal_info = binding;                             bound = true; } break;
+        case MaterialTextureSlot::ROUGHNESS_METALNESS: if (auto * m = expect_surface()) { previous_binding = m->roughness_metalness_info; m->roughness_metalness_info = binding;   bound = true; } break;
+        case MaterialTextureSlot::CLOUD_DATA:          if (auto * m = expect_cloud())   { previous_binding = m->data_info; m->data_info = binding;                                 bound = true; } break;
+        case MaterialTextureSlot::CLOUD_SDF:           if (auto * m = expect_cloud())   { previous_binding = m->sdf_info; m->sdf_info = binding;                                   bound = true; } break;
+        case MaterialTextureSlot::CLOUD_DETAIL_NOISE:  if (auto * m = expect_cloud())   { previous_binding = m->detail_noise_info; m->detail_noise_info = binding;                 bound = true; } break;
         case MaterialTextureSlot::COUNT:
         default:
             DBG_ASSERT_TRUE_M(false, "set_material_texture: unhandled material texture slot");
             return;
+    }
+    if (!bound) { return; }
+
+    // Remove the previous binding if there was one.
+    if (previous_binding.has_value())
+    {
+        auto & prev_image_material_bindings = scene._image_manifest.at(previous_binding.value().image_manifest_index).material_manifest_indices;
+        auto const found_it = std::find(prev_image_material_bindings.begin(), prev_image_material_bindings.end(), material_manifest_index);
+        DBG_ASSERT_TRUE_M(found_it != prev_image_material_bindings.end(), "set_material_texture: previous binding not found in image manifest");
+        if(found_it != prev_image_material_bindings.end())
+        {
+            prev_image_material_bindings.erase(found_it);
+        }
+    }
+
+    // Let the new image know it is now bound to this material.
+    if (binding.has_value())
+    {
+        scene._image_manifest.at(binding->image_manifest_index).material_manifest_indices.push_back(material_manifest_index);
     }
     scene._dirty_material_indices.push_back(material_manifest_index);
 }
@@ -173,20 +230,6 @@ auto create_spot_lights(Scene & scene, std::span<SpotLightWrite const> lights) -
     return base;
 }
 
-auto create_cloud_volumes(Scene & scene, std::span<CloudVolumeWrite const> cloud_volumes) -> u32
-{
-    u32 const base = s_cast<u32>(scene._cloud_volumes.size());
-    for (CloudVolumeWrite const & cloud_volume : cloud_volumes)
-    {
-        scene._cloud_volumes.push_back(CloudVolume{
-            .data_image_manifest_index = cloud_volume.data_image,
-            .sdf_image_manifest_index = cloud_volume.sdf_image,
-            .detail_noise_image_manifest_index = cloud_volume.detail_noise_image,
-        });
-    }
-    return base;
-}
-
 auto create_entity_subtree(Scene & scene, EntitySubtreeWrite subtree) -> std::vector<RenderEntityId>
 {
     // The synthetic subtree root is named after the source file by the parse; append the running import count
@@ -221,7 +264,7 @@ auto create_entity_subtree(Scene & scene, EntitySubtreeWrite subtree) -> std::ve
             ? std::optional{entity_local_to_global.at(local_entity.next_sibling_index.value())} : std::nullopt;
 
         entity.mesh_group_manifest_index = local_entity.mesh_group_manifest_index;
-        entity.cloud_volume_index = local_entity.cloud_volume_index;
+        entity.material_manifest_index = local_entity.material_manifest_index;
         entity.light_index = local_entity.light_index;
 
         RenderEntityId const entity_id = entity_local_to_global.at(local_index);

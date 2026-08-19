@@ -28,17 +28,11 @@ struct VolumetricSettings
     daxa_i32 octaves                    TIDO_DEFAULT_VALUE(2);
 };
 
+// Everything a cloud is made of lives on its material; the instance is one placement of it.
 struct CloudVolumeInstance
 {
-    daxa_ImageViewId cloud_data_texture;
-    daxa_ImageViewId cloud_sdf_texture;
-    daxa_ImageViewId detail_noise_texture;
-
-    daxa_u32vec3 texture_size;
-
     daxa_f32mat4x3 transform;
-    daxa_f32 albedo;
-    daxa_f32 density_scale;
+    daxa_u32 material_index;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(CloudVolumeInstance, 8)
 

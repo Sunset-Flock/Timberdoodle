@@ -76,7 +76,7 @@ float erode_base_density(float in_value, float in_old_min)
 struct GetCloudDataInfo
 {
     float3 cloud_aabb_relative_position;
-    CloudVolumeInstance * cloud_volume;
+    CloudMaterial * material;
     float to_camera_distance;
 };
 
@@ -104,7 +104,7 @@ CloudData get_cloud_data(const GetCloudDataInfo info)
     CloudModelingData modeling_data;
 #if USE_COMPRESSED_FIELDS
 
-    float3 compressed_sdf = Texture3D<float3>::get(info.cloud_volume->cloud_sdf_texture).SampleLevel(
+    float3 compressed_sdf = Texture3D<float3>::get(info.material->cloud_sdf_texture).SampleLevel(
         push.attach.globals.samplers.linear_clamp.get(), info.cloud_aabb_relative_position, 0
     );
 
@@ -116,17 +116,17 @@ CloudData get_cloud_data(const GetCloudDataInfo info)
     }
     else
     {
-        float3 field_data = Texture3D<float3>::get(info.cloud_volume->cloud_data_texture).SampleLevel(
+        float3 field_data = Texture3D<float3>::get(info.material->cloud_data_texture).SampleLevel(
             push.attach.globals.samplers.linear_clamp.get(),
             float3(info.cloud_aabb_relative_position.xyz), 0,
         ).rgb;
 
-        // float3 field_data_0 = Texture3D<float3>::get(info.cloud_volume->compressed_field_data).SampleLevel(
+        // float3 field_data_0 = Texture3D<float3>::get(info.material->compressed_field_data).SampleLevel(
         //     push.attach.globals.samplers.linear_clamp.get(),
         //     float3(info.cloud_aabb_relative_position.xy, floor(info.cloud_aabb_relative_position.z * 64)), 0,
         // ).rgb;
 
-        // float3 field_data_1 = Texture3D<float3>::get(info.cloud_volume->compressed_field_data).SampleLevel(
+        // float3 field_data_1 = Texture3D<float3>::get(info.material->compressed_field_data).SampleLevel(
         //     push.attach.globals.samplers.linear_clamp.get(),
         //     float3(info.cloud_aabb_relative_position.xy, ceil(info.cloud_aabb_relative_position.z * 64)), 0,
         // ).rgb;
@@ -139,7 +139,7 @@ CloudData get_cloud_data(const GetCloudDataInfo info)
     }
 
 #else
-    modeling_data = reinterpret<CloudModelingData, float4>(Texture3D<float4>::get(info.cloud_volume->cloud_data_texture).SampleLevel(
+    modeling_data = reinterpret<CloudModelingData, float4>(Texture3D<float4>::get(info.material->cloud_data_texture).SampleLevel(
         push.attach.globals.samplers.linear_clamp.get(),
         info.cloud_aabb_relative_position,
         0
@@ -164,7 +164,7 @@ CloudData get_cloud_data(const GetCloudDataInfo info)
     };
     const float3 noise_offset = float3(1.0f, 1.0f, 0.0f) * push.attach.globals.total_elapsed_us * 0.00000002;
     const NoiseData noise = reinterpret<NoiseData>(//float4(0.0f));
-        (Texture3D<float4>::get(info.cloud_volume->detail_noise_texture).SampleLevel(push.attach.globals.samplers.linear_repeat.get(), info.cloud_aabb_relative_position * float3(512, 512, 64) * 0.08 + noise_offset, 0, int3(0))));
+        (Texture3D<float4>::get(info.material->detail_noise_texture).SampleLevel(push.attach.globals.samplers.linear_repeat.get(), info.cloud_aabb_relative_position * float3(512, 512, 64) * 0.08 + noise_offset, 0, int3(0))));
 
     if(density > 0.0f)
     {
@@ -195,7 +195,7 @@ struct SecondaryTransmittance
     float density;
 };
 
-SecondaryTransmittance integrate_secondary_transmittance(float3 position, float max_distance, float3 cloud_aabb_min, float3 cloud_aabb_scaled_size, float density_scale, CloudVolumeInstance * cloud_volume)
+SecondaryTransmittance integrate_secondary_transmittance(float3 position, float max_distance, float3 cloud_aabb_min, float3 cloud_aabb_scaled_size, float density_scale, CloudMaterial * material)
 {
     let push = raymarch_clouds_push;
     const float3 sun_direction = push.attach.globals.sky_settings.sun_direction;
@@ -382,7 +382,7 @@ struct MarchCloudHitInfo
     float cloud_aabb_max_distance;
     uint max_steps;
 
-    CloudVolumeInstance * instance;
+    CloudMaterial * material;
 #if defined(DEBUG_RAYMARCH)
     AABB * cloud_instance_aabb;
 #endif
@@ -400,13 +400,13 @@ float march_until_cloud_hit(const MarchCloudHitInfo trace_info)
         const float3 current_ray_relative_pos = trace_info.ray.origin + cloud_aabb_relative_distance * trace_info.ray.direction;
 
 #if USE_COMPRESSED_FIELDS
-        const float3 compressed_sdf = Texture3D<float3>::get(trace_info.instance->cloud_sdf_texture)
+        const float3 compressed_sdf = Texture3D<float3>::get(trace_info.material->cloud_sdf_texture)
             .SampleLevel(raymarch_clouds_push.attach.globals.samplers.linear_clamp.get(), current_ray_relative_pos, 0);
 
         const float sdf = dot(compressed_sdf, float3(0.96414679f, 0.03518212f, 0.00067109f));
         const float renormalized_sdf = (sdf * (512.0f + 32.0f) - 32.0f) / 512.0f;
 #else // USE_COMPRESSED_FIELDS
-        const float sdf = Texture3D<float4>::get(trace_info.instance->cloud_data_texture)
+        const float sdf = Texture3D<float4>::get(trace_info.material->cloud_data_texture)
             .SampleLevel(raymarch_clouds_push.attach.globals.samplers.linear_clamp.get(), current_ray_relative_pos, 0).a;
 #endif
         // The SDF is rescaled and stored to be between [0, 1] but the values going in are [512, -32].
@@ -433,7 +433,7 @@ struct SecondaryMarchThroughCloudInfo
     CloudAABBRelativeRay ray;
     uint steps;
 
-    CloudVolumeInstance * instance;
+    CloudMaterial * material;
 
     float cloud_aabb_step_size;
     float world_step_size;
@@ -452,7 +452,7 @@ SecondaryMarchThroughCloudResult secondary_march_through_cloud(const SecondaryMa
     result.density = 0.0f;
 
     GetCloudDataInfo info;
-    info.cloud_volume = march_cloud_info.instance;
+    info.material = march_cloud_info.material;
     info.to_camera_distance = 0.0f;
 
     float cloud_aabb_relative_distance_marched = 0.0f;
@@ -466,7 +466,7 @@ SecondaryMarchThroughCloudResult secondary_march_through_cloud(const SecondaryMa
 
         if(cloud_data.density == 0.0f) { break; }
 
-        const float extinction = cloud_data.density * march_cloud_info.instance->density_scale;
+        const float extinction = cloud_data.density * march_cloud_info.material->density_scale;
         const float per_step_transmittance = exp(-extinction * march_cloud_info.world_step_size);
         result.transmittance *= per_step_transmittance;
         result.density += cloud_data.density;
@@ -489,7 +489,7 @@ struct PrimaryMarchThroughCloudInfo
 
     SecondaryMarchThroughCloudInfo secondary_march_info;
 
-    CloudVolumeInstance * instance;
+    CloudMaterial * material;
     AABB * cloud_aabb;
 };
 
@@ -503,7 +503,7 @@ struct PrimaryMarchThroughCloudResult
 PrimaryMarchThroughCloudResult primary_march_through_cloud(const PrimaryMarchThroughCloudInfo march_cloud_info)
 {
     GetCloudDataInfo info;
-    info.cloud_volume = march_cloud_info.instance;
+    info.material = march_cloud_info.material;
     info.to_camera_distance = 0.0f;
 
     PrimaryMarchThroughCloudResult result;
@@ -531,8 +531,8 @@ PrimaryMarchThroughCloudResult primary_march_through_cloud(const PrimaryMarchThr
         }
         hit_cloud = true;
 
-        const float extinction = cloud_data.eroded_density * march_cloud_info.instance->density_scale;
-        const float scattering = extinction * march_cloud_info.instance->albedo;
+        const float extinction = cloud_data.eroded_density * march_cloud_info.material->density_scale;
+        const float scattering = extinction * march_cloud_info.material->albedo;
         const float per_step_transmittance = exp(-extinction * march_cloud_info.world_step_size);
 
         SecondaryMarchThroughCloudInfo secondary_march_info = march_cloud_info.secondary_march_info;
@@ -577,13 +577,13 @@ PrimaryMarchThroughCloudResult primary_march_through_cloud(const PrimaryMarchThr
     return result;
 }
 
-bool cloud_volume_instance_complete(CloudVolumeInstance * instance)
+bool cloud_material_complete(CloudMaterial * material)
 {
     if (
-        instance->cloud_data_texture.is_empty() ||
-        instance->detail_noise_texture.is_empty()
+        material->cloud_data_texture.is_empty() ||
+        material->detail_noise_texture.is_empty()
 #if USE_COMPRESSED_FIELDS
-        || instance->cloud_sdf_texture.is_empty()
+        || material->cloud_sdf_texture.is_empty()
 #endif // USE_COMPRESSED_FIELDS
     ) {
         return false;
@@ -657,10 +657,19 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
         float accumulated_transmittance = float(1.0f);
         float3 accumulated_scattered_light = float3(0.0f, 0.0f, 0.0f);
 
-        if (intersection.cloud_instance_index != uint::maxValue) 
+        bool cloud_hit = false;
+        if (intersection.cloud_instance_index != uint::maxValue)
+        {
+            // Wait for the cloud material textures to stream in before we start raymarching the cloud volume.
+            cloud_hit = cloud_material_complete(as_cloud_material(
+                push.attach.globals.scene.materials + cloud_volumes_head->instances[intersection.cloud_instance_index].material_index));
+        }
+
+        if (cloud_hit)
         {
             let cloud_instance_aabb = cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index];
             let cloud_instance = &cloud_volumes_head->instances[intersection.cloud_instance_index];
+            CloudMaterial * cloud_material = as_cloud_material(push.attach.globals.scene.materials + cloud_instance->material_index);
             const CloudAABBRelativeRay cloud_relative_start_ray = world_ray_to_cloud_aabb_relative_ray(WorldRay(ray_origin + intersection.near_distance * ray_direction, ray_direction), cloud_instance_aabb);
 
             const float3 sun_direction = push.attach.globals.sky_settings.sun_direction;
@@ -681,7 +690,7 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
             march_cloud_hit_info.ray = cloud_relative_start_ray;
             march_cloud_hit_info.cloud_aabb_max_distance = cloud_aabb_relative_end_distance;
             march_cloud_hit_info.max_steps = 512;
-            march_cloud_hit_info.instance = cloud_instance;
+            march_cloud_hit_info.material = cloud_material;
 #if defined(DEBUG_RAYMARCH)
             march_cloud_hit_info.cloud_instance_aabb = &cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index];
 #endif
@@ -705,7 +714,7 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
                 march_through_cloud_info.ray.origin = cloud_relative_start_ray.origin + cloud_relative_start_ray.direction * cloud_aabb_relative_distance_along_ray;
                 march_through_cloud_info.cloud_aabb_step_size = 0.0035f;
                 march_through_cloud_info.world_step_size = march_through_cloud_info.cloud_aabb_step_size * rcp(primary_ray_world_to_aabb_distance_scaling_factor);
-                march_through_cloud_info.instance = cloud_instance;
+                march_through_cloud_info.material = cloud_material;
                 march_through_cloud_info.phase_value = get_phase_value(dot(sun_direction, ray_direction), 1.0f, 1.0f);
                 march_through_cloud_info.sun_dot = dot(sun_direction, ray_direction);
                 march_through_cloud_info.sun_light = sun_light;
@@ -714,7 +723,7 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
 
                 march_through_cloud_info.secondary_march_info.ray.direction = cloud_aabb_relative_sun_direction;
                 march_through_cloud_info.secondary_march_info.steps = push.attach.globals.volumetric_settings.secondary_steps;
-                march_through_cloud_info.secondary_march_info.instance = cloud_instance;
+                march_through_cloud_info.secondary_march_info.material = cloud_material;
                 march_through_cloud_info.secondary_march_info.cloud_aabb_step_size = 0.004f;
                 march_through_cloud_info.secondary_march_info.world_step_size = march_through_cloud_info.secondary_march_info.cloud_aabb_step_size * rcp(secondary_ray_world_to_aabb_distance_scaling_factor);
 

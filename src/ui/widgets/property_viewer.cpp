@@ -179,10 +179,18 @@ namespace tido
                                 ImGui::Text(fmt::format("Triangle: idx:         {}", scene_interface.picked_triangle_in_meshlet).c_str());
                                 ImGui::Text(fmt::format("Material:              {}", material_manifest.name).c_str());
                                 ImGui::Text(fmt::format("Material idx:          {}", material_idx).c_str());
-                                ImGui::Text(fmt::format("  * alpha_discard_enabled    {}", material_manifest.alpha_discard_enabled).c_str());                    
-                                ImGui::Text(fmt::format("  * double_sided             {}", material_manifest.double_sided).c_str());              
-                                ImGui::Text(fmt::format("  * blend_enabled            {}", material_manifest.blend_enabled).c_str());              
-                                ImGui::Text(fmt::format("  * is_metal                 {}", material_manifest.is_metal).c_str());          
+                                if (auto const * surface = material_manifest.surface())
+                                {
+                                    ImGui::Text(fmt::format("  * alpha_discard_enabled    {}", surface->alpha_discard_enabled).c_str());
+                                    ImGui::Text(fmt::format("  * double_sided             {}", surface->double_sided).c_str());
+                                    ImGui::Text(fmt::format("  * blend_enabled            {}", surface->blend_enabled).c_str());
+                                    ImGui::Text(fmt::format("  * is_metal                 {}", surface->is_metal).c_str());
+                                }
+                                else if (auto const * cloud = material_manifest.cloud())
+                                {
+                                    ImGui::Text(fmt::format("  * albedo                   {}", cloud->albedo).c_str());
+                                    ImGui::Text(fmt::format("  * density_scale            {}", cloud->density_scale).c_str());
+                                }
                             }
                             
                             ImGui::PopStyleColor();

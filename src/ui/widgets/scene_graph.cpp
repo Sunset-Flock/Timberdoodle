@@ -269,6 +269,9 @@ namespace tido
                 case EntityType::POINT_LIGHT: [[fallthrough]];
                 case EntityType::SPOT_LIGHT:
                     return add_leaf_node(entity.name, ICONS::LIGHT, no_draw);
+                case EntityType::CLOUD_VOLUME:
+                    return add_leaf_node(entity.name, ICONS::MATERIAL, no_draw);
+                case EntityType::UNKNOWN: [[fallthrough]];
                 default:
                     return RetNodeState::ERROR;
             }
