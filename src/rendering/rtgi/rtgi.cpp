@@ -54,6 +54,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .trace_use_stbn                       = 0,
         .pioneer_guiding_enabled               = 1,
         .guide_concentration                   = 0.92f,
+        .guide_floor_pull_enabled              = 0,
         .guide_pioneer_trace_max_distance      = 256.0f,
     };
 }

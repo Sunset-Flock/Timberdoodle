@@ -93,6 +93,14 @@ struct RtgiSettings
     // rtgi_guided_sampling.hlsl for the exact mapping.
     daxa_f32 guide_concentration;
 
+    // 0 = plain Schlick pull (rtgi_schlick_pull) -- its own density at the far side of the disc (away
+    // from the guide) still fades toward 0 as concentration climbs, so at high concentration almost all
+    // rays land in a narrow cone around the guide. 1 = the same Schlick density with a fixed floor mixed
+    // in (rtgi_floor_pull) -- verified to converge its far-side density DOWN TO that floor and never
+    // below it, so some rays keep landing across the whole disc no matter how high concentration goes.
+    // See rtgi_guided_sampling.hlsl.
+    daxa_i32 guide_floor_pull_enabled;
+
     // Max ray length (in meters/world units) for the spatial-pretrace pioneer rays (pioneer_ray_gen). The
     // pioneer trace only needs to find NEARBY bounce lighting to build a useful direction guide -- unlike
     // the main trace's effectively-unbounded rays, letting a pioneer ray travel arbitrarily far just

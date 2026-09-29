@@ -29,7 +29,7 @@
 // WINDOW*STRIDE pioneer cells instead of just WINDOW, so the resample reaches much further per axis
 // without paying for more taps. Applies to both passes identically (see the `base_x`/`base_y` + `i *
 // RTGI_GUIDE_RESAMPLE_STRIDE` indexing in rtgi_guide_resample.hlsl).
-#define RTGI_GUIDE_RESAMPLE_STRIDE 4
+#define RTGI_GUIDE_RESAMPLE_STRIDE 2
 
 // 1 = candidate acceptance in all three passes (H, V, resolve) is a hard world-space DISTANCE cutoff
 // only (RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD pixel widths, using whichever of the two points is closer
@@ -40,8 +40,8 @@
 // calc_similar_normal_weight (soft-but-still-a-hard->0-cutoff normal reject) gate. Normals are not used
 // to weight the RIS pick either way in mode 1 -- stochastic normal weighting was the original ask but
 // isn't wired up yet, so mode 1 just drops normals entirely for now.
-#define RTGI_GUIDE_RESAMPLE_DISTANCE_ONLY 0
-#define RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD 8.0f
+#define RTGI_GUIDE_RESAMPLE_DISTANCE_ONLY 1
+#define RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD 32.0f
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiGuideResampleHorizontalH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)

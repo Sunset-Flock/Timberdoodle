@@ -21,8 +21,11 @@
 // CONCENTRATION
 // rtgi_settings.guide_concentration ([0,1]) is the one knob for how hard the bend is, same value for
 // every pixel and every guiding mode. 0 = no bend, i.e. exactly plain cosine sampling. 1 = every
-// sample collapses onto `pd`. The pull itself is a Schlick-style rational falloff
-// (rtgi_schlick_pull) on the normalized distance from `pd`.
+// sample collapses onto `pd`. The pull itself is a Schlick-style rational falloff (rtgi_schlick_pull)
+// on the normalized distance from `pd` -- or, when rtgi_settings.guide_floor_pull_enabled is set, the
+// same Schlick density with a fixed floor mixed in (rtgi_floor_pull), so the far side of the disc keeps
+// a guaranteed minimum density instead of fading toward 0 as concentration climbs (plain Schlick alone
+// can otherwise collapse nearly every ray into a narrow cone around the guide at high concentration).
 // Typically good values are between 0.85f and 0.95f.
 //
 // WEIGHT
@@ -84,6 +87,37 @@ func rtgi_schlick_pull_pdf(float u_prime, float c) -> float
     return (1.0f + c) / (d * d);
 }
 
+// Fixed floor fraction for rtgi_floor_pull -- how much of the pull's density stays a flat uniform
+// mixed into Schlick's own rational density, so the far side of the disc (u'=1, farthest from the
+// guide) never drops below this fraction of the average density, however high concentration climbs.
+// Not user-tunable -- concentration still drives kappa the same as rtgi_schlick_pull; this only sets
+// the guaranteed minimum.
+static const float RTGI_GUIDE_FLOOR_FRACTION = 0.12f;
+
+// Schlick's rational pdf plus a fixed floor mixed in: pdf(u') = (1-f)*pdf_schlick(u',c) + f. Plain
+// Schlick's own pdf(1) = 1/(1+c) still slides toward 0 as concentration grows -- at high concentration
+// nearly every ray lands in a narrow cone around the guide. This pdf(1) converges DOWN TO f instead and
+// never goes below it, so rays keep landing across the whole disc no matter how high concentration
+// climbs. Still one closed-form function of the single random draw -- not a second stochastic branch --
+// derived by inverting the mixture's own CDF: Schlick's rational CDF plus a linear f*u' term turns
+// "solve CDF(u')=u for u'" into one quadratic, solved directly below.
+func rtgi_floor_pull(float u, float c) -> float
+{
+    if (c < 1e-6f) { return u; }
+    const float f = RTGI_GUIDE_FLOOR_FRACTION;
+    const float a = f * c;
+    const float b = (1.0f - f) * (1.0f + c) + f - u * c;
+    return (-b + sqrt(max(b * b + 4.0f * a * u, 0.0f))) / (2.0f * a);
+}
+
+func rtgi_floor_pull_pdf(float u_prime, float c) -> float
+{
+    if (c < 1e-6f) { return 1.0f; }
+    const float f = RTGI_GUIDE_FLOOR_FRACTION;
+    const float d = 1.0f + c * u_prime;
+    return (1.0f - f) * (1.0f + c) / (d * d) + f;
+}
+
 // basis is orthonormal, so its transpose is its inverse: world direction -> local (x,y) on the disc.
 func rtgi_disc_project(float3x3 basis, float3 dir) -> float2
 {
@@ -106,7 +140,7 @@ func rtgi_disc_boundary_t_max(float2 dir2, float2 pd) -> float
 // instead -- p0's own (theta, s0^2), where s0 is the normalized distance from pd to p0, has s0^2
 // exactly Uniform[0,1) and independent of theta, for any pd. Bending only s0^2 and leaving theta as
 // p0 gave it means c=0 reconstructs p0 exactly.
-func rtgi_sample_disc_warp_dir(float3x3 basis, float2 pd, float c) -> float3
+func rtgi_sample_disc_warp_dir(float3x3 basis, float2 pd, float c, bool use_floor_pull) -> float3
 {
     const float u1 = rand();
     const float u2 = rand();
@@ -120,17 +154,18 @@ func rtgi_sample_disc_warp_dir(float3x3 basis, float2 pd, float c) -> float3
     const float t_max = rtgi_disc_boundary_t_max(float2(cos(theta), sin(theta)), pd);
     const float s0_sq = t_max > 1e-6f ? min((rho0 / t_max) * (rho0 / t_max), 1.0f - 1e-6f) : 0.0f;
 
-    const float s = sqrt(rtgi_schlick_pull(s0_sq, c));
+    const float pulled = use_floor_pull ? rtgi_floor_pull(s0_sq, c) : rtgi_schlick_pull(s0_sq, c);
+    const float s = sqrt(pulled);
     const float rho = s * t_max;
     const float2 p = pd + rho * float2(cos(theta), sin(theta));
     const float z = sqrt(max(0.0f, 1.0f - dot(p, p)));
     return mul(basis, float3(p, z));
 }
 
-// p(w) = f_disc(x,y) * cos(theta), f_disc(x,y) = pdf_schlick(s^2) / pi -- no t_max(theta) term,
-// because theta's own (t_max(theta)^2-weighted) marginal is undisturbed by the bend (see the sampler
-// above) and exactly cancels the rho<->s^2 Jacobian. Returns 0 outside the true hemisphere.
-func rtgi_disc_warp_pdf(float3x3 basis, float2 pd, float c, float3 dir) -> float
+// p(w) = f_disc(x,y) * cos(theta), f_disc(x,y) = pdf_pull(s^2) / pi -- no t_max(theta) term, because
+// theta's own (t_max(theta)^2-weighted) marginal is undisturbed by the bend (see the sampler above) and
+// exactly cancels the rho<->s^2 Jacobian. Returns 0 outside the true hemisphere.
+func rtgi_disc_warp_pdf(float3x3 basis, float2 pd, float c, float3 dir, bool use_floor_pull) -> float
 {
     const float3 local = mul(transpose(basis), dir);
     if (local.z <= 0.0f) { return 0.0f; }
@@ -141,7 +176,8 @@ func rtgi_disc_warp_pdf(float3x3 basis, float2 pd, float c, float3 dir) -> float
     const float t_max = rtgi_disc_boundary_t_max(dir2, pd);
     const float s2 = min((rho / t_max) * (rho / t_max), 1.0f - 1e-6f);
 
-    return rtgi_schlick_pull_pdf(s2, c) / PI * local.z;
+    const float pull_pdf = use_floor_pull ? rtgi_floor_pull_pdf(s2, c) : rtgi_schlick_pull_pdf(s2, c);
+    return pull_pdf / PI * local.z;
 }
 
 func rtgi_cosine_hemi_pdf(float3 normal, float3 dir) -> float
@@ -156,6 +192,7 @@ func rtgi_sample_guided_diffuse_dir(
     float3 normal,
     float4 guide_sh_y,
     float concentration,
+    bool use_floor_pull,
     out float weight
 ) -> float3
 {
@@ -167,10 +204,10 @@ func rtgi_sample_guided_diffuse_dir(
     const float3x3 normal_basis = rtgi_build_basis(normal);
     const float2 pd = rtgi_disc_project(normal_basis, guide_axis);
 
-    const float3 dir = rtgi_sample_disc_warp_dir(normal_basis, pd, c);
+    const float3 dir = rtgi_sample_disc_warp_dir(normal_basis, pd, c, use_floor_pull);
 
     const float pdf_cosine = rtgi_cosine_hemi_pdf(normal, dir);
-    const float pdf_guide = rtgi_disc_warp_pdf(normal_basis, pd, c, dir);
+    const float pdf_guide = rtgi_disc_warp_pdf(normal_basis, pd, c, dir, use_floor_pull);
 
     weight = pdf_guide > 1e-8f ? (pdf_cosine / pdf_guide) : 0.0f;
 

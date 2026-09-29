@@ -48,9 +48,9 @@ void setup_colors()
     colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
     colors[ImGuiCol_Tab]                    = bg_1;
     colors[ImGuiCol_TabHovered]             = hovered_1;
-    colors[ImGuiCol_TabActive]              = alt_1;
-    colors[ImGuiCol_TabUnfocused]           = bg_1;
-    colors[ImGuiCol_TabUnfocusedActive]     = bg_1;
+    colors[ImGuiCol_TabSelected]            = alt_1;
+    colors[ImGuiCol_TabDimmed]              = bg_1;
+    colors[ImGuiCol_TabDimmedSelected]      = bg_1;
     colors[ImGuiCol_PlotLines]              = select_blue_1;
     colors[ImGuiCol_PlotLinesHovered]       = select_blue_1;
     colors[ImGuiCol_PlotHistogram]          = select_blue_1;
@@ -62,7 +62,7 @@ void setup_colors()
     colors[ImGuiCol_TableRowBgAlt]          = bg_1;
     colors[ImGuiCol_TextSelectedBg]         = bg_5;
     colors[ImGuiCol_DragDropTarget]         = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-    colors[ImGuiCol_NavHighlight]           = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+    colors[ImGuiCol_NavCursor]              = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
     colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 0.00f, 0.00f, 0.70f);
     colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(1.00f, 0.00f, 0.00f, 0.20f);
     colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(1.00f, 0.00f, 0.00f, 0.35f);
@@ -101,7 +101,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
       window{&window}
 {
     auto * imgui_context = ImGui::CreateContext();
-    //auto * implot_context = ImPlot::CreateContext();
+    ImPlot::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     ImGuiIO & io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -124,7 +124,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
     }
     /// NOTE: Needs to after all the init functions
-    imgui_renderer = daxa::ImGuiRenderer({gpu_context->device, gpu_context->swapchain.get_format(), imgui_context, nullptr, false});
+    imgui_renderer = daxa::ImGuiRenderer({gpu_context->device, gpu_context->swapchain.get_format(), imgui_context, false});
     setup_colors();
     
     main_task_graph_debug_ui = daxa::TaskGraphDebugUi({
@@ -766,6 +766,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::Checkbox("Trace Use STBN", reinterpret_cast<bool *>(&render_data.rtgi_settings.trace_use_stbn));
                     ImGui::Checkbox("Pioneer Guided Ray Bending", reinterpret_cast<bool *>(&render_data.rtgi_settings.pioneer_guiding_enabled));
                     ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.guide_concentration, 0.0f, 1.0f);
+                    ImGui::Checkbox("Guide Pull: Floor (vs Schlick)", reinterpret_cast<bool *>(&render_data.rtgi_settings.guide_floor_pull_enabled));
                     ImGui::SliderFloat("Pioneer Trace Max Distance (m)", &render_data.rtgi_settings.guide_pioneer_trace_max_distance, 1.0f, 1024.0f);
                     ImGui::SliderFloat("Ambient Occlusion Guide Max Pixel Range", &render_data.rtgi_settings.max_visibility_pixel_range, 1.0f, 128.0f);
                     ImGui::TreePop();
@@ -1899,5 +1900,5 @@ UIEngine::~UIEngine()
             gpu_context->device.destroy_image(icons.at(icon_idx));
         }
     }
-    //ImPlot::DestroyContext();
+    ImPlot::DestroyContext();
 }

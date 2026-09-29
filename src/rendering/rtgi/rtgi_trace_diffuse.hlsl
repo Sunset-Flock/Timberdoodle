@@ -183,7 +183,8 @@ void shade_ray_gen(uint2 dtid)
                 // Returns a WORLD-space direction directly (builds its own basis internally) -- does NOT
                 // go through `tbn`, unlike the other two branches.
                 sample_dir = rtgi_sample_guided_diffuse_dir(
-                    face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, guided_weight);
+                    face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration,
+                    rtgi_settings.guide_floor_pull_enabled != 0, guided_weight);
             }
             else
             {
@@ -323,7 +324,8 @@ void ray_gen_from_list_body()
         // SH dominant direction) and returns a WORLD-space direction directly -- unlike the other two
         // branches, it does NOT go through the pre-built `tbn` here.
         sample_dir = rtgi_sample_guided_diffuse_dir(
-            face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, guided_weight);
+            face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration,
+            rtgi_settings.guide_floor_pull_enabled != 0, guided_weight);
     }
     else
     {

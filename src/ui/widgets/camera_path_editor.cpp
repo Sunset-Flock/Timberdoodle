@@ -43,7 +43,7 @@ namespace tido
                         ImGui::PushStyleColor(ImGuiCol_Header, ImGuiCol_TableRowBg);
                         ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGuiCol_TableRowBg);
                         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGuiCol_TableRowBg);
-                        if(ImGui::Selectable(fmt::format("{}", i).c_str(), (i == selected_index), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap))
+                        if(ImGui::Selectable(fmt::format("{}", i).c_str(), (i == selected_index), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap))
                         {
                             selected_index = i;
                         }

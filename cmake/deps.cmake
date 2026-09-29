@@ -90,7 +90,7 @@ if (NOT TARGET imgui::imgui)
     FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui
-        GIT_TAG        fdc084f532189fda8474079f79e74fa5e3541c9f
+        GIT_TAG        v1.92.6-docking
         EXCLUDE_FROM_ALL
     )
 
@@ -104,6 +104,9 @@ if (NOT TARGET imgui::imgui)
             ${imgui_SOURCE_DIR}/imgui_draw.cpp
             ${imgui_SOURCE_DIR}/imgui_widgets.cpp
             ${imgui_SOURCE_DIR}/imgui_tables.cpp)
+
+        # daxa's ImGui backend packs (image view index | sampler index << 32) into ImTextureID, so 0 is a valid id (ImGui defaults ImTextureID_Invalid to 0).
+        target_compile_definitions(lib_imgui PUBLIC "ImTextureID_Invalid=((ImTextureID)-1)")
 
         target_include_directories(lib_imgui PUBLIC
             ${imgui_SOURCE_DIR}
@@ -200,6 +203,9 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(zlib)
 add_library(ZLIB::ZLIB ALIAS zlib-ng)
+# OVERRIDE_FIND_PACKAGE makes find_package(ZLIB) succeed without setting ZLIB_INCLUDE_DIRS.
+# libpng's pnglibconf generation invokes the compiler directly and only gets zlib.h through this variable.
+set(ZLIB_INCLUDE_DIRS ${zlib_BINARY_DIR} ${zlib_SOURCE_DIR})
 
 if(TIDO_ENABLE_UTILS_VDB_LOADER)
     option(OPENVDB_USE_DELAYED_LOADING "" OFF)
