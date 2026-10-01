@@ -250,6 +250,25 @@ func entry_guide_resample_vertical(uint2 dtid : SV_DispatchThreadID)
     push.attach.pioneer_guide_confidence.get()[dtid] = confidence;
 }
 
+// Guide debug draws (written by entry_guide_resolve at half-res).
+void rtgi_guide_resolve_debug_draw(uint2 dtid, float4 guide_sh_y, float confidence)
+{
+    let push = rtgi_guide_resolve_push;
+    let debug_mode = push.attach.globals.settings.debug_draw_mode;
+    const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
+    if (debug_mode == DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE)
+    {
+        write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(confidence), debug_alpha), 2);
+    }
+    else if (debug_mode == DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION)
+    {
+        // World-space direction as color, darkened by confidence (black == no guiding).
+        const float moment_len = length(guide_sh_y.xyz);
+        const float3 dir = moment_len > 1e-8f ? guide_sh_y.xyz / moment_len : float3(0.0f, 0.0f, 0.0f);
+        write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4((dir * 0.5f + 0.5f) * confidence, debug_alpha), 2);
+    }
+}
+
 // === Resolve pass =======================
 //
 // Preloads the guide-cell neighborhood into groupshared once per workgroup tile (position -- pretransformed
@@ -414,4 +433,5 @@ func entry_guide_resolve(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 
     push.attach.guide_sh_y.get()[dtid]       = held_sh_y;
     push.attach.guide_confidence.get()[dtid] = held_confidence;
+    rtgi_guide_resolve_debug_draw(dtid, held_sh_y, held_confidence);
 }

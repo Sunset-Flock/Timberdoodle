@@ -154,7 +154,9 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // Write upscaled diffuse:
         float4 upscaled_sh_y = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 upscaled_cocg = float2( 0.0f, 0.0f );
-        if (acc_weight >= 1.0f || 1)
+        // Only fall back when NO half-res tap matched this full-res pixel's surface (e.g. thin geometry that
+        // does not exist at half res). Normalizing a zero weight sum would otherwise output black.
+        if (acc_weight > 1e-5f)
         {
             upscaled_sh_y = acc_diffuse * rcp(acc_weight + 0.0000001f);
             upscaled_cocg = acc_diffuse2 * rcp(acc_weight + 0.0000001f);

@@ -227,6 +227,9 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 // Temporal history metrics
 #define DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH 42
 #define DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY 43
+// Pioneer guide (resolve output)
+#define DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE 44
+#define DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION 45
 
 struct Settings
 {

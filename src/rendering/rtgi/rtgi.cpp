@@ -481,7 +481,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                 .pioneer_hit_y = pioneer_hit_y_image,
                 .guide_sh_y = guide_sh_y_image,
-                .guide_confidence = guide_confidence_image,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.mesh_instances,
                 .sky = info.sky,
@@ -526,6 +525,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         info.tg.add_task(daxa::HeadTask<RtgiGuideResolveH::Info>()
             .head_views(RtgiGuideResolveH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
+                .debug_image = info.debug_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                 .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
@@ -572,7 +572,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                     .pioneer_hit_y = pioneer_hit_y_image,
                     .guide_sh_y = guide_sh_y_image,
-                    .guide_confidence = guide_confidence_image,
                     .meshlet_instances = info.meshlet_instances,
                     .mesh_instances = info.mesh_instances,
                     .sky = info.sky,
@@ -625,7 +624,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                 .pioneer_hit_y = pioneer_hit_y_image,
                 .guide_sh_y = guide_sh_y_image,
-                .guide_confidence = guide_confidence_image,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.mesh_instances,
                 .sky = info.sky,
@@ -803,7 +801,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         
                         .rtgi_diffuse_blurred = rtgi_post_blur_pass0_diffuse_image,
                         .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
-                        .perceptual_radiance_image = perceptual_radiance_image,
                         .ao_guide_image = half_res_ao_guide_history.current(),
                         .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
                     })
@@ -823,7 +820,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         
                         .rtgi_diffuse_blurred = rtgi_post_blur_diffuse_image,
                         .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
-                        .perceptual_radiance_image = perceptual_radiance_image,
                         .ao_guide_image = half_res_ao_guide_history.current(),
                         .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
                     })
@@ -862,7 +858,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             
                             .rtgi_diffuse_blurred = dst,
                             .rtgi_diffuse2_blurred = dst2,
-                            .perceptual_radiance_image = perceptual_radiance_image,
                             .ao_guide_image = half_res_ao_guide_history.current(),
                             .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
                         })

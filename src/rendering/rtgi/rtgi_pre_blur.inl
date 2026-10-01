@@ -28,6 +28,9 @@ DAXA_DECL_TASK_HEAD_END
 struct RtgiPreBlurPush
 {
     RtgiPreBlurH::AttachmentShaderBlob attach;
+    // C++ pads the blob to a multiple of 8, Slang does not. Align explicitly so `size` / `iteration` stay at
+    // the same offset on both sides whenever the head ends on a 4-byte attachment.
+    daxa_u64 _aligner;
     daxa_u32vec2 size;
     daxa_u32 iteration;
 };

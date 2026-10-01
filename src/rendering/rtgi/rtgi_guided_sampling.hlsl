@@ -192,12 +192,15 @@ func rtgi_sample_guided_diffuse_dir(
     float3 normal,
     float4 guide_sh_y,
     float concentration,
+    float guide_strength,
     bool use_floor_pull,
     out float weight
 ) -> float3
 {
     const float3 guide_axis = rtgi_sh_dominant_direction(guide_sh_y, normal);
-    const float c = rtgi_concentration_to_kappa(concentration);
+    // guide_strength ([0,1]) scales kappa LINEARLY -- scaling the
+    // concentration instead would be crushed by the kappa mapping (half concentration ~= 1/8 of the bend).
+    const float c = rtgi_concentration_to_kappa(concentration) * saturate(guide_strength);
 
     // Built once and reused for both sampling and pdf evaluation below -- rtgi_disc_warp_pdf needs
     // `dir` expressed in this same frame.

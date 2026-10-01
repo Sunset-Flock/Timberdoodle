@@ -10,6 +10,7 @@
 // pixel count. NOTE: this scales the ray_list + ray_result VRAM linearly.
 #define RTGI_RAY_LIST_CAPACITY_MUL 4
 
+
 struct RtgiSettings
 {
     daxa_i32 enabled;
@@ -35,7 +36,7 @@ struct RtgiSettings
     // previous-frame strip gets reprojected/stretched across many current pixels), scale down the
     // reprojected history so those pixels re-converge instead of smearing. 0 = disabled, higher = stronger.
     daxa_f32 temporal_parallax_penalty_strength;
-    daxa_i32 max_temporal_samples; // max samples a pixel accumulates before its history saturates
+    daxa_i32 max_temporal_samples; // history length in 1-ray frames; with RTGI_RAY_WEIGHTED_HISTORY the count may exceed it at >1 ray/frame (time window stays this long)
     // Sample count a pixel must accumulate before it stops requesting extra rays (its demand ramps
     // linearly from this many extra rays at 0 samples down to 0 extra rays at this count). Decoupled
     // from max_temporal_samples so ray-boost aggressiveness can be tuned independently of history length.
@@ -107,6 +108,7 @@ struct RtgiSettings
     // spends its budget on a direction irrelevant to the guided pixel's local neighborhood. A plain value
     // (not a graph-shape setting), read straight into ray.TMax every frame -- no rebuild trigger needed.
     daxa_f32 guide_pioneer_trace_max_distance;
+
 };
 
 struct RtgiRayCounters

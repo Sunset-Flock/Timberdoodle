@@ -23,7 +23,7 @@ namespace RenderTimes
 {
     static constexpr inline u32 INVALID_RENDER_TIME_INDEX = ~0u;
 
-    static constexpr inline u32 GROUP_SIZE_MAX = 25;
+    static constexpr inline u32 GROUP_SIZE_MAX = 26;
     static constexpr inline u32 GROUP_COUNT_MAX = 16;
     using TimingName = std::string_view;
     struct GroupNames

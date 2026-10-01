@@ -225,7 +225,7 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     // Carry the reprojected history count forward: the trace pass increments it by the number of rays
     // it shoots (and uses it to drive adaptive ray count). Disocclusion -> 0, so the trace pass starts
     // fresh (adding the rays it bursts that frame).
-    float reprojected_history_count = disocclusion ? 0.0f : min(rtgi_settings.max_temporal_samples, reprojected_sample_count);
+    float reprojected_history_count = disocclusion ? 0.0f : min(rtgi_history_count_cap(rtgi_settings.max_temporal_samples), reprojected_sample_count);
 
     // Parallax stretch: drop history where a grazing surface's thin previous-frame strip is being
     // stretched across many new pixels this frame (e.g. a wall revealed by lateral motion), so those
@@ -329,7 +329,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     // Increment the sample count by the rays the trace pass shot this frame (moved here from trace),
     // clamped to the history cap.
     const float rays_shot_virtual_samples = (float(push.attach.ray_count_image.get()[dtid.xy]));
-    const float accumulated_sample_count = min(rtgi_settings.max_temporal_samples, reproj_carry_sample_count + rays_shot_virtual_samples);
+    const float accumulated_sample_count = rtgi_accumulate_sample_count(reproj_carry_sample_count, rays_shot_virtual_samples, rtgi_settings.max_temporal_samples);
     const uint2 corner_plus_one = push.attach.reproject_corner.get()[dtid.xy];
     const float2 reproject_gather_uv = rtgi_reproject_gather_uv(corner_plus_one, inv_half_res_render_target_size);
     const float4 sample_weights = push.attach.reproject_weights.get()[dtid.xy];
@@ -506,7 +506,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
         // No new sample integrated this frame, so the fast history mean is unchanged — carry the fast
         // frame count as-is (don't advance confidence for a frame that added no fast observation), but
         // still apply the parallax stretch penalty so a stretched no-ray pixel drops its smeared history.
-        push.attach.half_res_sample_count.get()[dtid.xy] = rtgi_pack_sample_counts(accumulated_sample_count, reprojected_fast_frames * (1.0f - parallax_penalty)); // == reprojected carry (rays_shot_virtual_samples == 0)
+        push.attach.half_res_sample_count.get()[dtid.xy] = rtgi_pack_sample_counts(accumulated_sample_count, reprojected_fast_frames * (1.0f - parallax_penalty)); // == reprojected carry, aged above max_temporal_samples (rays_shot_virtual_samples == 0)
         push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = reprojected_diffuse;
         push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = reprojected_diffuse2;
         push.attach.fast_temporal_history_accumulated.get()[dtid] = float2(reprojected_fast_temporal_mean, reprojected_fast_temporal_variance);

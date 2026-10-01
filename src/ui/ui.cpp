@@ -457,6 +457,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "RTGI_PERCEPTUAL_MEAN_TEMPORAL",        // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL
                     "RTGI_HISTORY_LENGTH",            // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
                     "RTGI_TEMPORAL_REACTIVITY",       // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
+                    "RTGI_GUIDE_CONFIDENCE",          // DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE
+                    "RTGI_GUIDE_DIRECTION",           // DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION
                 };
                 tido::ui::filter_combo("debug visualization", &debug_visualization_index, modes.data(), s_cast<i32>(modes.size()));
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
@@ -709,6 +711,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "RTGI_PERCEPTUAL_MEAN_TEMPORAL",          // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL
                     "RTGI_HISTORY_LENGTH",              // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
                     "RTGI_TEMPORAL_REACTIVITY",         // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
+                    "RTGI_GUIDE_CONFIDENCE",            // DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE
+                    "RTGI_GUIDE_DIRECTION",             // DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION
                 };
                 auto mode_mappings = std::array{
                     DEBUG_DRAW_MODE_NONE,
@@ -732,6 +736,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL,
                     DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH,
                     DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY,
+                    DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE,
+                    DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION,
                 };
                 tido::ui::filter_combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                 if (rtgi_debug_visualization != 0)

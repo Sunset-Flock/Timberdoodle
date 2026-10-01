@@ -12,20 +12,28 @@
 
 // == Packed history sample counters ===========================================
 // The normal (slow) temporal sample count and the fast-history frame count are packed into a single
-// R16_UINT texel. Both keep 0.25 fractional resolution (quantized in quarter steps):
-//   - normal count : range [0, 254], 0.25 steps -> 0..1016, low 10 bits.
+// R16_UINT texel:
+//   - normal count : low 10 bits, piecewise encoded so ray-weighted history (RTGI_RAY_WEIGHTED_HISTORY)
+//                    can exceed max_temporal_samples:
+//                      code [0, 511]    -> count = code * 0.25              ([0, 127.75], 0.25 steps)
+//                      code [512, 1022] -> count = 128 + (code - 512) * 2   ([128, 1148], 2.0 steps)
 //   - fast count   : range [0, 15],  0.25 steps -> 0..60,   high 6 bits.
-// The value 0x3FF (1020) in the 10-bit normal field is reserved as the SKY sentinel (unpacks to -1),
+// The code 0x3FF (1023) in the 10-bit normal field is reserved as the SKY sentinel (unpacks to -1),
 // matching the old float image's <0 sky marker that the reproject/accumulate passes early-out on. The
-// normal count is clamped to 254 (max packed 1016) so a real count can never collide with the sentinel.
+// normal count is clamped to RTGI_COUNT_NORMAL_MAX (code 1022) so a real count never hits the sentinel.
 static const uint RTGI_COUNT_NORMAL_MASK = 0x3FFu;  // 10 bits
 static const uint RTGI_COUNT_FAST_MASK   = 0x3Fu;   // 6 bits
 static const uint RTGI_COUNT_SKY         = 0x3FFu;  // sentinel in the normal field
-static const float RTGI_COUNT_NORMAL_MAX = 254.0f;  // highest real normal count; stays below the sentinel
+static const uint RTGI_COUNT_COARSE_CODE = 512u;    // first code of the coarse (2.0 step) range
+static const float RTGI_COUNT_COARSE_BASE = 128.0f; // count at RTGI_COUNT_COARSE_CODE
+static const float RTGI_COUNT_NORMAL_MAX = 1148.0f; // highest real normal count (code 1022)
 
 func rtgi_pack_sample_counts(float normal_count, float fast_count) -> uint
 {
-    const uint n = uint(round(clamp(normal_count, 0.0f, RTGI_COUNT_NORMAL_MAX) * 4.0f)); // 0..1016
+    const float c = clamp(normal_count, 0.0f, RTGI_COUNT_NORMAL_MAX);
+    const uint n = c < RTGI_COUNT_COARSE_BASE - 0.125f
+        ? uint(round(c * 4.0f))                                                            // 0..511
+        : RTGI_COUNT_COARSE_CODE + uint(round((c - RTGI_COUNT_COARSE_BASE) * 0.5f));       // 512..1022
     const uint f = uint(round(clamp(fast_count,   0.0f, 15.0f)                 * 4.0f)); // 0..60
     return (n & RTGI_COUNT_NORMAL_MASK) | ((f & RTGI_COUNT_FAST_MASK) << 10u);
 }
@@ -39,7 +47,46 @@ func rtgi_pack_sample_counts_sky() -> uint
 func rtgi_unpack_normal_count(uint packed) -> float
 {
     const uint n = packed & RTGI_COUNT_NORMAL_MASK;
-    return n == RTGI_COUNT_SKY ? -1.0f : float(n) * 0.25f;
+    if (n == RTGI_COUNT_SKY) return -1.0f;
+    return n < RTGI_COUNT_COARSE_CODE
+        ? float(n) * 0.25f
+        : RTGI_COUNT_COARSE_BASE + float(n - RTGI_COUNT_COARSE_CODE) * 2.0f;
+}
+
+// Ray-weighted temporal history.
+//   0 = history count capped at max_temporal_samples RAYS. Once capped, a pixel that shoots k rays gets
+//       blend weight k/(1+cap) but also evicts k rays of history, so extra rays only shorten the time
+//       window and do NOT lower the noise.
+//   1 = history count is only capped in TIME. Up to max_temporal_samples it grows linearly exactly as
+//       before (bit-identical at 1 ray/frame). Above it, the history decays by 1/max_temporal_samples per
+//       frame instead of being clamped, so every sample's weight decays with its AGE in frames and the
+//       count settles at k * max_temporal_samples for a steady k rays/frame. An 8-ray frame then counts 8x
+//       a 1-ray frame, and a pixel traced at 8 rays/frame holds 8x the samples (8x lower variance) at
+//       the same time window. Lag in frames is unchanged, and the fast-history confidence scaling stays
+//       consistent because blend ~ k / count is still 1 / (window in frames).
+#define RTGI_RAY_WEIGHTED_HISTORY 1
+
+// History cap the reproject pass clamps the carried count to.
+func rtgi_history_count_cap(float max_temporal_samples) -> float
+{
+#if RTGI_RAY_WEIGHTED_HISTORY
+    return RTGI_COUNT_NORMAL_MAX;
+#else
+    return max_temporal_samples;
+#endif
+}
+
+// Accumulated history sample count after integrating `rays` fresh samples on top of the reprojected
+// `carry`. rays == 0 (no-ray pixel) keeps the carry below the cap, like before.
+func rtgi_accumulate_sample_count(float carry, float rays, float max_temporal_samples) -> float
+{
+#if RTGI_RAY_WEIGHTED_HISTORY
+    const float grown  = carry + rays;                                           // below the cap: plain growth
+    const float leaked = carry * (1.0f - rcp(max(max_temporal_samples, 1.0f))) + rays; // above: age decay
+    return min(min(grown, max(max_temporal_samples, leaked)), RTGI_COUNT_NORMAL_MAX);
+#else
+    return min(max_temporal_samples, carry + rays);
+#endif
 }
 
 func rtgi_unpack_fast_count(uint packed) -> float
