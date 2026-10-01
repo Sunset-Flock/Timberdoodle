@@ -49,6 +49,9 @@ struct ThreadPool
     void async_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
     void block_on(std::shared_ptr<Task> task);
     u32 thread_count() const { return static_cast<u32>(worker_threads.size()); }
+    // Number of chunks that are queued or currently being worked on by a worker thread.
+    // Zero means the pool is idle (ignores chunks run on external threads via blocking_dispatch).
+    auto pending_chunk_count() -> u32;
 
   private:
     struct SharedData
@@ -61,6 +64,7 @@ struct ThreadPool
         std::mutex threadpool_mutex = {};
         std::deque<TaskChunk> high_priority_tasks = {};
         std::deque<TaskChunk> low_priority_tasks = {};
+        u32 running_chunks = 0;
         bool kill = false;
     };
     static void worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32 thread_id);

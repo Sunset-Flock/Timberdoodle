@@ -22,6 +22,8 @@ struct ApplicationState
     bool reset_observer = false;
     bool decompose_bistro = false;
     bool request_screenshot = false;
+    // When set, the next screenshot is written to this path instead of the default timestamped one.
+    std::filesystem::path screenshot_path_override = {};
     bool screenshot_writing = false;
     u32 frame_index = 0;
     f32 delta_time = 0.016666f;

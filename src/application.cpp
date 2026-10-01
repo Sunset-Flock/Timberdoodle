@@ -2,12 +2,14 @@
 #include "json_handler.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 
 #include <intrin.h>
 #include <png.h>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 
 #define DISABLE_EMISSIVE_BALLS 1
 
@@ -262,10 +264,10 @@ auto load_stbnCosDir(AssetProcessor & asset_processor) -> daxa::ImageId
 std::filesystem::path const DEFAULT_CLOUD_DATA_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_data_fields.cloudbin";
 std::filesystem::path const DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_detail_noise.cloudbin";
 
-Application::Application()
+Application::Application(i32vec2 window_size)
 {
     _threadpool = std::make_unique<ThreadPool>(6);
-    _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
+    _window = std::make_unique<Window>(window_size.x, window_size.y, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
     _scene = std::make_unique<Scene>(_gpu_context->device, _gpu_context.get());
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
@@ -396,11 +398,12 @@ Application::Application()
 
 using FpMicroSeconds = std::chrono::duration<float, std::chrono::microseconds::period>;
 
-void Application::load_scene(std::filesystem::path const & path)
+auto Application::load_scene(std::filesystem::path const & path) -> bool
 {
     if (!path.has_filename() || !path.has_parent_path())
     {
-        return;
+        DEBUG_MSG(fmt::format("[WARN][Application::load_scene()] Invalid scene path \"{}\"", path.string()));
+        return false;
     }
 
     auto const result = _scene->load_manifest_from_gltf({
@@ -414,6 +417,7 @@ void Application::load_scene(std::filesystem::path const & path)
     {
         DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
             path.string(), Scene::to_string(*err)));
+        return false;
     }
     // TODO(msakmary) HACKY - fix this
     // =========================================================================
@@ -434,6 +438,146 @@ void Application::load_scene(std::filesystem::path const & path)
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success", path.string()));
     }
     // =========================================================================
+    return true;
+}
+
+void Application::set_camera(f32vec3 position, f32 yaw, f32 pitch)
+{
+    // CameraController::process_input rebuilds the forward vector from yaw/pitch every frame.
+    app_state.camera_controller.position = position;
+    app_state.camera_controller.yaw = yaw;
+    app_state.camera_controller.pitch = std::clamp(pitch, -85.0f, 85.0f);
+    app_state.observer_camera_controller = app_state.camera_controller;
+}
+
+void Application::start_perf_test(PerfTestInfo const & info)
+{
+    _perf_test = info;
+    fmt::print("[PerfTest] \"{}\": loading scene {}\n", _perf_test.name, _perf_test.scene_path.string());
+    if (!load_scene(_perf_test.scene_path))
+    {
+        fmt::print("[PerfTest] ERROR: failed to load scene {}\n", _perf_test.scene_path.string());
+        _exit_code = 1;
+        app_state.keep_running = false;
+        return;
+    }
+    if (!_perf_test.views.empty())
+    {
+        auto const & view = _perf_test.views[0];
+        set_camera(view.position, view.yaw, view.pitch);
+    }
+    _perf_test_phase = PerfTestPhase::LOADING;
+    _perf_test_frame_counter = 0;
+    _perf_test_view_index = 0;
+}
+
+void Application::update_perf_test()
+{
+    switch (_perf_test_phase)
+    {
+        case PerfTestPhase::NONE: break;
+        case PerfTestPhase::LOADING:
+        {
+            bool const settled =
+                _threadpool->pending_chunk_count() == 0 &&
+                !_uploaded_assets_this_frame &&
+                _scene->_mesh_as_build_queue.empty();
+            _perf_test_frame_counter = settled ? _perf_test_frame_counter + 1 : 0;
+            if (_perf_test_frame_counter >= PERF_TEST_SETTLE_FRAMES)
+            {
+                fmt::print("[PerfTest] Scene loaded (frame {}), rendering {} frames\n", app_state.frame_index, _perf_test.wait_frames);
+                _perf_test_phase = PerfTestPhase::WARMUP;
+                _perf_test_frame_counter = 0;
+            }
+            break;
+        }
+        case PerfTestPhase::WARMUP:
+        {
+            _perf_test_frame_counter += 1;
+            if (_perf_test_frame_counter >= _perf_test.wait_frames)
+            {
+                std::string const prefix = _perf_test.views.size() > 1
+                    ? fmt::format("{}_view{}", _perf_test.name, _perf_test_view_index)
+                    : _perf_test.name;
+                std::filesystem::create_directories(_perf_test.output_dir);
+                write_perf_test_timings(_perf_test.output_dir / (prefix + "_timings.json"));
+                app_state.screenshot_path_override = _perf_test.output_dir / (prefix + "_screenshot.png");
+                app_state.request_screenshot = true;
+                _perf_test_phase = PerfTestPhase::WRITING_SCREENSHOT;
+            }
+            break;
+        }
+        case PerfTestPhase::WRITING_SCREENSHOT:
+        {
+            if (_perf_test_screenshot_task && _perf_test_screenshot_task->not_finished == 0)
+            {
+                _perf_test_screenshot_task = {};
+                _perf_test_view_index += 1;
+                if (_perf_test_view_index < _perf_test.views.size())
+                {
+                    auto const & view = _perf_test.views[_perf_test_view_index];
+                    set_camera(view.position, view.yaw, view.pitch);
+                    fmt::print("[PerfTest] View {}: rendering {} frames\n", _perf_test_view_index, _perf_test.wait_frames);
+                    _perf_test_phase = PerfTestPhase::WARMUP;
+                    _perf_test_frame_counter = 0;
+                }
+                else
+                {
+                    fmt::print("[PerfTest] Done\n");
+                    app_state.keep_running = false;
+                }
+            }
+            break;
+        }
+    }
+}
+
+void Application::write_perf_test_timings(std::filesystem::path const & path)
+{
+    // Render times are stored in nanoseconds; written out in microseconds.
+    auto & times = _renderer->render_context->render_times;
+    auto const & cam = app_state.camera_controller;
+    nlohmann::json json = {};
+    json["name"] = _perf_test.name;
+    json["scene"] = _perf_test.scene_path.string();
+    json["camera"] = {
+        {"position", {cam.position.x, cam.position.y, cam.position.z}},
+        {"yaw", cam.yaw},
+        {"pitch", cam.pitch},
+    };
+    json["resolution"] = {_window->size.x, _window->size.y};
+    json["wait_frames"] = _perf_test.wait_frames;
+    json["frame_index"] = app_state.frame_index;
+    json["unit"] = "us";
+    json["groups"] = nlohmann::json::array();
+    for (u32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; ++group_i)
+    {
+        nlohmann::json group = {};
+        group["name"] = std::string(RenderTimes::group_name(group_i));
+        group["smooth"] = times.smooth_group_times[group_i] * 0.001;
+        group["smooth_std_dev"] = std::sqrt(times.smooth_group_variances[group_i]) * 0.001;
+        group["timers"] = nlohmann::json::array();
+        u32 const first_flat_index = RenderTimes::group_first_flat_index(group_i);
+        for (u32 timer_i = 0; timer_i < RenderTimes::GROUP_SIZES[group_i]; ++timer_i)
+        {
+            u32 const flat_index = first_flat_index + timer_i;
+            if (times.smooth_times[flat_index] == 0.0 && times.current_times[flat_index] == 0.0)
+            {
+                continue; // Pass did not run.
+            }
+            group["timers"].push_back({
+                {"name", std::string(RenderTimes::in_group_timing_name(group_i, timer_i))},
+                {"smooth", times.smooth_times[flat_index] * 0.001},
+                {"smooth_std_dev", std::sqrt(times.smooth_variances[flat_index]) * 0.001},
+                {"last", times.current_times[flat_index] * 0.001},
+            });
+        }
+        json["groups"].push_back(std::move(group));
+    }
+
+    auto file = std::ofstream(path);
+    file << json.dump(4);
+    fmt::print("[PerfTest] Timings written to: {}\n", path.string());
 }
 
 auto Application::run() -> i32
@@ -523,6 +667,12 @@ auto Application::run() -> i32
                     time_str,
                     cam.position.x, cam.position.y, cam.position.z,
                     cam.yaw, cam.pitch);
+                if (!app_state.screenshot_path_override.empty())
+                {
+                    task->path = app_state.screenshot_path_override;
+                    app_state.screenshot_path_override.clear();
+                    _perf_test_screenshot_task = task;
+                }
                 task->pixels = std::vector<u8>(data, data + _renderer->screenshot_width * _renderer->screenshot_height * 4u);
                 task->width = _renderer->screenshot_width;
                 task->height = _renderer->screenshot_height;
@@ -530,11 +680,12 @@ auto Application::run() -> i32
                 _threadpool->async_dispatch(task, TaskPriority::LOW);
                 _renderer->screenshot_pending = false;
             }
+            update_perf_test();
         }
         _gpu_context->device.collect_garbage();
         ++app_state.frame_index;
     }
-    return 0;
+    return _exit_code;
 }
 
 void Application::update()
@@ -654,6 +805,7 @@ void Application::update()
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
 
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
+    _uploaded_assets_this_frame = !asset_data_upload_info.uploaded_meshes.empty() || !asset_data_upload_info.uploaded_textures.empty();
     for (auto & pending : _pending_mesh_uploads)
         asset_data_upload_info.uploaded_meshes.push_back(pending);
     _pending_mesh_uploads.clear();

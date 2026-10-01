@@ -32,11 +32,13 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
         TaskChunk current_chunk = std::move(selected_queue.front());
         selected_queue.pop_front();
         current_chunk.task->started += 1;
+        shared_data->running_chunks += 1;
         lock.unlock();
 
         current_chunk.task->callback(current_chunk.chunk_index, thread_index);
 
         lock.lock();
+        shared_data->running_chunks -= 1;
         current_chunk.task->not_finished -= 1;
         // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
         if (current_chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
@@ -116,6 +118,12 @@ void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priorit
         }
     }
     shared_data->work_available.notify_all();
+}
+
+auto ThreadPool::pending_chunk_count() -> u32
+{
+    std::lock_guard lock{shared_data->threadpool_mutex};
+    return static_cast<u32>(shared_data->high_priority_tasks.size() + shared_data->low_priority_tasks.size()) + shared_data->running_chunks;
 }
 
 void ThreadPool::block_on(std::shared_ptr<Task> task)

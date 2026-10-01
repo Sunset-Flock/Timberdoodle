@@ -79,6 +79,10 @@ Window::Window(i32 width, i32 height, std::string_view name)
     glfwSetMouseButtonCallback(this->glfw_handle, mouse_button_callback);
     glfwSetCursorPosCallback(this->glfw_handle, cursor_move_callback);
     glfwSetWindowFocusCallback(this->glfw_handle, window_focus_callback);
+    // Windows clamps windows to the desktop size on creation (WM_GETMINMAXINFO). Explicit size limits make
+    // GLFW override that clamp, so resolutions larger than the monitor (e.g. 4K on a 1440p screen) work.
+    glfwSetWindowSizeLimits(this->glfw_handle, GLFW_DONT_CARE, GLFW_DONT_CARE, 16384, 16384);
+    glfwSetWindowSize(this->glfw_handle, width, height);
 /// NOTE: This makes the borders of the window dark mode on win 10 and 11
 #if defined(_WIN32)
     {
