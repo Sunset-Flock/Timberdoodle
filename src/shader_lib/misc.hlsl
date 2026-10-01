@@ -380,7 +380,7 @@ RayAABBResult intersect_ray_with_aabb( const float3 ray_origin, const float3 ray
     return RayAABBResult(max(t_near, 0.0), t_far);
 }
 
-// Picks the representative pixel of a 2x2 downsample block by depth.
+// Picks the representative pixel of a 2x2 downsample block by linear view depth (0 == sky).
 // The representative is the depth most central to the quad — not the closest, not the furthest —
 // found as the L1 geometric median of the four depths, which rejects both near outliers (a stray
 // foreground sliver) and far outliers (a background pixel bleeding in).
@@ -392,8 +392,10 @@ RayAABBResult intersect_ray_with_aabb( const float3 ray_origin, const float3 ray
 // Sky pixels (depth == 0) are excluded and only win when all four are sky.
 int quad_downsample_representative(float depths[4])
 {
-    // Reversed-Z: the largest depth is the nearest.
-    float max_depth = max(max(depths[0], depths[1]), max(depths[2], depths[3]));
+    // Linear depth: the smallest non-sky depth is the nearest.
+    const float4 surface_depths = select(float4(depths[0], depths[1], depths[2], depths[3]) != 0.0f,
+                                         float4(depths[0], depths[1], depths[2], depths[3]), 1e30f);
+    const float min_depth = min(min(surface_depths.x, surface_depths.y), min(surface_depths.z, surface_depths.w));
 
     // Small weight on distance-to-nearest. Kept low so it only breaks otherwise-close ties, and
     // because it multiplies the depth gap it stays negligible on tight quads.
@@ -410,13 +412,13 @@ int quad_downsample_representative(float depths[4])
             depths[1] != 0.0f ? abs(depths[i] - depths[1]) : 0.0f +
             depths[2] != 0.0f ? abs(depths[i] - depths[2]) : 0.0f +
             depths[3] != 0.0f ? abs(depths[i] - depths[3]) : 0.0f +
-            foreground_bias * (max_depth - depths[i]);
+            foreground_bias * (depths[i] - min_depth);
         depth_dist[i] = depths[i] != 0.0f ? dist : 1e30f;
     }
 
     // Distances within this (depth-scaled) band count as equal, so a flat surface's near-identical
     // depths all tie and fall through to the spatial (top-then-left) tiebreak below.
-    const float repr_tol = 0.02f * max_depth;
+    const float repr_tol = 0.02f * min_depth;
 
     int rep = 0; // default when every pixel is sky
     [unroll]

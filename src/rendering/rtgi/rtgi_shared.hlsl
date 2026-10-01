@@ -102,10 +102,33 @@ func rtgi_reproject_gather_uv(uint2 corner_plus_one, float2 inv_half_res_render_
     return float2(corner_plus_one) * inv_half_res_render_target_size; // == (origin + 1) * inv_size
 }
 
+// == Half-res depth encoding ==================================================
+// The half-res depth image holds linear view depth (written by gen_gbuffer). Sky is 0.
+// Always read it through these helpers.
+
+// Half-res depth image value -> world position. Undefined for sky (0).
+func rtgi_half_res_depth_to_world_space(CameraInfo camera, float2 ndc_xy, float half_res_depth) -> float3
+{
+    return linear_depth_to_world_space(camera, ndc_xy, half_res_depth);
+}
+
+// Half-res depth image value -> view position, NEGATED (same convention as rtgi_upscale's -inv_proj unproject).
+func rtgi_half_res_depth_to_neg_view_space(CameraInfo camera, float2 ndc_xy, float half_res_depth) -> float3
+{
+    return -camera_view_ray_vs(camera, ndc_xy) * half_res_depth;
+}
+
+// calc_pixel_width_ws for a half-res depth image value. Exact without the divide: near / ndc_depth == linear depth.
+func rtgi_half_res_pixel_width_ws(float2 inv_render_target_size, float near_plane, float half_res_depth) -> float
+{
+    return inv_render_target_size.y * 2.0f * half_res_depth;
+}
+
 struct PixelData
 {
     float2 uv;
-    float3 ndc;
+    float2 ndc;
+    float  depth_vs; // linear view-space depth (distance along the view direction), 0 == sky
     float3 position_ws;
     float3 position_vs;
     float3 normal_ws;
@@ -121,9 +144,9 @@ func calc_pixel_data(
 {
     PixelData pd;
     pd.uv          = (float2(dtid) + 0.5f) * inv_half_res_render_target_size;
-    pd.ndc         = float3(pd.uv * 2.0f - 1.0f, depth_tex[dtid]);
-    const float4 pos_pre_div = mul(camera.inv_view_proj, float4(pd.ndc, 1.0f));
-    pd.position_ws = pos_pre_div.xyz / pos_pre_div.w;
+    pd.ndc         = pd.uv * 2.0f - 1.0f;
+    pd.depth_vs    = depth_tex[dtid];
+    pd.position_ws = rtgi_half_res_depth_to_world_space(camera, pd.ndc, pd.depth_vs);
     pd.position_vs = mul(camera.view, float4(pd.position_ws, 1.0f)).xyz;
     pd.normal_ws   = uncompress_normal_octahedral_32(normals_tex[dtid]);
     pd.normal_vs   = mul(camera.view, float4(pd.normal_ws, 0.0f)).xyz;

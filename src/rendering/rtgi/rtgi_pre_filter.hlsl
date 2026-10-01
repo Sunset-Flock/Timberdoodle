@@ -100,8 +100,8 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
                     // locally so their outputs stay bit-identical.
                     const float pd = push.attach.view_cam_half_res_depth.get()[src];
                     const float2 src_uv_gs = (float2(src) + 0.5f) * inv_half_res_render_target_size;
-                    const float4 pp = mul(camera->inv_view_proj, float4(src_uv_gs * 2.0f - 1.0f, pd, 1.0f));
-                    gs_quad_pos_depth[in_idx.x][in_idx.y] = float4(pd != 0.0f ? pp.xyz / pp.w : float3(0, 0, 0), pd);
+                    const float3 pp = rtgi_half_res_depth_to_world_space(*camera, src_uv_gs * 2.0f - 1.0f, pd);
+                    gs_quad_pos_depth[in_idx.x][in_idx.y] = float4(pd != 0.0f ? pp : float3(0, 0, 0), pd);
                     gs_quad_normals_oct[in_idx.x][in_idx.y] = push.attach.view_cam_half_res_normals.get()[src];
                 }
             }
@@ -124,7 +124,7 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     const uint2 clamped_index = min(dtid.xy, push.size - 1u);      // Can not early out — group barriers below.
     const int2  grad_idx      = int2(gtid) + TOTAL_FILTER_REACH;   // center pixel in the preload tile
     const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
-    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, depth);
+    const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, depth);
     const float pixel_width_ws_rcp = rcp(pixel_width_ws);
     const float3 world_position    = gs_quad_pos_depth[grad_idx.x][grad_idx.y].xyz;
     const float3 pixel_face_normal = uncompress_normal_octahedral_32(LOAD_NORMAL_OCT(grad_idx));

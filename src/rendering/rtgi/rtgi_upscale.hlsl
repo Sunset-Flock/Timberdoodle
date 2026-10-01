@@ -75,9 +75,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
 
                 const int2 sample_half_res_idx = load_index;
                 const float2 sample_uv = float2(sample_half_res_idx + 0.5f) * inv_half_res_render_target_size;
-                const float3 sample_ndc = float3(sample_uv * 2.0f - 1.0f, depth);
-                const float4 sample_vs_pre_div = mul(camera.inv_proj, float4(sample_ndc,1.0f));
-                const float3 sample_vs = -sample_vs_pre_div.xyz / sample_vs_pre_div.w;
+                const float3 sample_vs = rtgi_half_res_depth_to_neg_view_space(*camera, sample_uv * 2.0f - 1.0f, depth);
                 gs_half_vs_positions[preload_index.x][preload_index.y] = float4(sample_vs, depth);
             }
             GroupMemoryBarrierWithGroupSync();

@@ -48,10 +48,10 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const uint2 halfres_pixel_index = dtid;
 
     const PixelData pixel = calc_pixel_data(dtid, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.ndc.z);
+    const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.depth_vs);
     const float pixel_width_ws_rcp = rcp(pixel_width_ws);
 
-    if (pixel.ndc.z == 0.0f)
+    if (pixel.depth_vs == 0.0f)
     {
         return;
     }
@@ -141,7 +141,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         //const float2 disc_noise = rand_concentric_sample_disc_center_focus();
         const float2 disc_noise = mul(disc_rotation, g_Poisson16[(s + poisson_offset) & 15u].xy);
         const float2 sample_2d = disc_noise * blur_radius;
-        const float3 sample_ndc = pixel.ndc + float3(ss_gradient * sample_2d * inv_half_res_render_target_size * 2.0f, 0.0f);
+        const float2 sample_ndc = pixel.ndc + ss_gradient * sample_2d * inv_half_res_render_target_size * 2.0f;
         // Wiggle does two things:
         // - rand_concentric_sample_disc_center_focus creates a LOT of samples at the center texel, the wiggle moves many of those out by one pixel
         // - at shallow angles the kernel can become 1 pixel wide due to the gradient based shape, the wiggle breaks this up.
@@ -174,7 +174,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
         const float sample_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.ray_count_image.get()[sample_index.xy])) : 1.0f;
 
-        const bool is_sky = sample.ndc.z == 0.0f;
+        const bool is_sky = sample.depth_vs == 0.0f;
 
         #if 0
         if (all(dtid.xy == half_res_render_target_size/2))

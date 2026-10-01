@@ -79,7 +79,7 @@ func entry_guide_resample_horizontal(uint2 dtid : SV_DispatchThreadID)
         return;
     }
     const PixelData center = calc_pixel_data(center_pixel, inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float center_pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, center.ndc.z);
+    const float center_pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, center.depth_vs);
 
     const uint h_frame_seed = push.attach.globals.rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) * 257u : 0u;
     rand_seed(dtid.x * 9629u + dtid.y * 10069u + h_frame_seed + 11u);
@@ -116,7 +116,7 @@ func entry_guide_resample_horizontal(uint2 dtid : SV_DispatchThreadID)
         // Hard world-space distance cutoff only, no coplanarity/normal check -- see the define's comment
         // in rtgi_guide_resample.inl. Reference pixel width is whichever of the two points is closer to
         // camera (smaller footprint), so the cutoff can't loosen just because the far point sits further out.
-        const float candidate_pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, candidate.ndc.z);
+        const float candidate_pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, candidate.depth_vs);
         const bool valid = distance(center.position_ws, candidate.position_ws) <= RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD * min(center_pixel_width_ws, candidate_pixel_width_ws);
 #else
         // px_threshold loosened to 8x (default 1.2x) -- the resample now reaches WINDOW*STRIDE pioneer
@@ -180,7 +180,7 @@ func entry_guide_resample_vertical(uint2 dtid : SV_DispatchThreadID)
         return;
     }
     const PixelData center = calc_pixel_data(center_pixel, inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float center_pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, center.ndc.z);
+    const float center_pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, center.depth_vs);
 
     const uint v_frame_seed = push.attach.globals.rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) * 257u : 0u;
     rand_seed(dtid.x * 9629u + dtid.y * 10069u + v_frame_seed + 29u);
@@ -222,7 +222,7 @@ func entry_guide_resample_vertical(uint2 dtid : SV_DispatchThreadID)
         const PixelData row_center = calc_pixel_data(row_center_pixel, inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
 #if RTGI_GUIDE_RESAMPLE_DISTANCE_ONLY
         // Same distance-only gate as the horizontal pass -- see the define's comment in rtgi_guide_resample.inl.
-        const float row_center_pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, row_center.ndc.z);
+        const float row_center_pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, row_center.depth_vs);
         const bool valid = distance(center.position_ws, row_center.position_ws) <= RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD * min(center_pixel_width_ws, row_center_pixel_width_ws);
 #else
         // px_threshold loosened to 8x (default 1.2x), same reasoning as the horizontal pass.
@@ -327,7 +327,7 @@ func entry_guide_resolve(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
                     float3 ws_pos = float3(0.0f, 0.0f, 0.0f);
                     if (depth != 0.0f)
                     {
-                        ws_pos = pixel_index_to_world_space(camera, float2(ref_pixel * 2u) + 0.5f, depth);
+                        ws_pos = rtgi_half_res_depth_to_world_space(camera, (float2(ref_pixel * 2u) + 1.0f) * camera.inv_screen_size * 2.0f - 1.0f, depth);
                     }
                     gs_guide_pos_depth[in_idx.x][in_idx.y]  = float4(ws_pos, depth);
                     gs_guide_normal_oct[in_idx.x][in_idx.y] = ref_valid ? push.attach.view_cam_half_res_face_normals.get()[ref_pixel].r : 0u;
@@ -352,9 +352,9 @@ func entry_guide_resolve(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         push.attach.guide_confidence.get()[dtid] = 0.0f;
         return;
     }
-    const float3 world_position = pixel_index_to_world_space(camera, float2(dtid * 2u) + 0.5f, depth);
+    const float3 world_position = rtgi_half_res_depth_to_world_space(camera, (float2(dtid * 2u) + 1.0f) * camera.inv_screen_size * 2.0f - 1.0f, depth);
     const float3 face_normal    = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[dtid].r);
-    const float receiver_pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, depth);
+    const float receiver_pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, depth);
 
     const int2 own_cell    = (int2(dtid) - int2(rotation)) / int(RTGI_GUIDE_PIONEER_GRID_DIV);
     const int2 local_center = own_cell - group_origin_cell + RTGI_GUIDE_RESOLVE_EXTENT; // index into the GS tile
@@ -386,8 +386,8 @@ func entry_guide_resolve(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 #if RTGI_GUIDE_RESAMPLE_DISTANCE_ONLY
             // Same distance-only gate as the horizontal/vertical passes -- see the define's comment in
             // rtgi_guide_resample.inl. cand_pos_depth.w is the candidate cell's raw depth (see the preload
-            // above), usable directly as calc_pixel_width_ws's `depth` param.
-            const float cand_pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, cand_pos_depth.w);
+            // above), usable directly as rtgi_half_res_pixel_width_ws's `half_res_depth` param.
+            const float cand_pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, cand_pos_depth.w);
             const bool valid = distance(world_position, cand_pos_depth.xyz) <= RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD * min(receiver_pixel_width_ws, cand_pixel_width_ws);
 #else
             const float3 cand_normal = uncompress_normal_octahedral_32(gs_guide_normal_oct[gs_idx.x][gs_idx.y]);

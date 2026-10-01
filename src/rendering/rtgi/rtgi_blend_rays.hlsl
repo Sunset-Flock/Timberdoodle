@@ -25,7 +25,7 @@ func entry_blend_rays(uint2 dtid : SV_DispatchThreadID)
     const CameraInfo camera = push.attach.globals.view_camera;
     // World-space pixel width at this depth — needed to convert raw ray hit distance to bounded shortness.
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
-    const float ws_px_size = calc_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
+    const float ws_px_size = rtgi_half_res_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
 
     const uint ray_offset  = push.attach.pixel_ray_alloc.get()[dtid];
     const uint ray_count   = push.attach.ray_count_image.get()[dtid];

@@ -101,10 +101,10 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
 
     const PixelData pixel = calc_pixel_data(dtid, inv_half_res_render_target_size, camera, push.attach.half_res_depth.get(), push.attach.half_res_normal.get());
-    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.ndc.z);
+    const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.depth_vs);
     const float pixel_width_ws_rcp = rcp(pixel_width_ws);
 
-    if (pixel.ndc.z == 0.0f)
+    if (pixel.depth_vs == 0.0f)
     {
         // Sky: no valid history. A negative sample count is a sentinel that lets the accumulation
         // pass early-out on sky by reading only the sample count image (no separate depth fetch).
@@ -158,23 +158,17 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
         // high quality geometric weights
         float4 surface_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         {
-            const float3 texel_ndc_prev_frame[4] = {
-                float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,0)) * inv_half_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[0]),
-                float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,0)) * inv_half_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[1]),
-                float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,1)) * inv_half_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[2]),
-                float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,1)) * inv_half_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[3]),
-            };
-            const float4 texel_ws_prev_frame_pre_div[4] = {
-                mul(previous_camera.inv_view_proj, float4(texel_ndc_prev_frame[0], 1.0f)),
-                mul(previous_camera.inv_view_proj, float4(texel_ndc_prev_frame[1], 1.0f)),
-                mul(previous_camera.inv_view_proj, float4(texel_ndc_prev_frame[2], 1.0f)),
-                mul(previous_camera.inv_view_proj, float4(texel_ndc_prev_frame[3], 1.0f)),
+            const float2 texel_ndc_prev_frame[4] = {
+                float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,0)) * inv_half_res_render_target_size * 2.0f - 1.0f,
+                float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,0)) * inv_half_res_render_target_size * 2.0f - 1.0f,
+                float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,1)) * inv_half_res_render_target_size * 2.0f - 1.0f,
+                float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,1)) * inv_half_res_render_target_size * 2.0f - 1.0f,
             };
             const float3 texel_ws_prev_frame[4] = {
-                texel_ws_prev_frame_pre_div[0].xyz / texel_ws_prev_frame_pre_div[0].w,
-                texel_ws_prev_frame_pre_div[1].xyz / texel_ws_prev_frame_pre_div[1].w,
-                texel_ws_prev_frame_pre_div[2].xyz / texel_ws_prev_frame_pre_div[2].w,
-                texel_ws_prev_frame_pre_div[3].xyz / texel_ws_prev_frame_pre_div[3].w,
+                rtgi_half_res_depth_to_world_space(*previous_camera, texel_ndc_prev_frame[0], depth_reprojected4[0]),
+                rtgi_half_res_depth_to_world_space(*previous_camera, texel_ndc_prev_frame[1], depth_reprojected4[1]),
+                rtgi_half_res_depth_to_world_space(*previous_camera, texel_ndc_prev_frame[2], depth_reprojected4[2]),
+                rtgi_half_res_depth_to_world_space(*previous_camera, texel_ndc_prev_frame[3], depth_reprojected4[3]),
             };
             surface_weights = {
                 calc_similar_surface_weight_dist_limited(pixel_width_ws_rcp, expected_world_position_prev_frame, pixel.normal_ws, texel_ws_prev_frame[0], other_face_normals[0], 2),

@@ -73,7 +73,7 @@ void shade_ray_gen(uint2 dtid)
     const float depth = push.attach.view_cam_half_res_depth.get()[dtid];
     const float2 pixel_index = float2(dtid.xy * 2u) + 0.5f;
     const CameraInfo camera = push.attach.globals.view_camera;
-    const float3 world_position = pixel_index_to_world_space(camera, pixel_index, depth);
+    const float3 world_position = rtgi_half_res_depth_to_world_space(camera, (pixel_index + 0.5f) * camera.inv_screen_size * 2.0f - 1.0f, depth);
     const float3 face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[dtid].r);
     const float3 primary_ray = normalize(world_position - push.attach.globals.view_camera.position);
             
@@ -111,7 +111,7 @@ void shade_ray_gen(uint2 dtid)
     float2 rr = float2(rand(), rand());
 
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
-    const float  ws_px_size = depth > 0.0f ? calc_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth) : 0.0f;
+    const float  ws_px_size = depth > 0.0f ? rtgi_half_res_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth) : 0.0f;
 
     // --- Determine this pixel's ray count (0 for sky) ---
     uint samples = 0u;
@@ -259,11 +259,11 @@ void ray_gen_from_list_body()
     let rtgi_settings = push.attach.globals.rtgi_settings;
     const CameraInfo camera   = push.attach.globals.view_camera;
     const float2 pixel_index  = float2(pixel_xy * 2u) + 0.5f;
-    const float3 world_pos    = pixel_index_to_world_space(camera, pixel_index, depth);
+    const float3 world_pos    = rtgi_half_res_depth_to_world_space(camera, (pixel_index + 0.5f) * camera.inv_screen_size * 2.0f - 1.0f, depth);
     const float3 face_normal  = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[pixel_xy].r);
     const float3 primary_ray  = normalize(world_pos - camera.position);
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
-    const float  ws_px_size   = calc_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
+    const float  ws_px_size   = rtgi_half_res_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
 
     const uint prime_shift0 = 257u;
     const uint prime_shift1 = 9629u;
@@ -402,11 +402,11 @@ void pioneer_ray_gen(uint2 pioneer_dtid)
 
     const CameraInfo camera = push.attach.globals.view_camera;
     const float2 pixel_index = float2(pixel_xy * 2u) + 0.5f;
-    const float3 world_position = pixel_index_to_world_space(camera, pixel_index, depth);
+    const float3 world_position = rtgi_half_res_depth_to_world_space(camera, (pixel_index + 0.5f) * camera.inv_screen_size * 2.0f - 1.0f, depth);
     const float3 face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[pixel_xy].r);
     const float3 primary_ray = normalize(world_position - camera.position);
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
-    const float ws_px_size = calc_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
+    const float ws_px_size = rtgi_half_res_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
 
     // Plain cosine sampling -- pioneer rays ARE the raw signal being gathered, so they must not guide
     // off anything themselves. Seeded per pixel+frame like the other paths' per-pixel seeds.

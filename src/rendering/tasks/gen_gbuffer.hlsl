@@ -8,6 +8,7 @@
 #include "../../shader_shared/geometry.inl"
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
+#include "../../shader_shared/rtgi.inl"
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenGbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
@@ -35,6 +36,7 @@ struct GenGbufferPush
 
 #if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
 #include "../../shader_lib/misc.hlsl"
+#include "../../shader_lib/depth_util.glsl"
 #include "../../shader_lib/visbuffer.hlsl"
 #include "../../shader_lib/shading.hlsl"
 
@@ -143,14 +145,20 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
         for (uint i = 0; i < 4; ++i)
             normals_ws[i] = uncompress_normal_octahedral_32(normals[i]);
 
-        // Pick the 2x2 representative (foreground normal-majority; see misc.hlsl).
-        const float depths_arr[4] = { depths[0], depths[1], depths[2], depths[3] };
-        const int best_depth_index = quad_downsample_representative(depths_arr);
+        // The half-res depth (only consumed by RTGI) is stored as linear view depth
+        // (infinite reversed-Z). Sky stays 0.
+        const float near_plane = push.attachments.globals->view_camera.near_plane;
+        float depths_vs[4];
+        [unroll]
+        for (uint i = 0; i < 4; ++i)
+            depths_vs[i] = depths[i] != 0.0f ? linearise_depth(depths[i], near_plane) : 0.0f;
 
-        float closest_depth = depths[best_depth_index];
+        // Pick the 2x2 representative (see misc.hlsl).
+        const int best_depth_index = quad_downsample_representative(depths_vs);
+
         uint closest_face_normal = normals[best_depth_index];
 
-        push.attachments.half_res_depth_image.get()[half_out_idx] = closest_depth;
+        push.attachments.half_res_depth_image.get()[half_out_idx] = depths_vs[best_depth_index];
         push.attachments.half_res_face_normal_image.get()[half_out_idx] = closest_face_normal;
     }
 }

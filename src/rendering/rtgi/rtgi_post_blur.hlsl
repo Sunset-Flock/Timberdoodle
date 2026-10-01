@@ -45,12 +45,12 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     const uint2 halfres_pixel_index = pixel_coord;
 
     const PixelData pixel = calc_pixel_data(pixel_coord, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.ndc.z);
+    const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.depth_vs);
     const float pixel_width_ws_rcp = rcp(pixel_width_ws);
 
     const float pixel_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[halfres_pixel_index]);
 
-    if (pixel.ndc.z == 0.0f)
+    if (pixel.depth_vs == 0.0f)
     {
         return;
     }
@@ -135,7 +135,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * extra_weight);
 
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
-        const bool is_sky = sample.ndc.z == 0.0f;
+        const bool is_sky = sample.depth_vs == 0.0f;
         if (!is_sky)
         {
             // Accumulate blurred diffuse
@@ -169,7 +169,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 // post_blur_use_lds. The filter radius is capped at RTGI_PB_LDS_RADIUS (the preloaded halo).
 static const int RTGI_PB_LDS_RADIUS = 16;
 static const int RTGI_PB_LDS_SPAN   = RTGI_POST_BLUR_X + RTGI_PB_LDS_RADIUS * 2; // 48 texels along the blur axis
-groupshared float4 gs_pb_pos_depth[RTGI_PB_LDS_SPAN][RTGI_POST_BLUR_Y]; // .xyz = world-space position, .w = ndc.z (0 == sky)
+groupshared float4 gs_pb_pos_depth[RTGI_PB_LDS_SPAN][RTGI_POST_BLUR_Y]; // .xyz = world-space position, .w = half-res depth (0 == sky)
 
 [shader("compute")]
 [numthreads(RTGI_POST_BLUR_X, RTGI_POST_BLUR_Y, 1)]
@@ -213,8 +213,7 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
         tex = clamp(tex, int2(0, 0), max_index);
         const float  d   = push.attach.view_cam_half_res_depth.get()[uint2(tex)];
         const float2 uv  = (float2(tex) + 0.5f) * inv_half_res_render_target_size;
-        const float4 ppd = mul(camera.inv_view_proj, float4(uv * 2.0f - 1.0f, d, 1.0f));
-        gs_pb_pos_depth[s][pp] = float4(ppd.xyz / ppd.w, d);
+        gs_pb_pos_depth[s][pp] = float4(rtgi_half_res_depth_to_world_space(camera, uv * 2.0f - 1.0f, d), d);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -227,7 +226,7 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
     // Center pixel via the shared helper. Per-tap samples in the loop still read their world position
     // straight from the LDS preload, so this is the only unproject on the blur-axis hot path.
     const PixelData pixel = calc_pixel_data(pixel_coord, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float  pixel_width_ws     = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, center_depth);
+    const float  pixel_width_ws     = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, center_depth);
     const float  pixel_width_ws_rcp = rcp(pixel_width_ws);
 
     const uint2 halfres_pixel_index = pixel_coord;
@@ -320,10 +319,10 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
     const uint2 pixel_index = dtid;
 
     const PixelData pixel = calc_pixel_data(dtid, inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_size, camera.near_plane, pixel.ndc.z);
+    const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, pixel.depth_vs);
     const float pixel_width_ws_rcp = rcp(pixel_width_ws);
 
-    if (pixel.ndc.z == 0.0f)
+    if (pixel.depth_vs == 0.0f)
         return;
 
     const float pixel_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[pixel_index]);
@@ -355,7 +354,7 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
             const int2 sample_index = clamp(raw_index, int2(0, 0), int2(push.size) - 1);
 
             const PixelData sample = calc_pixel_data(uint2(sample_index), inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-            if (sample.ndc.z == 0.0f) continue;
+            if (sample.depth_vs == 0.0f) continue;
 
             const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
             const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
