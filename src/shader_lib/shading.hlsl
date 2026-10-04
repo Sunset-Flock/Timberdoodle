@@ -12,6 +12,7 @@
 #include "shader_lib/geometry.hlsl"
 #include "shader_lib/pgi.hlsl"
 #include "shader_lib/lights.hlsl"
+#include "shader_lib/brdf.hlsl"
 #include "../rendering/path_trace/kajiya/math_const.hlsl"
 
 // DO NOT INCLUDE VSM SHADING NOR RAY TRACED SHADING HEADERS HERE!
@@ -55,6 +56,34 @@ func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals
         ret.albedo *= diffuse_fetch.rgb;
         ret.alpha = diffuse_fetch.a;
     }
+
+    ret.roughness = material.roughness_factor;
+    ret.metalness = material.metalness_factor;
+    if (!material.roughnes_metalness_id.is_empty())
+    {
+        // glTF metallic-roughness texture: G = roughness, B = metalness.
+        float4 rm_fetch = float4(0,0,0,0);
+        if (SHADING_QUALITY > SHADING_QUALITY_LOW)
+        {
+            rm_fetch = Texture2D<float4>::get(material.roughnes_metalness_id).SampleGrad(globals.samplers.linear_repeat_ani.get(), tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy);
+        }
+        else
+        {
+            rm_fetch = Texture2D<float4>::get(material.roughnes_metalness_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), tri_point.uv, 8.0f);
+        }
+        ret.roughness *= rm_fetch.g;
+        ret.metalness *= rm_fetch.b;
+    }
+    ret.metalness = saturate(ret.metalness + globals.rtgi_settings.specular_additive_metalness);
+
+    if (globals.rtgi_settings.specular_upward_gloss > 0.0f)
+    {
+        const float upness = saturate(tri_point.world_normal.z);
+        ret.roughness *= 1.0f - globals.rtgi_settings.specular_upward_gloss * upness * upness;
+    }
+    ret.roughness *= 1.0f - saturate(globals.rtgi_settings.specular_total_gloss);
+    // Gloss cap, applied after upward gloss so it bounds the final roughness.
+    ret.roughness = clamp(ret.roughness, 1.0f - globals.rtgi_settings.specular_max_gloss, 1.0f);
 
     if (SHADING_QUALITY > SHADING_QUALITY_LOW)
     {
@@ -176,19 +205,21 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     material_point.normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
 
     float3 diffuse_light = float3(0,0,0);
+    float3 specular_light = float3(0,0,0);
+    const float3 specular_f0 = brdf_specular_f0(material_point.albedo, material_point.metalness);
 
     float3 atmo_position = get_atmo_position(globals);
 
     // Sun Shading
     {
-        float sun_visibility = max(0.0f, dot(material_point.geometry_normal, globals.sky_settings.sun_direction));
-
-        if (sun_visibility > 0.0f)
+        const float sun_nol = max(0.0f, dot(material_point.geometry_normal, globals.sky_settings.sun_direction));
+        float sun_shadow = 0.0f;
+        if (sun_nol > 0.0f)
         {
-            sun_visibility *= light_visibility.sun_light(material_point, incoming_ray);
+            sun_shadow = light_visibility.sun_light(material_point, incoming_ray);
         }
 
-        if (sun_visibility > 0.0f)
+        if (sun_shadow > 0.0f)
         {
             float3 sun_light = get_sun_direct_lighting(
                 globals,
@@ -197,7 +228,8 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 globals.sky_settings.sun_direction,
                 atmo_position
             );
-            diffuse_light += sun_light * sun_visibility;
+            diffuse_light += sun_light * sun_nol * sun_shadow;
+            specular_light += sun_light * sun_shadow * brdf_ggx_specular_nol(material_point.normal, -incoming_ray, globals.sky_settings.sun_direction, specular_f0, material_point.roughness);
         }
     }
 
@@ -273,7 +305,8 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     }
 
     const float3 emissive = globals.settings.enable_emissives != 0 ? material_point.emissive : float3(0, 0, 0);
-    return float4(material_point.albedo * M_FRAC_1_PI * diffuse_light + emissive, material_point.alpha);
+    const float3 diffuse_color = brdf_diffuse_color(material_point.albedo, material_point.metalness);
+    return float4(diffuse_color * M_FRAC_1_PI * diffuse_light + specular_light + emissive, material_point.alpha);
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;

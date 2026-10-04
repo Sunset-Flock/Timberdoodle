@@ -78,6 +78,8 @@ struct MaterialManifestEntry
     bool alpha_dirty = {};
     f32vec3 base_color = {};
     f32vec3 emissive_color = {};
+    f32 roughness_factor = 1.0f;
+    f32 metalness_factor = 0.0f;
     std::string name = {};
 };
 

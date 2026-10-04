@@ -9,20 +9,6 @@
 
 [[vk::push_constant]] RtgiDistributeRaysPush rtgi_distribute_rays_push;
 
-// Discretionary ray distribution weighting (draining path):
-//   1 = squared deficit (disc_i^2) — strongly prefers the freshest disocclusions.
-//   0 = linear deficit (disc_i) — near-flat split across all under-converged pixels.
-#define RTGI_RAY_PRIORITY_SQUARED 1
-
-uint ray_priority_weight(uint disc_i)
-{
-#if RTGI_RAY_PRIORITY_SQUARED
-    return disc_i * disc_i;
-#else
-    return disc_i;
-#endif
-}
-
 // == Groupshared state =======================================================
 // One workgroup covers exactly one 8×8 tile.
 static const uint TILE_THREADS = RTGI_DISTRIBUTE_RAYS_X * RTGI_DISTRIBUTE_RAYS_Y; // 64
@@ -46,8 +32,10 @@ uint bayer_8x8(uint x, uint y)
     return 16u * bayer_m2(x, y) + 4u * bayer_m2(x >> 1u, y >> 1u) + bayer_m2(x >> 2u, y >> 2u);
 }
 
-groupshared uint gs_desired[TILE_THREADS]; // desired total rays per thread (0=sky/oob, 1+=geo)
-groupshared uint gs_actual[TILE_THREADS];  // rays allocated to each thread after budgeting
+groupshared uint gs_desired[TILE_THREADS]; // desired total rays (diffuse + specular) per thread (0=sky/oob)
+groupshared uint gs_desired_specular[TILE_THREADS]; // the specular part of gs_desired
+groupshared uint gs_actual[TILE_THREADS];  // rays allocated to each thread after budgeting (diffuse + specular)
+groupshared uint gs_actual_specular[TILE_THREADS]; // the specular part of gs_actual
 groupshared uint gs_offset[TILE_THREADS];  // exclusive prefix sum of gs_actual within the tile
 groupshared uint gs_base_offset;           // global ray list offset reserved for this tile
 groupshared uint gs_tile_total;            // total rays allocated to this tile (for per-tile debug viz)
@@ -75,8 +63,15 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
         reprojected_sample_count = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[pixel_xy]);
 
     const bool is_geo = in_bounds && reprojected_sample_count >= 0.0f; // sky has reprojected_sample_count < 0
-    const uint desired_total = is_geo ? calc_desired_ray_count(reprojected_sample_count, rtgi_settings.fast_convergence_samples) : 0u;
-    gs_desired[slot] = desired_total;
+    RtgiRayDemand demand = { 0u, 0u };
+    if (is_geo)
+    {
+        const float2 impact_factors = push.attach.ray_impact.get()[pixel_xy];
+        const RtgiRayImpact impact = { impact_factors.x, impact_factors.y };
+        demand = rtgi_calc_ray_demand(reprojected_sample_count, push.attach.specular_sample_count.get()[pixel_xy], impact, rtgi_settings);
+    }
+    gs_desired[slot] = demand.diffuse + demand.specular;
+    gs_desired_specular[slot] = demand.specular;
 
     GroupMemoryBarrierWithGroupSync();
 
@@ -106,15 +101,17 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
 
         if (!rtgi_settings.use_ray_redistribution)
         {
-            // Redistribution off: every geometry pixel traces the exact same fixed number of rays,
-            // max(floor(ray_budget), 1), with no demand weighting, tile proportionality, or rotation.
-            const uint fixed_rays = calc_fixed_rays_per_pixel(ray_pct);
+            // Redistribution off: every geometry pixel traces the exact same fixed number of rays
+            // (calc_fixed_ray_split), with no demand weighting, tile proportionality, or rotation.
             uint lane_sum = 0u;
             for (uint e = 0u; e < epl; ++e)
             {
                 const uint i = lane * epl + e;
-                const uint actual_i = gs_desired[i] > 0u ? fixed_rays : 0u;
+                uint fixed_total, fixed_specular;
+                calc_fixed_ray_split(ray_pct, gs_desired_specular[i] > 0u, fixed_total, fixed_specular);
+                const uint actual_i = gs_desired[i] > 0u ? fixed_total : 0u;
                 gs_actual[i] = actual_i;
+                gs_actual_specular[i] = gs_desired[i] > 0u ? fixed_specular : 0u;
                 lane_sum += actual_i;
             }
             const uint lane_base = WavePrefixSum(lane_sum); // exclusive prefix of block totals
@@ -129,33 +126,45 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
         }
         else
         {
-            // Redistribution on: a BASE distribution + an EXTRA distribution, both drained by the SAME
-            // global fraction so the base coverage is uniform across the whole screen.
+            // Redistribution on: a BASE distribution + an EXTRA distribution under one hard budget.
             //
-            //  * global_ratio = fraction of ALL demand the frame budget can afford. A converged region
-            //    (only base demand) is drained by exactly this factor: if the screen can afford 2/3 of the
-            //    rays, ~2/3 of converged pixels get their base ray.
+            //  * BASE: the request is min_ray_budget per signal per pixel. That coverage is paid first, at a
+            //    uniform fraction across the whole screen (every tile gives the same fraction of its pixels a
+            //    base ray, Bayer dithered).
             //
-            //  * BASE: every tile drains its base rays by that SAME global_ratio — a busy tile gives the
-            //    same fraction of its pixels a base ray as a converged tile does (uniform base coverage,
-            //    no tile getting full base coverage just because it also requested extras).
+            //  * EXTRA: the rest of the budget, at a uniform fraction of each tile's extra demand, distributed
+            //    within the tile by linear extra demand (freshest pixels get the most) ON TOP of the base rays.
             //
-            //  * EXTRA: the surplus (desired-1 per pixel), ALSO scaled by global_ratio, distributed by
-            //    SQUARED deficit weight (freshest disocclusions win) and added ON TOP of the base rays.
-            //
-            // So a heavily-disoccluded tile still drains converged tiles across the screen (its extras pull
-            // from the shared budget), but WITHIN any tile the base rays are never over-drained to feed the
-            // extras — base and extra are separately budgeted, both at the uniform global fraction.
+            //  * Whatever the extras leave raises the base coverage above min_ray_budget (up to full coverage),
+            //    so a converged screen still spends its budget on base rays.
             const uint frame = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0u;
             const float min_budget = clamp(rtgi_settings.min_ray_budget, 0.0f, 1.0f);
 
             const uint total_halfres = push.size.x * push.size.y;
-            const uint total_budget  = uint(float(total_halfres) * max(ray_pct, min_budget));
+            const uint total_budget  = rtgi_hard_ray_budget(push.size, rtgi_settings);
             const uint total_geo     = push.attach.ray_counters->total_geo_rays;
             const uint total_extra   = push.attach.ray_counters->total_extra_rays;
             const uint total_desired = total_geo + total_extra;
-            // Global affordable fraction of ALL demand — the uniform drain factor applied to base AND extra.
-            const float global_ratio = float(total_budget) / float(total_desired + 1u);
+            if (all(gid == uint2(0, 0)) && lane == 0u)
+            {
+                // Base request = min_ray_budget per signal per pixel (see the drain below).
+                push.attach.globals.readback.rtgi_requested_base_rays = uint(float(total_geo) * min_budget + 0.5f);
+                push.attach.globals.readback.rtgi_requested_extra_rays = total_extra;
+                push.attach.globals.readback.rtgi_ray_budget = total_budget;
+            }
+            // HARD budget: the frame never shoots more than total_budget rays. The base REQUEST is only
+            // min_ray_budget per signal per pixel: that much base coverage is paid first, the extras get the rest
+            // of the budget, and whatever the extras leave raises the base coverage above min_ray_budget (up to
+            // full). The base dither can round up by one pixel (<= 2 rays) per tile, so that slack is reserved up
+            // front; every other step rounds down.
+            const uint tile_count = (push.size.x / RTGI_DISTRIBUTE_RAYS_X) * (push.size.y / RTGI_DISTRIBUTE_RAYS_Y);
+            const uint split_budget = total_budget > 2u * tile_count ? total_budget - 2u * tile_count : 0u;
+            const float min_base_spend = min(float(total_geo) * min_budget, float(split_budget));
+            const float global_extra_ratio = total_extra > 0u ? saturate((float(split_budget) - min_base_spend) / float(total_extra)) : 0.0f;
+            const float extra_spend = float(total_extra) * global_extra_ratio;
+            const float global_base_frac = total_geo > 0u
+                ? min(min(max((float(split_budget) - extra_spend) / float(total_geo), min_budget), 1.0f), float(split_budget) / float(total_geo))
+                : 0.0f;
             const uint tile_id = gid.y * (push.size.x / RTGI_DISTRIBUTE_RAYS_X) + gid.x;
 
             // Branch is wave-uniform (all inputs uniform), so the wave intrinsics below run in uniform flow.
@@ -168,6 +177,7 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
                     const uint i = lane * epl + e;
                     const uint actual_i = gs_desired[i];
                     gs_actual[i] = actual_i;
+                    gs_actual_specular[i] = gs_desired_specular[i];
                     lane_sum += actual_i;
                 }
                 const uint lane_base = WavePrefixSum(lane_sum);
@@ -182,32 +192,31 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
             }
             else
             {
-                // Draining path: base and extra each drained by the SAME global_ratio (uniform base
-                // coverage across the screen), extra added on top.
+                // Draining path: base at the uniform global_base_frac (>= min_ray_budget), extra at the uniform
+                // global_extra_ratio, added on top.
                 //   base_i  = 1 for a geo pixel (weight is uniform -> an even split of the base budget).
-                //   extra_i = desired - 1  (weight is extra_i^2 -> squared-deficit priority).
-                // Reduction: geo-pixel count (base demand), extra demand, squared-extra weight.
+                //   extra_i = desired - 1  (weight is extra_i -> linear deficit priority).
+                // Reduction: geo-pixel count (base demand), extra demand, extra weight.
                 uint lane_base_cnt = 0u; // geo pixels in this lane's block (== base demand + base weight)
                 uint lane_extra_d  = 0u; // sum of extra_i        (sizes the extra budget)
-                uint lane_extra_w  = 0u; // sum of extra_i^2      (priority weight)
+                uint lane_extra_w  = 0u; // sum of extra_i        (priority weight, linear)
                 for (uint e = 0u; e < epl; ++e)
                 {
                     const uint i = lane * epl + e;
                     const uint d = gs_desired[i];
-                    const uint base_i  = d > 0u ? 1u : 0u;
-                    const uint extra_i = d - base_i; // 0 for sky, desired-1 for geo
+                    const uint base_i  = d > 0u ? (1u + (gs_desired_specular[i] > 0u ? 1u : 0u)) : 0u; // 1 base ray per signal
+                    const uint extra_i = d - base_i; // 0 for sky, desired-base for geo
                     lane_base_cnt += base_i;
                     lane_extra_d  += extra_i;
-                    lane_extra_w  += ray_priority_weight(extra_i);
+                    lane_extra_w  += extra_i;
                 }
                 const uint tile_base_cnt  = WaveActiveSum(lane_base_cnt);
                 const uint tile_extra_dem = WaveActiveSum(lane_extra_d);
                 const uint tile_extra_wgt = WaveActiveSum(lane_extra_w);
-                // Both budgets scaled by the SAME global fraction: base coverage is uniform across tiles,
-                // extra is the surplus added on top. Each capped at its own demand.
-                // Base coverage floored at min_ray_budget so every tile always gets at least that rate.
-                const uint tile_base_budget  = min(uint(float(tile_base_cnt)  * max(global_ratio, min_budget)), tile_base_cnt);
-                const uint tile_extra_budget = min(uint(float(tile_extra_dem) * global_ratio), tile_extra_dem);
+                // Base: uniform coverage fraction across tiles (floored at min_ray_budget). Extra: what the base
+                // leaves of the hard budget, at a uniform fraction of the extra demand. Each capped at its demand.
+                const uint tile_base_budget  = min(uint(float(tile_base_cnt)  * global_base_frac), tile_base_cnt);
+                const uint tile_extra_budget = min(uint(float(tile_extra_dem) * global_extra_ratio), tile_extra_dem);
 
                 // BASE distribution: ordered-dither (Bayer) threshold. A pixel gets its base ray when its
                 // Bayer rank falls under the tile's base fraction — spatially EVEN at any fraction, and a
@@ -216,7 +225,7 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
                 const float base_frac = tile_base_cnt > 0u ? float(tile_base_budget) / float(tile_base_cnt) : 0.0f;
                 const float base_dither_rot = frac(float(frame) * 0.61803398875f);
 
-                // EXTRA distribution: unchanged cumulative squared-deficit scan (phase rotates per frame/tile).
+                // EXTRA distribution: cumulative linear-deficit scan (phase rotates per frame/tile).
                 const float extra_phase = frac(float(frame) * 0.61803398875f + float(tile_id) * 0.7548776662f + 0.5f);
                 const float inv_extra_w = tile_extra_wgt > 0u ? rcp(float(tile_extra_wgt)) : 0.0f;
                 const float extra_budget_f = float(tile_extra_budget);
@@ -232,18 +241,20 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
                 {
                     const uint i = lane * epl + e;
                     const uint d = gs_desired[i];
-                    const uint base_i  = d > 0u ? 1u : 0u;
+                    const uint d_spec = gs_desired_specular[i];
+                    const uint base_i  = d > 0u ? (1u + (d_spec > 0u ? 1u : 0u)) : 0u;
                     const uint extra_i = d - base_i;
 
                     // BASE: ordered-dither threshold on the pixel's Bayer rank -> spatially even (checkerboard
                     // at 0.5). One base ray if the (frame-rotated) rank is under the tile's base fraction.
                     const uint2 px = tile_slot_to_pixel(i);
                     const float bayer = float(bayer_8x8(px.x, px.y)) * (1.0f / 64.0f);
-                    const uint base_alloc = (base_i > 0u && frac(bayer + base_dither_rot) < base_frac) ? 1u : 0u;
+                    const bool base_won = base_i > 0u && frac(bayer + base_dither_rot) < base_frac;
+                    const uint base_alloc = base_won ? base_i : 0u; // the pixel's base rays come as one unit
 
-                    // EXTRA: squared-deficit priority, cap at extra_i so a lone fresh disocclusion can't be
+                    // EXTRA: linear extra-demand priority, cap at extra_i so a lone fresh disocclusion can't be
                     // over-allocated. Any extra budget above a pixel's cap is left unspent.
-                    acc_extra_w += ray_priority_weight(extra_i);
+                    acc_extra_w += extra_i;
                     const uint target_extra = tile_extra_wgt > 0u
                         ? min(uint(saturate(float(acc_extra_w) * inv_extra_w) * extra_budget_f + extra_phase), tile_extra_budget)
                         : 0u;
@@ -252,6 +263,11 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
 
                     const uint actual_i = base_alloc + extra_alloc;
                     gs_actual[i] = actual_i;
+                    // Split: base = 1 ray per signal, extras by each signal's own deficit.
+                    RtgiRayDemand pixel_demand = { d - d_spec, d_spec };
+                    uint extra_diffuse, extra_specular;
+                    rtgi_split_extra_rays(extra_alloc, pixel_demand, extra_diffuse, extra_specular);
+                    gs_actual_specular[i] = (base_won && d_spec > 0u ? 1u : 0u) + extra_specular;
                     lane_actual += actual_i;
                 }
                 const uint lane_actual_base = WavePrefixSum(lane_actual);
@@ -284,17 +300,32 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
     // Hard capacity clamp: the ray list buffer holds exactly total_halfres entries. The budget math
     // keeps us within this, but guard the writes anyway so a rounding edge can never overflow the
     // buffer (which would be a GPU crash). Rays past capacity are simply dropped.
-    const uint ray_list_capacity = push.size.x * push.size.y * RTGI_RAY_LIST_CAPACITY_MUL;
+    // Also the HARD budget clamp when redistributing: rays past it are dropped (only ever a dither rounding remnant).
+    const uint ray_list_capacity = rtgi_ray_list_limit(push.size, rtgi_settings);
     uint clamped_count = my_count;
     if (my_offset >= ray_list_capacity) clamped_count = 0u;
     else if (my_offset + my_count > ray_list_capacity) clamped_count = ray_list_capacity - my_offset;
 
     if (in_bounds)
     {
-        // Write the ray-list offset and the per-pixel ray count (the count is the single source of truth,
-        // consumed by the blend pass and the pre-filter/temporal passes).
+        // Write the ray-list offset and the per-pixel ray counts (the counts are the single source of truth,
+        // consumed by the trace, blend, pre-filter and temporal passes). Entries: diffuse first, then specular.
+        const uint my_count_specular = min(gs_actual_specular[slot], my_count);
+        const uint diffuse_count  = min(my_count - my_count_specular, clamped_count);
+        const uint specular_count = clamped_count - diffuse_count;
+        {
+            // Statistics: rays actually put into the ray list, per signal.
+            const uint wave_diffuse = WaveActiveSum(diffuse_count);
+            const uint wave_specular = WaveActiveSum(specular_count);
+            if (WaveIsFirstLane())
+            {
+                InterlockedAdd(push.attach.ray_counters->shot_diffuse_rays, wave_diffuse);
+                InterlockedAdd(push.attach.ray_counters->shot_specular_rays, wave_specular);
+            }
+        }
         push.attach.pixel_ray_alloc.get()[pixel_xy] = my_offset;
-        push.attach.ray_count_image.get()[pixel_xy] = clamped_count;
+        push.attach.ray_count_image.get()[pixel_xy] = diffuse_count;
+        push.attach.specular_ray_count_image.get()[pixel_xy] = specular_count;
 
         // Write one ray list entry per allocated ray for this pixel.
         const uint packed_xy = pixel_xy.x | (pixel_xy.y << 16u);
@@ -309,12 +340,32 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
         const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
         // Per-tile: total rays for this 8x8 tile, normalized by the tile's max capacity.
         const float max_tile_rays = float(TILE_THREADS * RTGI_RAY_LIST_CAPACITY_MUL);
-        if (debug_mode == DEBUG_DRAW_MODE_RTGI_RAYS_SHOT)
+        // Per-pixel views: normalized by the per-pixel request cap (full heat = a pixel got max_rays_per_pixel rays).
+        const float inv_max_pixel_rays = rcp(float(max(rtgi_settings.max_rays_per_pixel, rtgi_settings.specular_enabled != 0 ? 2 : 1))); // same floor as rtgi_calc_ray_demand
+        if (debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_RAYS_SHOT)
         {
-            write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(Heatmap(float(clamped_count) / 8), debug_alpha), 2);
+            write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(Heatmap(float(diffuse_count) * inv_max_pixel_rays), debug_alpha), 2);
         }
-        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE)
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_SHOT)
         {
+            // All rays (diffuse + specular).
+            write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(Heatmap(float(clamped_count) * inv_max_pixel_rays), debug_alpha), 2);
+        }
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_RAYS_SHOT)
+        {
+            write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(Heatmap(float(specular_count) * inv_max_pixel_rays), debug_alpha), 2);
+        }
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_PER_TILE || debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_RAYS_PER_TILE || debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_RAYS_PER_TILE)
+        {
+            // Tile sums per signal from the groupshared allocation (debug only, so the serial loop is fine).
+            uint tile_specular = 0u;
+            for (uint t = 0u; t < TILE_THREADS; ++t)
+            {
+                tile_specular += min(gs_actual_specular[t], gs_actual[t]);
+            }
+            const uint tile_rays = debug_mode == DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_PER_TILE ? gs_tile_total
+                : debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_RAYS_PER_TILE ? tile_specular
+                : gs_tile_total - min(tile_specular, gs_tile_total);
             // The overlay below is drawn directly into a fixed screen rect (two 64x64 patches at y in
             // [64,128)). write_debug_image floods the whole per-tile heatmap into one screen quadrant, which
             // would clobber that rect whenever debug_visualization_tile targets the top-left quadrant. So
@@ -326,7 +377,7 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
             const uint2 flood_dst = uint2(tile_slot % 4, tile_slot / 4) * slot_size + pixel_xy / 2u; // scale 2 => /4*2 == /2
             const bool  flood_hits_overlay = flood_dst.x < (2u * 64u + 8u) && flood_dst.y >= 64u && flood_dst.y < 128u;
             if (!flood_hits_overlay)
-                write_debug_image(dbg, tile_slot, pixel_xy, float4(Heatmap(float(gs_tile_total) / max_tile_rays), debug_alpha), 2);
+                write_debug_image(dbg, tile_slot, pixel_xy, float4(Heatmap(float(tile_rays) / max_tile_rays), debug_alpha), 2);
 
             // HACK: ray-allocation priority overlay for a SINGLE tile (0,0), magnified 8x into the
             // top-left of the screen (each of the 64 tile-pixels -> one 8x8 debug block => a 64x64 patch).

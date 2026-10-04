@@ -25,11 +25,18 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, firefly_factor_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, perceptual_radiance_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, ao_guide_image)
+// Specular channel: per-ray specular results, per-pixel log-mean + hit distance (firefly ceiling input) and
+// the pre-filtered output (.rgb = firefly-clamped mean specular radiance, .a = mean hit distance).
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_ray_count_image) // specular rays follow the pixel's diffuse rays in ray_result
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, specular_perceptual_rgb_hit)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, pre_filtered_specular_image)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, view_cam_half_res_normal_roughness)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayCounters), ray_counters) // statistics -> general readback
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, specular_firefly_factor_image) // specular energy_pre / energy_post of the firefly clamp
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiPreFilterPush
 {
-    RtgiPreFilterH::AttachmentShaderBlob attach;
-    daxa_u64 _pad_attach;
+    daxa_BufferPtr(RtgiPreFilterH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
 };

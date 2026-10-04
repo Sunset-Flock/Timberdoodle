@@ -36,6 +36,23 @@ struct ReadbackValues
     daxa_u32 drawn_point_spot_pages;
     daxa_u32 drawn_directional_pages;
 
+    // Written by RTGI distribute rays (repacked dispatch) / classic trace: this frame's ray demand and budget
+    daxa_u32 rtgi_requested_base_rays;   // 1 per signal per geometry pixel
+    daxa_u32 rtgi_requested_extra_rays;  // deficit-driven extras (after the visual impact scaling)
+    daxa_u32 rtgi_ray_budget;
+    // Written by the RTGI pre-filter from the ray counters: per-signal requested / shot rays this frame.
+    daxa_u32 rtgi_requested_diffuse_rays;
+    daxa_u32 rtgi_requested_specular_rays;
+    daxa_u32 rtgi_shot_diffuse_rays;
+    daxa_u32 rtgi_shot_specular_rays;
+    // Written by the RTGI upscale from the ray counters: summed per-pixel convergence (fixed point, RTGI_CONVERGENCE_SCALE)
+    // and the number of geometry pixels it was summed over.
+    daxa_u32 rtgi_convergence_diffuse_sum;
+    daxa_u32 rtgi_convergence_specular_sum;
+    daxa_u32 rtgi_convergence_pixels;
+    daxa_u32 rtgi_convergence_histogram_diffuse[16];  // pixels per history / max history bucket (16 equal buckets)
+    daxa_u32 rtgi_convergence_histogram_specular[16];
+
     // General debug values
     daxa_f32vec4 debug_value;
 };

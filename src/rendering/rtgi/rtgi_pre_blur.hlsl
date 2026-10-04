@@ -77,6 +77,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     {
         push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index]  = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
         push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index].rg;
+        push.attach.rtgi_specular_blurred.get()[halfres_pixel_index] = push.attach.rtgi_specular_before.get()[halfres_pixel_index];
         return;
     }
 
@@ -134,6 +135,30 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     float4 blurred_accum = push.attach.rtgi_diffuse_before.get()[dtid.xy] * weight_accum;
     float2 blurred_accum2 = push.attach.rtgi_diffuse2_before.get()[dtid.xy].rg * weight_accum;
 #endif
+
+    // === Specular: rides along the SAME taps ===
+    // No separate kernel: specular uses the diffuse tap points and only drops the ones outside its own radius,
+    // which follows the reflected lobe footprint (roughness x hit distance, so mirrors and contact reflections stay
+    // sharp). A narrow lobe therefore keeps only the inner taps (down to the center pixel alone), a wide one keeps
+    // all of them; the radius never reaches beyond the diffuse disc. Taps are weighted by geometry + detail-normal
+    // + roughness similarity, plus the shared General guides: the AO radius scaling (scales the specular radius
+    // too), ray count sample weighting (specular ray counts) and firefly energy compensation (iteration 0, the
+    // specular clamp's own energy factor in the WEIGHT, same reasoning as diffuse). The perceptual difference
+    // guide stays diffuse-only. Plain weighted average (no RIS): the specular signal is view dependent, so one
+    // tap's direction must not be reused for the whole kernel.
+    const float4 center_spec = push.attach.rtgi_specular_before.get()[dtid];
+    const uint center_normal_roughness = push.attach.specular_normal_roughness.get()[dtid];
+    const float spec_roughness = unpack_normal_roughness_roughness(center_normal_roughness);
+    const float3 spec_normal = unpack_normal_roughness_normal(center_normal_roughness);
+    const bool spec_blur_enabled = rtgi_settings.specular_enabled != 0 && rtgi_settings.specular_pre_blur_scale > 0.0f;
+    const float spec_radius = spec_blur_enabled
+        ? rtgi_specular_blur_radius_px(spec_roughness, center_spec.a, pixel_width_ws, (float)rtgi_settings.pre_blur_base_width) * rtgi_settings.specular_pre_blur_scale * ao_guide_radius_scale
+        : 0.0f;
+    const float center_spec_weight =
+        (firefly_energy_compensation_allowed ? push.attach.specular_firefly_factor_image.get()[dtid.xy] : 1.0f) *
+        (ray_count_sample_weighting ? max(1.0f, float(push.attach.specular_ray_count_image.get()[dtid.xy])) : 1.0f);
+    float  spec_weight_acc = center_spec_weight;
+    float4 spec_acc = center_spec * center_spec_weight;
 
     const uint poisson_offset = rtgi_settings.animate_noise ? (uint(push.attach.globals.trunk_flt_frame_index) & 7u) : 0u;
     for (uint s = 0; s < samples - 1; ++s)
@@ -218,6 +243,22 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
             valid_sample_count += geometric_weight > 0.0f;
         }
 #endif
+
+        // Specular: this tap counts only while it lies inside the specular radius (1 px soft edge, so a radius
+        // that changes over time fades taps in / out instead of popping).
+        const float tap_distance_px = length(disc_noise) * blur_radius;
+        const float spec_coverage = saturate(spec_radius + 0.5f - tap_distance_px);
+        if (spec_coverage > 0.0f && !is_sky && !out_of_bounds)
+        {
+            const uint sample_normal_roughness = push.attach.specular_normal_roughness.get()[sample_index];
+            const float spec_firefly_power = firefly_energy_compensation_allowed ? push.attach.specular_firefly_factor_image.get()[sample_index] : 1.0f;
+            const float spec_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.specular_ray_count_image.get()[sample_index])) : 1.0f;
+            const float w = spec_coverage * geometric_weight * spec_firefly_power * spec_ray_count_weight *
+                rtgi_specular_normal_weight(spec_normal, unpack_normal_roughness_normal(sample_normal_roughness), spec_roughness) *
+                rtgi_specular_roughness_weight(spec_roughness, unpack_normal_roughness_roughness(sample_normal_roughness));
+            spec_acc += push.attach.rtgi_specular_before.get()[sample_index] * w;
+            spec_weight_acc += w;
+        }
     }
 
 #if RTGI_PRE_BLUR_SPATIAL_RESTIR
@@ -235,4 +276,8 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = blurry_sh_y;
     push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = blurry_cocg;
+
+    // === Specular: finish (taps were gathered in the shared loop above) ===
+    const float4 blurred_spec = spec_acc * rcp(spec_weight_acc);
+    push.attach.rtgi_specular_blurred.get()[halfres_pixel_index] = blurred_spec;
 }

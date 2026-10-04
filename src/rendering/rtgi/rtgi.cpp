@@ -47,15 +47,44 @@ auto rtgi_default_settings() -> RtgiSettings
         .sh_resolve_enabled                   = 1,
         .pre_blur_firefly_energy_compensation_enabled  = 1,
         .animate_noise                        = 1,
-        .ray_percentage                       = 0.5f,
-        .min_ray_budget                       = 0.25f,
+        .ray_percentage                       = 0.6f, // diffuse + specular rays share this HARD budget (min_ray_budget base floor is paid from it)
+        .min_ray_budget                       = 0.125f,
+        .max_rays_per_pixel                   = 12,
         .use_repacked_ray_dispatch            = 1,
         .use_ray_redistribution               = 1,
         .trace_use_stbn                       = 0,
         .pioneer_guiding_enabled               = 1,
         .guide_concentration                   = 0.92f,
-        .guide_floor_pull_enabled              = 0,
         .guide_pioneer_trace_max_distance      = 256.0f,
+        .specular_enabled                      = 1,
+        .specular_firefly_perceptual_tolerance = 3.0f,
+        .specular_max_temporal_frames          = 32.0f,
+        .specular_pre_blur_scale               = 0.5f,
+        .specular_post_blur_scale              = 0.5f,
+        .specular_virtual_reprojection         = 1,
+        .specular_catrom_history               = 1,
+        .specular_upscale_detail_weighting     = 1,
+        .ray_share_slope                       = 2.0f, // squared radiance ratio
+        .ray_diffuse_metal_tolerance_stops     = 0.1f,
+        .ray_specular_roughness_cutoff_start   = 0.8f,
+        .ray_specular_roughness_cutoff_end     = 1.0f,
+        .specular_guide_mix                    = 0.5f,
+        .specular_upward_gloss                 = 0.0f,
+        .specular_total_gloss                  = 0.0f,
+        .specular_additive_metalness           = 0.0f,
+        .specular_reprojection_disagreement_strength = 1.0f,
+        .specular_fast_history_enabled         = 1,
+        .specular_temporal_accumulation_enabled = 1,
+        .specular_fast_convergence_samples     = 32.0f,
+        .specular_fast_history_frames          = 4,
+        .specular_temporal_firefly_filter_enabled = 1,
+        .specular_temporal_firefly_std_dev_clamp = 3.5f,
+        .specular_temporal_variance_fast_history_blend = 4.0f,
+        .specular_temporal_parallax_penalty_strength = 1.0f,
+        .specular_firefly_filter_enabled       = 1,
+        .specular_firefly_clamp_mode           = 0,
+        .specular_guide_concentration          = 0.92f,
+        .specular_max_gloss                    = 0.9f,
     };
 }
 #include "rtgi_pre_filter.inl"
@@ -184,7 +213,7 @@ inline void rtgi_post_blur_diffuse_callback(daxa::TaskInterface ti, RenderContex
             ? rtgi_post_blur_lds_compile_info().name
             : rtgi_post_blur_compile_info().name)));
     RtgiPostBlurPush push{.pass = pass};
-    push.attach = ti.attachment_shader_blob;
+    push.attach = ti.allocator->allocate_fill(RtgiPostBlurH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
     push.size = {dst_image_size.x, dst_image_size.y};
     ti.recorder.push_constant(push);
     if (pass == 0)
@@ -307,6 +336,12 @@ auto rtgi_create_diffuse2_image(daxa::TaskGraph & tg, RenderContext * render_con
     return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16_SFLOAT, scale_div, name));
 }
 
+// rgb = specular radiance, a = hit distance
+auto rtgi_create_specular_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
+{
+    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
+}
+
 auto rtgi_create_upscaled_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name)
 {
     return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, 1, name));
@@ -362,6 +397,32 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
         .name = "temporal_perceptual_radiance_history_persistent",
     });
+    // Specular history: .rgb radiance, .a hit distance; plus its own frame count (roughness-driven length).
+    auto half_res_specular_history = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "half_res_specular_history_persistent",
+    });
+    // Specular fast history: .x fast brightness mean, .y fast relative variance, .z fast frame count.
+    auto specular_fast_history = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "specular_fast_history_persistent",
+    });
+    auto specular_frames_history = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "specular_frames_history_persistent",
+    });
+    // Per-pixel specular ray stats: .rgb = mean log specular rgb (firefly ceiling input), .a = mean hit distance.
+    auto specular_perceptual_rgb_hit_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = half_res_image_size,
+        .name = "rtgi_specular_perceptual_rgb_hit_image",
+    });
 
     // Per-pixel: .rgb = geometric mean of the traced rays in log space (mean log rgb); .a = mean ray
     // shortness [0,1]. Feeds the pre-filter firefly ceiling / geometric mean (perceptual radiance inferred from
@@ -390,6 +451,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .format = daxa::Format::R8G8B8A8_UNORM,
         .size = half_res_image_size,
         .name = "rtgi_reproject_weights_image",
+    });
+
+    // Ray demand: extra ray factor per signal (.x diffuse, .y specular), written by reproject (rtgi_calc_ray_share).
+    auto ray_impact_image = info.tg.create_task_image({
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = half_res_image_size,
+        .name = "rtgi_ray_impact_image",
     });
 
     auto const pioneer_grid_size = daxa::Extent3D{
@@ -456,6 +524,18 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .size = sizeof(RtgiRayResult) * ray_list_capacity,
         .name = "rtgi_ray_result",
     });
+    // Single ray budget: a pixel's ray-list entries are [diffuse 0..n_d) then [specular 0..n_s). n_d lives in
+    // ray_count_image, n_s here. The reprojected specular history sample count drives the specular demand.
+    auto specular_ray_count_image = info.tg.create_task_image({
+        .format = daxa::Format::R8_UINT,
+        .size = half_res_image_size,
+        .name = "rtgi_specular_ray_count_image",
+    });
+    auto specular_sample_count_image = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = half_res_image_size,
+        .name = "rtgi_specular_sample_count_image",
+    });
     auto pixel_ray_alloc_image = info.tg.create_task_image({
         .format = daxa::Format::R32_UINT,
         .size = half_res_image_size,
@@ -476,9 +556,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .ray_counters = ray_counters_buffer,
                 .ray_list = ray_list_buffer,
                 .ray_result = ray_result_buffer,
+                .specular_ray_count_image = specular_ray_count_image,
+                .specular_sample_count = specular_sample_count_image,
+                .specular_perceptual_rgb_hit = specular_perceptual_rgb_hit_image,
                 .pixel_ray_alloc = pixel_ray_alloc_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                 .pioneer_hit_y = pioneer_hit_y_image,
                 .guide_sh_y = guide_sh_y_image,
                 .meshlet_instances = info.meshlet_instances,
@@ -496,6 +580,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .vsm_spot_lights = info.vsm_spot_lights,
                 .vsm_memory_block = info.vsm_memory_block,
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+                .ray_impact = ray_impact_image,
             })
             .executes(rtgi_trace_pioneer_callback, &info.render_context));
 
@@ -549,6 +634,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .reproject_corner = reproject_corner_image,
             .reproject_weights = reproject_weights_image,
             .ray_counters = ray_counters_buffer,
+            .specular_frames_history = specular_frames_history.previous(),
+            .specular_sample_count = specular_sample_count_image,
+            .half_res_albedo_metalness = info.view_cam_half_res_albedo_metalness,
+            .half_res_diffuse_history = half_res_diffuse_history.previous(),
+            .half_res_specular_history = half_res_specular_history.previous(),
+            .ray_impact = ray_impact_image,
+            .half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
         })
         .executes(rtgi_temporal_reproject_callback, &info.render_context));
 
@@ -567,9 +659,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .ray_counters = ray_counters_buffer,
                     .ray_list = ray_list_buffer,
                     .ray_result = ray_result_buffer,
+                    .specular_ray_count_image = specular_ray_count_image,
+                    .specular_sample_count = specular_sample_count_image,
+                    .specular_perceptual_rgb_hit = specular_perceptual_rgb_hit_image,
                     .pixel_ray_alloc = pixel_ray_alloc_image,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                    .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                     .pioneer_hit_y = pioneer_hit_y_image,
                     .guide_sh_y = guide_sh_y_image,
                     .meshlet_instances = info.meshlet_instances,
@@ -587,6 +683,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .vsm_spot_lights = info.vsm_spot_lights,
                     .vsm_memory_block = info.vsm_memory_block,
                     .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+                    .ray_impact = ray_impact_image,
                 })
                 .executes(rtgi_trace_diffuse_callback, &info.render_context, RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = false}));
     }
@@ -605,6 +702,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .ray_list         = ray_list_buffer,
                 .pixel_ray_alloc  = pixel_ray_alloc_image,
                 .ray_count_image  = ray_count_image,
+                .specular_sample_count = specular_sample_count_image,
+                .specular_ray_count_image = specular_ray_count_image,
+                .ray_impact = ray_impact_image,
             })
             .executes(rtgi_distribute_rays_callback, &info.render_context));
 
@@ -619,9 +719,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .ray_counters = ray_counters_buffer,
                 .ray_list = ray_list_buffer,
                 .ray_result = ray_result_buffer,
+                .specular_ray_count_image = specular_ray_count_image,
+                .specular_sample_count = specular_sample_count_image,
+                .specular_perceptual_rgb_hit = specular_perceptual_rgb_hit_image,
                 .pixel_ray_alloc = pixel_ray_alloc_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                 .pioneer_hit_y = pioneer_hit_y_image,
                 .guide_sh_y = guide_sh_y_image,
                 .meshlet_instances = info.meshlet_instances,
@@ -639,6 +743,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .vsm_spot_lights = info.vsm_spot_lights,
                 .vsm_memory_block = info.vsm_memory_block,
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+                .ray_impact = ray_impact_image,
             })
             .executes(rtgi_trace_from_list_callback, &info.render_context));
 
@@ -651,6 +756,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
                 .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
                 .ray_count_image      = ray_count_image,
+                .specular_ray_count_image = specular_ray_count_image,
+                .specular_perceptual_rgb_hit = specular_perceptual_rgb_hit_image,
             })
             .executes(rtgi_blend_rays_callback, &info.render_context));
     }
@@ -659,6 +766,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 
     auto pre_filtered_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_filtered_diffuse_image");
     auto pre_filtered_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_filtered_diffuse2_image");
+    auto pre_filtered_specular_image = rtgi_create_specular_image(info.tg, &info.render_context, "pre_filtered_specular_image");
     auto firefly_factor_image = info.tg.create_task_image({
         .format = daxa::Format::R16_SFLOAT,
         .size = {
@@ -668,6 +776,15 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "firefly_factor_image",
     });    
+    auto specular_firefly_factor_image = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = {
+            info.render_context.render_data.settings.render_target_size.x / 2,
+            info.render_context.render_data.settings.render_target_size.y / 2,
+            1,
+        },
+        .name = "specular_firefly_factor_image",
+    });
     auto perceptual_radiance_image = info.tg.create_task_image({
         .format = daxa::Format::R16_SFLOAT,
         .size = {
@@ -701,31 +818,43 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .firefly_factor_image = firefly_factor_image,
                 .perceptual_radiance_image = perceptual_radiance_image,
                 .ao_guide_image = ao_guide_image,
+                .specular_ray_count_image = specular_ray_count_image,
+                .specular_perceptual_rgb_hit = specular_perceptual_rgb_hit_image,
+                .pre_filtered_specular_image = pre_filtered_specular_image,
+                .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
+                .ray_counters = ray_counters_buffer,
+                .specular_firefly_factor_image = specular_firefly_factor_image,
             })
             .executes(rtgi_pre_filter_prepare_callback, &info.render_context));
 
     daxa::TaskImageView post_pre_blur_diffuse_image = daxa::NullTaskImage;
     daxa::TaskImageView post_pre_blur_diffuse2_image = daxa::NullTaskImage;
+    daxa::TaskImageView post_pre_blur_specular_image = daxa::NullTaskImage;
     if (info.render_context.render_data.rtgi_settings.pre_blur_enabled)
     {
         u32 const iterations = static_cast<u32>(info.render_context.render_data.rtgi_settings.pre_blur_iterations);
 
         auto pre_blurred_diffuse_ping = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_blurred_diffuse_ping");
         auto pre_blurred_diffuse2_ping = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_blurred_diffuse2_ping");
+        auto pre_blurred_specular_ping = rtgi_create_specular_image(info.tg, &info.render_context, "pre_blurred_specular_ping");
         daxa::TaskImageView pre_blurred_diffuse_pong = daxa::NullTaskImage;
         daxa::TaskImageView pre_blurred_diffuse2_pong = daxa::NullTaskImage;
+        daxa::TaskImageView pre_blurred_specular_pong = daxa::NullTaskImage;
         if (iterations >= 2)
         {
             pre_blurred_diffuse_pong = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_blurred_diffuse_pong");
             pre_blurred_diffuse2_pong = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_blurred_diffuse2_pong");
+            pre_blurred_specular_pong = rtgi_create_specular_image(info.tg, &info.render_context, "pre_blurred_specular_pong");
         }
 
         daxa::TaskImageView src_diffuse = pre_filtered_diffuse_image;
         daxa::TaskImageView src_diffuse2 = pre_filtered_diffuse2_image;
+        daxa::TaskImageView src_specular = pre_filtered_specular_image;
         for (u32 i = 0; i < iterations; ++i)
         {
             daxa::TaskImageView dst_diffuse = (i % 2 == 0) ? pre_blurred_diffuse_ping : pre_blurred_diffuse_pong;
             daxa::TaskImageView dst_diffuse2 = (i % 2 == 0) ? pre_blurred_diffuse2_ping : pre_blurred_diffuse2_pong;
+            daxa::TaskImageView dst_specular = (i % 2 == 0) ? pre_blurred_specular_ping : pre_blurred_specular_pong;
             info.tg.add_task(daxa::HeadTask<RtgiPreBlurH::Info>(std::string("RtgiPreBlur") + std::to_string(i))
                     .head_views(RtgiPreBlurH::Info::Views{
                         .globals = info.render_context.tgpu_render_data.view(),
@@ -741,13 +870,20 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .perceptual_radiance_image = perceptual_radiance_image,
                         .ao_guide_image = ao_guide_image,
                         .ray_count_image = ray_count_image,
+                        .rtgi_specular_before = src_specular,
+                        .rtgi_specular_blurred = dst_specular,
+                        .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
+                        .specular_firefly_factor_image = specular_firefly_factor_image,
+                        .specular_ray_count_image = specular_ray_count_image,
                     })
                     .executes(rtgi_pre_blur_diffuse_callback, &info.render_context, i));
             src_diffuse = dst_diffuse;
             src_diffuse2 = dst_diffuse2;
+            src_specular = dst_specular;
         }
         post_pre_blur_diffuse_image = src_diffuse;
         post_pre_blur_diffuse2_image = src_diffuse2;
+        post_pre_blur_specular_image = src_specular;
     }
 
     // Temporal Accumulation: reads the reprojection metadata to blend history with the new frame.
@@ -776,11 +912,28 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .perceptual_radiance_new = perceptual_radiance_image,
             .temporal_perceptual_radiance_accumulated = temporal_perceptual_radiance_history.current(),
             .temporal_perceptual_radiance_history = temporal_perceptual_radiance_history.previous(),
+            .specular_pre_blurred = post_pre_blur_specular_image,
+            .pre_filtered_specular_new = pre_filtered_specular_image,
+            .half_res_specular_accumulated = half_res_specular_history.current(),
+            .half_res_specular_history = half_res_specular_history.previous(),
+            .specular_frames_accumulated = specular_frames_history.current(),
+            .specular_frames_history = specular_frames_history.previous(),
+            .half_res_depth = info.view_cam_half_res_depth.current(),
+            .half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+            .half_res_depth_history = info.view_cam_half_res_depth.previous(),
+            .half_res_face_normals_history = info.view_cam_half_res_face_normals.previous(),
+            .specular_ray_count_image = specular_ray_count_image,
+            .half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
+            .half_res_normal_roughness_history = info.view_cam_half_res_normal_roughness.previous(),
+            .ray_counters = ray_counters_buffer,
+            .specular_fast_history_accumulated = specular_fast_history.current(),
+            .specular_fast_history_history = specular_fast_history.previous(),
         })
         .executes(rtgi_temporal_accumulate_callback, &info.render_context));
 
     auto rtgi_post_blur_diffuse_image = half_res_diffuse_history.current();
     auto rtgi_post_blur_diffuse2_image = half_res_diffuse2_history.current();
+    daxa::TaskImageView rtgi_post_blur_specular_image = half_res_specular_history.current();
     if (info.render_context.render_data.rtgi_settings.post_blur_enabled)
     {
         auto const & rtgi_settings = info.render_context.render_data.rtgi_settings;
@@ -789,6 +942,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             // Bilateral separable: horizontal then vertical pass
             auto rtgi_post_blur_pass0_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse_image");
             auto rtgi_post_blur_pass0_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse2_image");
+            auto rtgi_post_blur_pass0_specular_image = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_specular_image");
             info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlurHorizontal")
                     .head_views(RtgiPostBlurH::Info::Views{
                         .globals = info.render_context.tgpu_render_data.view(),
@@ -803,11 +957,15 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
                         .ao_guide_image = half_res_ao_guide_history.current(),
                         .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
+                        .rtgi_specular_before = half_res_specular_history.current(),
+                        .rtgi_specular_blurred = rtgi_post_blur_pass0_specular_image,
+                        .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                     })
                     .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
 
             rtgi_post_blur_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse_image");
             rtgi_post_blur_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse2_image");
+            rtgi_post_blur_specular_image = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_post_blur_specular_image");
             info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlurVertical")
                     .head_views(RtgiPostBlurH::Info::Views{
                         .globals = info.render_context.tgpu_render_data.view(),
@@ -822,6 +980,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
                         .ao_guide_image = half_res_ao_guide_history.current(),
                         .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
+                        .rtgi_specular_before = rtgi_post_blur_pass0_specular_image,
+                        .rtgi_specular_blurred = rtgi_post_blur_specular_image,
+                        .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                     })
                     .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
         }
@@ -832,20 +993,25 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 
             auto atrous_ping = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_atrous_ping");
             auto atrous_ping2 = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_atrous_ping2");
+            auto atrous_ping_spec = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_atrous_ping_spec");
             daxa::TaskImageView atrous_pong = daxa::NullTaskImage;
             daxa::TaskImageView atrous_pong2 = daxa::NullTaskImage;
+            daxa::TaskImageView atrous_pong_spec = daxa::NullTaskImage;
             if (iterations >= 2)
             {
                 atrous_pong = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_atrous_pong");
                 atrous_pong2 = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_atrous_pong2");
+                atrous_pong_spec = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_atrous_pong_spec");
             }
 
             daxa::TaskImageView src = half_res_diffuse_history.current();
             daxa::TaskImageView src2 = half_res_diffuse2_history.current();
+            daxa::TaskImageView src_spec = half_res_specular_history.current();
             for (u32 i = 0; i < iterations; ++i)
             {
                 daxa::TaskImageView dst  = (i % 2 == 0) ? atrous_ping  : atrous_pong;
                 daxa::TaskImageView dst2 = (i % 2 == 0) ? atrous_ping2 : atrous_pong2;
+                daxa::TaskImageView dst_spec = (i % 2 == 0) ? atrous_ping_spec : atrous_pong_spec;
                 info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>(std::string("RtgiAtrousPostBlur") + std::to_string(i))
                         .head_views(RtgiPostBlurH::Info::Views{
                             .globals = info.render_context.tgpu_render_data.view(),
@@ -860,17 +1026,23 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                             .rtgi_diffuse2_blurred = dst2,
                             .ao_guide_image = half_res_ao_guide_history.current(),
                             .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
+                            .rtgi_specular_before = src_spec,
+                            .rtgi_specular_blurred = dst_spec,
+                            .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                         })
                         .executes(rtgi_atrous_post_blur_callback, &info.render_context, i));
                 src = dst;
                 src2 = dst2;
+                src_spec = dst_spec;
             }
             rtgi_post_blur_diffuse_image = src;
             rtgi_post_blur_diffuse2_image = src2;
+            rtgi_post_blur_specular_image = src_spec;
         }
     }
 
     auto resolved_per_pixel_diffuse = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "resolved_per_pixel_diffuse");
+    auto resolved_per_pixel_specular = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "resolved_per_pixel_specular");
 
     info.tg.add_task(daxa::HeadTask<RtgiUpscaleDiffuseH::Info>()
             .head_views(RtgiUpscaleDiffuseH::Info::Views{
@@ -887,10 +1059,15 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_face_normals = info.view_cam_face_normals,
                 .view_camera_detail_normal_image = info.view_camera_detail_normal_image,
                 .diffuse_resolved = resolved_per_pixel_diffuse,
+                .specular_half_res = rtgi_post_blur_specular_image,
+                .specular_resolved = resolved_per_pixel_specular,
+                .specular_normal_roughness_half_res = info.view_cam_half_res_normal_roughness.current(),
+                .ray_counters = ray_counters_buffer,
             })
             .executes(rtgi_upscale_diffuse_callback, &info.render_context));
 
     return TasksRtgiMainResult{
         .opaque_diffuse = resolved_per_pixel_diffuse,
+        .opaque_specular = resolved_per_pixel_specular,
     };
 }

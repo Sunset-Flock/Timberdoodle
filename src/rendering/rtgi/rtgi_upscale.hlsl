@@ -9,12 +9,21 @@
 
 [[vk::push_constant]] RtgiUpscaleDiffusePush rtgi_upscale_diffuse_push;
 
+// Hack: where the specular upscale finds almost no matching half-res taps (total weight -> 0), the reflection
+// falls back to a LENIENT blend of the same 9 taps: tent x view-space distance falloff x a very soft detail
+// normal weight ((dot * 0.5 + 0.5)^2, never 0 for any orientation). No gloss weight, no non-directional cutoff.
+// Blends in linearly below RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK_WEIGHT (tent weights sum to 1 for a full match).
+#define RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK 1
+#define RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK_WEIGHT 0.1f
+
 #define GS_PRELOAD_WIDTH (RTGI_UPSCALE_DIFFUSE_X/2+2)
 groupshared float4 gs_half_diffuse_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float2 gs_half_diffuse2_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_vs_positions[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float gs_half_samplecount[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
+groupshared float4 gs_half_specular_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
+groupshared float4 gs_half_specular_normal_roughness[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH]; // .xyz specular normal, .w roughness
 
 [shader("compute")]
 [numthreads(RTGI_UPSCALE_DIFFUSE_X,RTGI_UPSCALE_DIFFUSE_Y,1)]
@@ -22,6 +31,19 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
 {
     let push = rtgi_upscale_diffuse_push;
     let rtgi_settings = push.attach.globals.rtgi_settings;
+
+    // Convergence statistics: the accumulate pass (before this one) summed them.
+    if (all(dtid == uint2(0, 0)))
+    {
+        push.attach.globals.readback.rtgi_convergence_diffuse_sum = push.attach.ray_counters->convergence_diffuse_sum;
+        push.attach.globals.readback.rtgi_convergence_specular_sum = push.attach.ray_counters->convergence_specular_sum;
+        push.attach.globals.readback.rtgi_convergence_pixels = push.attach.ray_counters->convergence_pixels;
+        for (uint b = 0u; b < RTGI_CONVERGENCE_BUCKETS; ++b)
+        {
+            push.attach.globals.readback.rtgi_convergence_histogram_diffuse[b] = push.attach.ray_counters->convergence_histogram_diffuse[b];
+            push.attach.globals.readback.rtgi_convergence_histogram_specular[b] = push.attach.ray_counters->convergence_histogram_specular[b];
+        }
+    }
 
     // Precalculate constants
     CameraInfo* camera = &push.attach.globals->view_camera;
@@ -69,6 +91,10 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 const float2 cocg = half_res_diffuse2_tex[load_index];
                 gs_half_diffuse_preload[preload_index.x][preload_index.y] = sh_y;
                 gs_half_diffuse2_preload[preload_index.x][preload_index.y] = cocg;
+                gs_half_specular_preload[preload_index.x][preload_index.y] = push.attach.specular_half_res.get()[load_index];
+                const uint normal_roughness = push.attach.specular_normal_roughness_half_res.get()[load_index];
+                gs_half_specular_normal_roughness[preload_index.x][preload_index.y] = float4(
+                    unpack_normal_roughness_normal(normal_roughness), unpack_normal_roughness_roughness(normal_roughness));
                 
                 const float3 half_normal = uncompress_normal_octahedral_32(half_res_face_normal_tex[load_index]);
                 gs_half_normals_preload[preload_index.x][preload_index.y] = float4(half_normal, 0.0f);
@@ -104,6 +130,16 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         const float3 tent_weights_y = rtgi_subpixel_index.y == 0 ? TENT_WEIGHTS_LEFT_3 : TENT_WEIGHTS_LEFT_3.zyx;
         float4 acc_diffuse = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 acc_diffuse2 = float2( 0.0f, 0.0f );
+        float4 acc_specular = float4( 0.0f, 0.0f, 0.0f, 0.0f );
+        float4 fallback_acc_specular = float4( 0.0f, 0.0f, 0.0f, 0.0f );
+        // Specular gets its own weights: the full-res DETAIL normal against each tap's half-res specular normal, as
+        // sharp as the lobe (roughness of the nearest half-res texel). Keeps normal-map detail in reflections.
+        float4 acc_specular_detail = float4( 0.0f, 0.0f, 0.0f, 0.0f );
+        float acc_specular_detail_weight = 0.0f;
+        float4 lenient_acc_specular = float4( 0.0f, 0.0f, 0.0f, 0.0f );
+        float lenient_acc_weight = 0.0f;
+        const int2 nearest_gs_index = in_group_id/2 + int2(1,1);
+        const float pixel_specular_roughness = gs_half_specular_normal_roughness[nearest_gs_index.x][nearest_gs_index.y].w;
         float acc_weight = 0.0f;
         float4 fallback_acc_diffuse = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 fallback_acc_diffuse2 = float2( 0.0f, 0.0f );
@@ -136,6 +172,13 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 {
                     acc_diffuse += weight * sample_sh_y;
                     acc_diffuse2 += weight * sample_cocg;
+                    const float4 sample_specular = gs_half_specular_preload[sample_gs_index.x][sample_gs_index.y];
+                    acc_specular += weight * sample_specular;
+                    const float3 sample_specular_normal = gs_half_specular_normal_roughness[sample_gs_index.x][sample_gs_index.y].xyz;
+                    const float specular_weight = tent_weight * geometry_weight *
+                        rtgi_specular_normal_weight(pixel_detail_normal, sample_specular_normal, pixel_specular_roughness);
+                    acc_specular_detail += specular_weight * sample_specular;
+                    acc_specular_detail_weight += specular_weight;
                     acc_weight += weight;
                     acc_geo_weight += geometry_weight;
 
@@ -144,7 +187,12 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                     const float fallback_weight = tent_weight * vs_dst_weight * (0.1f + max(0.0f, dot(sample_face_normal, pixel_face_normal)));
                     fallback_acc_diffuse += fallback_weight * sample_sh_y;
                     fallback_acc_diffuse2 += fallback_weight * sample_cocg;
+                    fallback_acc_specular += fallback_weight * sample_specular;
                     fallback_acc_weight += fallback_weight;
+
+                    const float lenient_weight = tent_weight * vs_dst_weight * square(saturate(dot(pixel_detail_normal, sample_specular_normal) * 0.5f + 0.5f));
+                    lenient_acc_specular += lenient_weight * sample_specular;
+                    lenient_acc_weight += lenient_weight;
                 }
             }
         }
@@ -152,17 +200,20 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // Write upscaled diffuse:
         float4 upscaled_sh_y = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 upscaled_cocg = float2( 0.0f, 0.0f );
+        float4 upscaled_specular = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         // Only fall back when NO half-res tap matched this full-res pixel's surface (e.g. thin geometry that
         // does not exist at half res). Normalizing a zero weight sum would otherwise output black.
         if (acc_weight > 1e-5f)
         {
             upscaled_sh_y = acc_diffuse * rcp(acc_weight + 0.0000001f);
             upscaled_cocg = acc_diffuse2 * rcp(acc_weight + 0.0000001f);
+            upscaled_specular = acc_specular * rcp(acc_weight + 0.0000001f);
         }
         else
         {
             upscaled_sh_y = fallback_acc_diffuse * rcp(fallback_acc_weight + 0.0000001f);
             upscaled_cocg = fallback_acc_diffuse2 * rcp(fallback_acc_weight + 0.0000001f);
+            upscaled_specular = fallback_acc_specular * rcp(fallback_acc_weight + 0.0000001f);
         }
 
         if (!rtgi_settings.upscale_enabled)
@@ -170,7 +221,29 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             const int2 sample_gs_index = in_group_id/2 + int2(1,1);
             upscaled_sh_y = gs_half_diffuse_preload[sample_gs_index.x][sample_gs_index.y];
             upscaled_cocg = gs_half_diffuse2_preload[sample_gs_index.x][sample_gs_index.y];
+            upscaled_specular = gs_half_specular_preload[sample_gs_index.x][sample_gs_index.y];
         }
+        // Prefer the detail-normal weighted specular; keep the diffuse-style weights as the fallback when no
+        // half-res tap matches the full-res detail normal (thin details, strong normal maps).
+        if (rtgi_settings.upscale_enabled && rtgi_settings.specular_upscale_detail_weighting != 0 && acc_specular_detail_weight > 1e-4f)
+        {
+            upscaled_specular = acc_specular_detail * rcp(acc_specular_detail_weight);
+        }
+        float3 specular_radiance = upscaled_specular.rgb;
+#if RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK
+        if (rtgi_settings.upscale_enabled && lenient_acc_weight > 1e-6f)
+        {
+            // Total weight of the taps the specular result was built from (detail weights when they are in use).
+            const float specular_total_weight = rtgi_settings.specular_upscale_detail_weighting != 0 ? acc_specular_detail_weight : acc_weight;
+            const float specular_trust = saturate(specular_total_weight / RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK_WEIGHT);
+            if (specular_trust < 1.0f)
+            {
+                const float3 lenient_specular = lenient_acc_specular.rgb / lenient_acc_weight;
+                specular_radiance = lerp(lenient_specular, specular_radiance, specular_trust);
+            }
+        }
+#endif
+        push.attach.specular_resolved.get()[dtid] = float4(specular_radiance / RTGI_RADIANCE_SCALE, 1.0f);
 
         if (rtgi_settings.sh_resolve_enabled)
         {

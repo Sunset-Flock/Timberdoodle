@@ -109,6 +109,8 @@ struct TasksRtgiInfo
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView view_cam_half_res_depth = {};
     daxa::TaskImageView view_cam_half_res_face_normals = {};
+    daxa::TaskImageView view_cam_half_res_normal_roughness = {}; // pack_normal_roughness, persistent double buffer
+    daxa::TaskImageView view_cam_half_res_albedo_metalness = {}; // RGBA8: linear albedo + metalness (ray demand)
     daxa::TaskImageView view_cam_depth = {};
     daxa::TaskImageView view_cam_face_normals = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};
@@ -131,5 +133,7 @@ struct TasksRtgiInfo
 struct TasksRtgiMainResult
 {
     daxa::TaskImageView opaque_diffuse = {};
+    // Full-res pre-filtered (lobe-averaged) incoming specular radiance. Multiply by the env BRDF to shade.
+    daxa::TaskImageView opaque_specular = {};
 };
 auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult;

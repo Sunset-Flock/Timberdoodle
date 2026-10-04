@@ -42,6 +42,7 @@ namespace tido
             f32 auto_move_time_remaining = 0.0f;
             bool auto_move_screenshot = true;
             bool auto_move_return_to_start = true;
+            bool auto_move_repeat = false; // restart the move whenever it ends
             f32vec3 auto_move_start_position = {};
             f32 auto_move_start_yaw = 0.0f;
             f32 auto_move_start_pitch = 0.0f;

@@ -22,20 +22,22 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, rtgi_diffuse_blurr
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, rtgi_diffuse2_blurred)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, ao_guide_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, temporal_perceptual_radiance)
+// Specular channel (.rgb radiance, .a hit distance) + lobe inputs for its weights.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, rtgi_specular_before)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, rtgi_specular_blurred)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_normal_roughness) // pack_normal_roughness
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiPostBlurPush
 {
-    RtgiPostBlurH::AttachmentShaderBlob attach;
-    daxa_u64 _pad_attach;
+    daxa_BufferPtr(RtgiPostBlurH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
     daxa_b32 pass;
 };
 
 struct RtgiAtrousPostBlurPush
 {
-    RtgiPostBlurH::AttachmentShaderBlob attach;
-    daxa_u64 _pad_attach;
+    daxa_BufferPtr(RtgiPostBlurH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
     daxa_i32 step_size;
 };

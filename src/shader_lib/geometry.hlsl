@@ -40,6 +40,8 @@ struct MaterialPointData
     float3 emissive;
     float3 albedo;
     float alpha;
+    float roughness; // perceptual roughness [0,1] (glTF), alpha = roughness^2
+    float metalness;
     float3 normal;
     float3 geometry_normal;
     float3 face_normal;

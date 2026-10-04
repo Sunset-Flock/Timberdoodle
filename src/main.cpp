@@ -23,7 +23,10 @@ static void print_usage()
         "                                       --frames frames, write smoothed GPU timings + a screenshot, exit.\n"
         "  --frames <n>                         Frames to render after loading (perf test, default 1000).\n"
         "  --out <dir>                          Output directory (perf test, default perf_tests).\n"
-        "  --name <label>                       Output file prefix (perf test, default perf).\n");
+        "  --name <label>                       Output file prefix (perf test, default perf).\n"
+        "  --debug-draw <mode>                  Start with this DEBUG_DRAW_MODE_* index (shader_shared/shared.inl).\n"
+        "  --no-specular                        Start with the RTGI specular channel disabled (A/B comparisons).\n"
+        "  --upward-gloss <0..1>                Start with this RTGI 'Upward Gloss' value.\n");
 }
 
 int main(int argc, char const * const * argv)
@@ -31,6 +34,9 @@ int main(int argc, char const * const * argv)
     std::optional<std::filesystem::path> scene_path = {};
     std::vector<PerfTestView> cameras = {};
     i32vec2 resolution = {1024, 1024};
+    i32 debug_draw_mode = 0;
+    bool no_specular = false;
+    std::optional<f32> upward_gloss = {};
     bool perf_test = false;
     PerfTestInfo perf_test_info = {};
 
@@ -50,6 +56,9 @@ int main(int argc, char const * const * argv)
             cameras.push_back({.position = {values[0], values[1], values[2]}, .yaw = values[3], .pitch = values[4]});
         }
         else if (arg == "--perf-test") { perf_test = true; }
+        else if (arg == "--no-specular") { no_specular = true; }
+        else if (arg == "--upward-gloss" && has_values(1)) { upward_gloss = std::strtof(argv[++i], nullptr); }
+        else if (arg == "--debug-draw" && has_values(1)) { debug_draw_mode = static_cast<i32>(std::strtol(argv[++i], nullptr, 10)); }
         else if (arg == "--frames" && has_values(1)) { perf_test_info.wait_frames = static_cast<u32>(std::strtoul(argv[++i], nullptr, 10)); }
         else if (arg == "--out" && has_values(1)) { perf_test_info.output_dir = argv[++i]; }
         else if (arg == "--name" && has_values(1)) { perf_test_info.name = argv[++i]; }
@@ -75,6 +84,9 @@ int main(int argc, char const * const * argv)
     }
 
     Application app = Application(resolution);
+    app.set_debug_draw_mode(debug_draw_mode);
+    if (no_specular) { app.set_rtgi_specular_enabled(false); }
+    if (upward_gloss.has_value()) { app.set_upward_gloss(upward_gloss.value()); }
     if (!cameras.empty())
     {
         app.set_camera(cameras[0].position, cameras[0].yaw, cameras[0].pitch);

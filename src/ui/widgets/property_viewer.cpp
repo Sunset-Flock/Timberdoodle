@@ -294,7 +294,7 @@ namespace tido
                             ImGui::Checkbox("screenshot at end of move", &auto_move_screenshot);
                             ImGui::Checkbox("return to start after move", &auto_move_return_to_start);
                             ImGui::BeginDisabled(auto_move_time_remaining > 0.0f);
-                            if (ImGui::Button("Programmed Move"))
+                            if (ImGui::Button("Programmed Move Once"))
                             {
                                 // Capture the start pose so it can be restored after the move.
                                 auto_move_start_position = camera.position;
@@ -304,6 +304,9 @@ namespace tido
                                 auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
                             }
                             ImGui::EndDisabled();
+                            ImGui::SameLine();
+                            ImGui::Checkbox("repeat##auto_move", &auto_move_repeat);
+                            ImGui::SetItemTooltip("Restart the move whenever it ends (from the start pose when returning to start, else from where it ended). Uncheck to stop after the current run.");
                             if (auto_move_time_remaining > 0.0f)
                             {
                                 ImGui::SameLine();
@@ -413,6 +416,11 @@ namespace tido
                             // Defer the reset one frame so the screenshot captures the
                             // end pose before the camera snaps back to the start.
                             auto_move_return_pending = auto_move_return_to_start;
+                            // Repeat without returning: continue straight from the end pose.
+                            if (auto_move_repeat && !auto_move_return_to_start)
+                            {
+                                auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
+                            }
                         }
                     }
                     else if (auto_move_return_pending)
@@ -422,6 +430,11 @@ namespace tido
                         camera.yaw = auto_move_start_yaw;
                         camera.pitch = auto_move_start_pitch;
                         auto_move_return_pending = false;
+                        // Repeat with returning: run again from the restored start pose.
+                        if (auto_move_repeat)
+                        {
+                            auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
+                        }
                     }
                 }
                 ImGui::EndChild();

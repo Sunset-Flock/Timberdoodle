@@ -18,6 +18,12 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, face_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, detail_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, half_res_face_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, half_res_depth_image)
+// Half-res detail (shading) normal + perceptual roughness of the representative pixel, packed into one uint
+// (pack_normal_roughness). Only consumed by the RTGI specular path (ray directions + lobe-aware denoising).
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, half_res_normal_roughness_image)
+// Half-res linear albedo (.rgb) + metalness (.a) of the representative pixel, RGBA8 unorm. Read by the RTGI ray
+// demand (diffuse / specular ray share, rtgi_calc_ray_share).
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, half_res_albedo_metalness_image)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), combined_transforms)
@@ -44,6 +50,9 @@ struct GenGbufferPush
 
 groupshared uint gs_face_normals[GEN_GBUFFER_X][GEN_GBUFFER_Y];
 groupshared float gs_depths[GEN_GBUFFER_X][GEN_GBUFFER_Y];
+groupshared uint gs_detail_normals[GEN_GBUFFER_X][GEN_GBUFFER_Y];
+groupshared float gs_roughness[GEN_GBUFFER_X][GEN_GBUFFER_Y];
+groupshared float4 gs_albedo_metalness[GEN_GBUFFER_X][GEN_GBUFFER_Y];
 
 [[shader("compute")]]
 [numthreads(GEN_GBUFFER_X, GEN_GBUFFER_Y, 1)]
@@ -113,11 +122,17 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
 
         gs_face_normals[gtid.x][gtid.y] = packed_face_normal;
         gs_depths[gtid.x][gtid.y] = depth;
+        gs_detail_normals[gtid.x][gtid.y] = packed_detail_normal;
+        gs_roughness[gtid.x][gtid.y] = material_point.roughness;
+        gs_albedo_metalness[gtid.x][gtid.y] = float4(saturate(material_point.albedo), material_point.metalness);
     }
     else
     {
         gs_face_normals[gtid.x][gtid.y] = 0u;
         gs_depths[gtid.x][gtid.y] = 0.0f;
+        gs_detail_normals[gtid.x][gtid.y] = 0u;
+        gs_roughness[gtid.x][gtid.y] = 1.0f;
+        gs_albedo_metalness[gtid.x][gtid.y] = float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -157,9 +172,13 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
         const int best_depth_index = quad_downsample_representative(depths_vs);
 
         uint closest_face_normal = normals[best_depth_index];
+        const uint2 best_gs = gtid + uint2(best_depth_index & 1, best_depth_index >> 1);
 
         push.attachments.half_res_depth_image.get()[half_out_idx] = depths_vs[best_depth_index];
         push.attachments.half_res_face_normal_image.get()[half_out_idx] = closest_face_normal;
+        push.attachments.half_res_normal_roughness_image.get()[half_out_idx] = pack_normal_roughness(
+            uncompress_normal_octahedral_32(gs_detail_normals[best_gs.x][best_gs.y]), gs_roughness[best_gs.x][best_gs.y]);
+        push.attachments.half_res_albedo_metalness_image.get()[half_out_idx] = gs_albedo_metalness[best_gs.x][best_gs.y];
     }
 }
 

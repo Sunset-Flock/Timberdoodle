@@ -9,6 +9,49 @@
 [[vk::push_constant]] RtgiPostBlurPush rtgi_post_blur_push;
 [[vk::push_constant]] RtgiAtrousPostBlurPush rtgi_atrous_post_blur_push;
 
+// Specular post blur state of one pixel. The specular channel rides along the diffuse tap loops: it reuses
+// their geometry weight and adds detail-normal + roughness similarity, with its own (lobe footprint) width.
+struct RtgiSpecularBlur
+{
+    float  roughness;
+    float3 normal;
+    float  width;   // in taps along the blur axis; < 1 == center only
+    float4 acc;
+    float  weight;
+};
+
+// ao_guide: the pixel's (temporal) AO guide. The shared post blur AO radius scaling + floor shrink the specular width
+// exactly like the diffuse one (General setting, both signals).
+func rtgi_specular_blur_begin(RtgiSettings settings, float4 center_spec, float roughness, float3 normal, float pixel_width_ws, float ao_guide) -> RtgiSpecularBlur
+{
+    RtgiSpecularBlur b;
+    b.roughness = roughness;
+    b.normal = normal;
+    const float ao_radius_scale = settings.post_blur_ao_guiding ? lerp(settings.post_blur_ao_guide_floor, 1.0f, ao_guide) : 1.0f;
+    b.width = settings.specular_enabled != 0
+        ? rtgi_specular_blur_radius_px(roughness, center_spec.a, pixel_width_ws, (float)settings.post_blur_max_width) * settings.specular_post_blur_scale * ao_radius_scale
+        : 0.0f;
+    b.acc = float4(0, 0, 0, 0);
+    b.weight = 0.0f;
+    return b;
+}
+
+func rtgi_specular_blur_tap(inout RtgiSpecularBlur b, float tap_distance, float geometric_weight, float3 sample_normal, float sample_roughness, float4 sample_spec)
+{
+    if (tap_distance > max(b.width, 0.0f)) { return; }
+    const float gauss = tap_distance == 0.0f ? 1.0f : calc_gaussian_weight(tap_distance / max(b.width, 1.0f));
+    const float w = geometric_weight * gauss *
+        rtgi_specular_normal_weight(b.normal, sample_normal, b.roughness) *
+        rtgi_specular_roughness_weight(b.roughness, sample_roughness);
+    b.acc += sample_spec * w;
+    b.weight += w;
+}
+
+func rtgi_specular_blur_end(RtgiSpecularBlur b, float4 center_spec) -> float4
+{
+    return b.weight > 1e-6f ? b.acc / b.weight : center_spec;
+}
+
 
 
 // groupshared float gs_depth_preload[PRELAOD_WIDTH][RTGI_POST_BLUR_X];
@@ -85,6 +128,12 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     const float sample_count_ramp = rtgi_settings.max_temporal_samples * 0.1f;
     const float guide_ramp = saturate((pixel_samplecnt - sample_count_ramp) / max(sample_count_ramp, 1.0f));
 
+    const float4 pixel_spec = push.attach.rtgi_specular_before.get()[halfres_pixel_index];
+    RtgiSpecularBlur spec_blur = rtgi_specular_blur_begin(rtgi_settings, pixel_spec,
+        unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
+        unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
+        pixel_width_ws, ao_guide);
+
     // write_debug_image(push.attach.debug_image.get(), 0, dtid, float4(Heatmap(filter_width * rcp((float)rtgi_settings.post_blur_max_width)), 2.0f), 2);
 
     for (int i = -filter_width; i <= filter_width; )
@@ -106,6 +155,14 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
         const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample.normal_ws);
         const float gauss_weight = calc_gaussian_weight(float(abs(i))/float(filter_width));
+
+        if (!out_of_bounds && sample.depth_vs != 0.0f && float(abs(i)) <= spec_blur.width)
+        {
+            rtgi_specular_blur_tap(spec_blur, float(abs(i)), geometric_weight,
+                unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[sample_index]),
+                unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[sample_index]),
+                push.attach.rtgi_specular_before.get()[sample_index]);
+        }
 
         // The 5 nearest taps (center ± 2) are always sampled at stride 1 regardless of post_blur_stride.
         // The quad-based pre-filter creates 2x2-cell boundary artifacts that need these nearby samples.
@@ -159,6 +216,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = blurred_sh_y;
     push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = blurred_cocg;
+    push.attach.rtgi_specular_blurred.get()[halfres_pixel_index] = rtgi_specular_blur_end(spec_blur, pixel_spec);
 }
 
 // ===========================================================================================
@@ -247,6 +305,13 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
     float4 blurred_accum = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float2 blurred_accum2 = float2(0.0f, 0.0f);
 
+    const float4 pixel_spec = push.attach.rtgi_specular_before.get()[halfres_pixel_index];
+    RtgiSpecularBlur spec_blur = rtgi_specular_blur_begin(rtgi_settings, pixel_spec,
+        unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
+        unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
+        pixel_width_ws, ao_guide);
+    spec_blur.width = min(spec_blur.width, float(RTGI_PB_LDS_RADIUS));
+
     for (int i = -filter_width; i <= filter_width; )
     {
         // Position + depth come from LDS; the sample's texel coord (for the other, per-tap texture reads).
@@ -265,6 +330,14 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
         const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample_pos, sample_norm);
         const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample_norm);
         const float gauss_weight = calc_gaussian_weight(float(abs(i)) / float(filter_width));
+
+        if (!out_of_bounds && sample_depth != 0.0f && float(abs(i)) <= spec_blur.width)
+        {
+            rtgi_specular_blur_tap(spec_blur, float(abs(i)), geometric_weight,
+                unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[uint2(sample_index)]),
+                unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[uint2(sample_index)]),
+                push.attach.rtgi_specular_before.get()[sample_index]);
+        }
 
         const bool is_near_center = abs(i) <= 2;
         
@@ -301,6 +374,7 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
 
     push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index]  = lerp(blurry_sh_y, pixel_sh_y, low_weight_fallback_blend);
     push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = lerp(blurry_cocg, pixel_cocg, low_weight_fallback_blend);
+    push.attach.rtgi_specular_blurred.get()[halfres_pixel_index] = rtgi_specular_blur_end(spec_blur, pixel_spec);
 }
 
 [shader("compute")]
@@ -344,6 +418,13 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
     float4 diffuse_accum = float4(0, 0, 0, 0);
     float2 diffuse2_accum = float2(0, 0);
 
+    // Specular joins an a-trous level only while the step still fits inside its lobe footprint.
+    const float4 pixel_spec = push.attach.rtgi_specular_before.get()[pixel_index];
+    RtgiSpecularBlur spec_blur = rtgi_specular_blur_begin(rtgi_settings, pixel_spec,
+        unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[pixel_index]),
+        unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[pixel_index]),
+        pixel_width_ws, ao_guide);
+
     for (int dy = -1; dy <= 1; ++dy)
     {
         for (int dx = -1; dx <= 1; ++dx)
@@ -363,6 +444,15 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
             const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
             const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample.normal_ws);
             const float sample_count_weight = sample_samplecnt + 1.0f;
+
+            const float spec_tap_distance = (dx == 0 && dy == 0) ? 0.0f : float(push.step_size);
+            if (!out_of_bounds && spec_tap_distance <= spec_blur.width)
+            {
+                rtgi_specular_blur_tap(spec_blur, spec_tap_distance, geometric_weight,
+                    unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[sample_index]),
+                    unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[sample_index]),
+                    push.attach.rtgi_specular_before.get()[sample_index]);
+            }
 
             // 3x3 separable Gaussian: [0.25, 0.5, 0.25] per axis.
             // Geometric guide scales down non-center tap contributions.
@@ -400,4 +490,5 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     push.attach.rtgi_diffuse_blurred.get()[pixel_index] = lerp(blurry_sh_y, pixel_sh_y, low_weight_fallback_blend);
     push.attach.rtgi_diffuse2_blurred.get()[pixel_index] = lerp(blurry_cocg, pixel_cocg, low_weight_fallback_blend);
+    push.attach.rtgi_specular_blurred.get()[pixel_index] = rtgi_specular_blur_end(spec_blur, pixel_spec);
 }

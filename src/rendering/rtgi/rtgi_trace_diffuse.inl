@@ -20,9 +20,18 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, rtgi_sample_count)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(RtgiRayCounters), ray_counters)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayEntry), ray_list)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RtgiRayResult), ray_result)
+// Per-pixel specular ray count (ray-list entries [n_diffuse, n_diffuse + n_specular) of the pixel are
+// specular). Written by the distribute pass (repacked path) or by the classic per-pixel trace.
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, specular_ray_count_image)
+// Reprojected specular history samples (classic per-pixel path's specular ray demand).
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, specular_sample_count)
+// Classic per-pixel path only (the repacked path builds this in the blend pass): .rgb = mean log specular
+// rgb over the pixel's rays, .a = mean specular hit distance.
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, specular_perceptual_rgb_hit)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, pixel_ray_alloc)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_face_normals)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_normal_roughness) // pack_normal_roughness
 // Pioneer guide direction, gated by rtgi_settings.pioneer_guiding_enabled. Written by the pioneer
 // raygen dispatch (is_pioneer_pass == true, sparse grid) and rtgi_guide_resample.hlsl (full half-res,
 // spatial RIS over the pioneer grid). See rtgi_guide_resample.inl.
@@ -49,6 +58,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec2>, ray_impact) // classic path ray demand (reproject: extra ray factor per signal)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTraceDiffusePush

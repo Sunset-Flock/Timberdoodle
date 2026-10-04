@@ -201,6 +201,22 @@ float3 uncompress_normal_octahedral_24( uint data )
     return normalize( nor );
 }
 
+// Normal + roughness in one uint: 24-bit octahedral normal (12:12) + 8-bit unorm roughness in the top byte.
+uint pack_normal_roughness( float3 nor, float roughness )
+{
+    return (compress_normal_octahedral_24(nor) & 0xFFFFFFu) | (uint(round(saturate(roughness) * 255.0f)) << 24u);
+}
+
+float3 unpack_normal_roughness_normal( uint data )
+{
+    return uncompress_normal_octahedral_24(data & 0xFFFFFFu);
+}
+
+float unpack_normal_roughness_roughness( uint data )
+{
+    return float(data >> 24u) * (1.0f / 255.0f);
+}
+
 uint compress_normal_octahedral_32( in float3 nor )
 {
     nor.xy /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );

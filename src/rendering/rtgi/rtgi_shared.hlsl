@@ -227,30 +227,114 @@ func calc_pixel_width_ws(float2 inv_render_target_size, float near_plane, float 
 
 // Fixed uniform ray count per pixel used when ray redistribution is disabled: exactly
 // max(floor(ray_budget), 1) rays for every geometry pixel, in both the repacked and classic paths.
+// Hard ray budget of the redistributing (repacked) path: rays per frame, never exceeded. The distribute pass
+// drains demand to it and additionally clamps the ray list to it; the list trace never reads past it.
+func rtgi_hard_ray_budget(uint2 half_res_size, RtgiSettings settings) -> uint
+{
+    const float ray_pct = clamp(settings.ray_percentage, 0.0f, float(RTGI_RAY_LIST_CAPACITY_MUL));
+    const float min_budget = clamp(settings.min_ray_budget, 0.0f, 1.0f);
+    return uint(float(half_res_size.x * half_res_size.y) * max(ray_pct, min_budget));
+}
+
+// Ray list entries the list trace may read this frame: the allocated count, never past the list capacity and, when
+// redistributing, never past the hard budget.
+func rtgi_ray_list_limit(uint2 half_res_size, RtgiSettings settings) -> uint
+{
+    const uint capacity = half_res_size.x * half_res_size.y * RTGI_RAY_LIST_CAPACITY_MUL;
+    return settings.use_ray_redistribution != 0 ? min(capacity, rtgi_hard_ray_budget(half_res_size, settings)) : capacity;
+}
+
 func calc_fixed_rays_per_pixel(float ray_percentage) -> uint
 {
     return max(uint(floor(max(ray_percentage, 0.0f))), 1u);
 }
 
-// Extra rays (beyond the mandatory base ray) a geometry pixel wants, given its reprojected sample count.
-// Demand is PROPORTIONAL to how much history the pixel is still missing below fast_convergence_samples
-// (its deficit), not a flat "everyone under the target wants the max". A pixel missing 24 requests 24, one
-// missing 8 requests 8, so the allocator's demand-proportional budget split hands the scarce rays to the
-// freshest disocclusions (e.g. with 16 rays for a 24+8 pair -> 12 and 4) instead of splitting them evenly.
-// fast_convergence_samples is the sample count at which demand reaches zero; it is also the upper bound
-// on the returned extras (deficit = fast_convergence_samples - reproj_sample_count, reproj >= 0).
-func calc_desired_extra_rays(float reproj_sample_count, float fast_convergence_samples) -> uint
+// Redistribution off: fixed rays per geometry pixel, max(floor(ray_budget), 1 per active signal), split evenly
+// between diffuse and specular (diffuse keeps the odd ray). Every active signal always gets its base ray, like
+// with redistribution; below 2 rays/pixel with specular on that means slightly more rays than the budget.
+func calc_fixed_ray_split(float ray_percentage, bool specular_active, out uint total, out uint specular)
 {
-    const float deficit = fast_convergence_samples - reproj_sample_count;
-    return deficit <= 0.0f ? 0u : uint(deficit);
+    total = max(calc_fixed_rays_per_pixel(ray_percentage), specular_active ? 2u : 1u);
+    specular = specular_active ? total / 2u : 0u;
 }
 
-// Total rays a geometry pixel wants this frame: the mandatory base ray plus its adaptive extras. This is
-// the shared source of truth for the per-pixel ray demand — the temporal reproject pass (tile demand
-// totals) and the allocate pass (per-pixel gs_desired) both call this so the two can never diverge.
-func calc_desired_ray_count(float reproj_sample_count, float fast_convergence_samples) -> uint
+// Extra rays (beyond the mandatory base ray) a geometry pixel wants, given its reprojected history count, as a
+// fraction of rays (the diffuse / specular share multiplies it before rounding). Exponential over the convergence
+// target T (x = count / T): amplitude exp(-4x), `amplitude` extras at x = 0, 0 at x >= 1 (fast early drop, weak
+// tail). The amplitude is sized to the per-pixel ray cap (rtgi_calc_ray_demand), so the curve's shape survives the
+// cap instead of being flattened by it. amplitude 5 examples (x = 0 / 0.125 / 0.25 / 0.5 / 0.75): 5 / 3.0 / 1.8 / 0.7 / 0.25.
+func calc_desired_extra_rays(float reproj_sample_count, float target, float amplitude) -> float
 {
-    return 1u + calc_desired_extra_rays(reproj_sample_count, fast_convergence_samples);
+    if (reproj_sample_count >= target || target <= 0.0f) { return 0.0f; }
+    const float x = max(reproj_sample_count, 0.0f) / target;
+    return amplitude * exp(-4.0f * x);
+}
+
+// == Single ray budget: diffuse + specular ======================================
+// Every traced ray is EITHER diffuse or specular, and both kinds come out of the same frame budget. A pixel
+// wants 1 base ray per signal plus deficit-proportional extras per signal (each signal's own history count vs
+// the convergence target). The reproject pass totals this demand, the distribute pass drains it, and a pixel's
+// allocated extras are split between the two signals in proportion to their deficits. In the ray list a
+// pixel's entries are [diffuse 0..n_d) followed by [specular 0..n_s).
+struct RtgiRayDemand
+{
+    uint diffuse;  // desired diffuse rays (1 + extras), 0 for sky
+    uint specular; // desired specular rays (1 + extras), 0 for sky or specular disabled
+};
+
+// == Ray demand: diffuse / specular share ==========================================
+// Each signal's EXTRA rays (deficit-driven, see rtgi_calc_ray_demand) are scaled by a per-pixel factor computed
+// once by the reproject pass (rtgi_calc_ray_share in rtgi_temporal.hlsl) and stored in the ray_impact image,
+// which every ray demand caller (reproject, distribute, classic trace) reads. The base ray per signal stays.
+struct RtgiRayImpact
+{
+    float diffuse;
+    float specular;
+};
+
+// Max rays (diffuse + specular, base included) one pixel may request per frame (settings.max_rays_per_pixel, never
+// below the base rays). Many rays in ONE frame share the
+// same frame's noise pattern / guide and are too temporally similar: a few pixels getting ~32 rays at once form
+// visible stripes. The demand curve's amplitude is sized so a fully fresh pixel asks for exactly the cap: the
+// share factors sum to 2 with specular on (1 with it off), so each signal's curve peaks at extra_cap / that sum.
+// Above the cap (only reachable by rounding) both signals' extras are scaled down proportionally.
+func rtgi_calc_ray_demand(float diffuse_sample_count, float specular_sample_count, RtgiRayImpact impact, RtgiSettings settings) -> RtgiRayDemand
+{
+    const bool specular_on = settings.specular_enabled != 0;
+    const uint base_rays = specular_on ? 2u : 1u;
+    const uint max_rays = max(uint(max(settings.max_rays_per_pixel, 0)), base_rays);
+    const float base = float(base_rays);
+    const float extra_cap = float(max_rays) - base;
+    const float amplitude = extra_cap / (specular_on ? 2.0f : 1.0f);
+    const float diffuse_extra = calc_desired_extra_rays(diffuse_sample_count, settings.fast_convergence_samples, amplitude) * impact.diffuse;
+    // The specular history is capped at specular_max_temporal_frames samples, so never ask for more than that.
+    const float specular_target = min(settings.specular_fast_convergence_samples, settings.specular_max_temporal_frames);
+    const float specular_extra = specular_on ? calc_desired_extra_rays(specular_sample_count, specular_target, amplitude) * impact.specular : 0.0f;
+    const float extra_scale = min(1.0f, extra_cap / max(diffuse_extra + specular_extra, 1e-6f));
+    RtgiRayDemand d;
+    d.diffuse = 1u + uint(diffuse_extra * extra_scale + 0.5f);
+    d.specular = specular_on ? 1u + uint(specular_extra * extra_scale + 0.5f) : 0u;
+    // Rounding both halves up can exceed the cap by one: take it from the larger request.
+    if (d.diffuse + d.specular > max_rays)
+    {
+        if (d.diffuse >= d.specular) { d.diffuse -= 1u; } else { d.specular -= 1u; }
+    }
+    return d;
+}
+
+func rtgi_ray_demand_base(RtgiRayDemand d) -> uint
+{
+    return (d.diffuse > 0u ? 1u : 0u) + (d.specular > 0u ? 1u : 0u);
+}
+
+// Splits `extra` allocated extra rays between the signals by their extra demands (rounded, each capped).
+func rtgi_split_extra_rays(uint extra, RtgiRayDemand d, out uint extra_diffuse, out uint extra_specular)
+{
+    const uint diffuse_extra_demand  = d.diffuse  > 0u ? d.diffuse  - 1u : 0u;
+    const uint specular_extra_demand = d.specular > 0u ? d.specular - 1u : 0u;
+    const uint total_demand = diffuse_extra_demand + specular_extra_demand;
+    extra_specular = total_demand > 0u ? min((extra * specular_extra_demand + total_demand / 2u) / total_demand, specular_extra_demand) : 0u;
+    extra_diffuse  = extra - extra_specular;
 }
 
 func calc_plane_distance(float3 a_pos, float3 a_norm, float3 b_pos) -> float
@@ -388,6 +472,68 @@ void radiance_to_y_co_cg_sh(float3 radiance, float3 direction, out float4 sh_y, 
     co_cg = y_co_cg.gb;
 
     sh_y = y_to_sh(y_co_cg.x, direction);
+}
+
+// == Specular helpers =========================================================
+// The specular channel is linear rgb (RTGI_RADIANCE_SCALE scaled) + hit distance in .a, carried through every
+// RTGI pass next to the diffuse SH. These helpers keep the lobe-dependent weights consistent between passes.
+
+// Specular hit distances are stored in f16 images. Misses (huge t) clamp here, which still reprojects like
+// "infinitely far" for any practical camera motion.
+static const float RTGI_SPECULAR_MAX_HIT_DISTANCE = 1000.0f;
+
+// Approximate tangent of the GGX lobe half-angle (most of the reflected energy lies inside it).
+func rtgi_specular_lobe_tan(float roughness) -> float
+{
+    const float a = roughness * roughness;
+    return a;
+}
+
+// Screen-space blur radius (in half-res pixels) matching the reflected lobe footprint: the lobe widens with
+// distance to the hit, so contact reflections stay sharp and far reflections get the full radius.
+func rtgi_specular_blur_radius_px(float roughness, float hit_distance, float pixel_width_ws, float max_radius_px) -> float
+{
+    const float footprint_ws = min(hit_distance, RTGI_SPECULAR_MAX_HIT_DISTANCE) * rtgi_specular_lobe_tan(roughness);
+    return min(footprint_ws * rcp(max(pixel_width_ws, 1e-8f)), max_radius_px);
+}
+
+// Detail-normal similarity for specular. Mirrors need almost identical normals to share reflections, rough
+// lobes are wide and tolerate a lot.
+func rtgi_specular_normal_weight(float3 n_center, float3 n_sample, float roughness) -> float
+{
+    const float exponent = lerp(512.0f, 8.0f, saturate(roughness * 2.0f));
+    return pow(saturate(dot(n_center, n_sample)), exponent);
+}
+
+func rtgi_specular_roughness_weight(float roughness_center, float roughness_sample) -> float
+{
+    return exp(-abs(roughness_center - roughness_sample) * 10.0f);
+}
+
+// NRD GetSpecularDominantFactor: how far the GGX lobe's dominant direction leans from N towards R.
+func rtgi_spec_dominant_factor(float NoV, float roughness) -> float
+{
+    const float a = 0.298475f * log(39.4115f - 39.0029f * saturate(roughness));
+    return saturate(pow(saturate(1.0f - NoV), 10.8649f) * (1.0f - a) + a);
+}
+
+func rtgi_spec_dominant_direction(float3 N, float3 V, float roughness) -> float3
+{
+    const float3 R = reflect(-V, N);
+    return normalize(lerp(N, R, rtgi_spec_dominant_factor(abs(dot(N, V)), roughness)));
+}
+
+// log(k / sinh(k)) == log(4 pi C(k)) where C(k) = k / (4 pi sinh k) normalizes a vMF lobe; stable for any k >= 0.
+func rtgi_log_vmf_norm(float k) -> float
+{
+    if (k < 1e-4f) { return 0.0f; }
+    return log(k) - (k + log(1.0f - exp(-2.0f * k)) - log(2.0f));
+}
+
+// Debug colormap for a (specular) hit distance: log scale, 0 m -> 0, ~1 km -> 1.
+func rtgi_hit_distance_debug_color(float hit_distance) -> float3
+{
+    return Heatmap(saturate(log2(1.0f + max(hit_distance, 0.0f)) * 0.1f));
 }
 
 // Converts a perceptual-space radiance value to a display-ready linear color for debug visualization:

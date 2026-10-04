@@ -450,6 +450,21 @@ void Application::set_camera(f32vec3 position, f32 yaw, f32 pitch)
     app_state.observer_camera_controller = app_state.camera_controller;
 }
 
+void Application::set_debug_draw_mode(i32 mode)
+{
+    _ui_engine->debug_visualization_index = mode;
+}
+
+void Application::set_upward_gloss(f32 gloss)
+{
+    _renderer->render_context->render_data.rtgi_settings.specular_upward_gloss = gloss;
+}
+
+void Application::set_rtgi_specular_enabled(bool enabled)
+{
+    _renderer->render_context->render_data.rtgi_settings.specular_enabled = enabled ? 1 : 0;
+}
+
 void Application::start_perf_test(PerfTestInfo const & info)
 {
     _perf_test = info;
@@ -549,6 +564,9 @@ void Application::write_perf_test_timings(std::filesystem::path const & path)
     json["wait_frames"] = _perf_test.wait_frames;
     json["frame_index"] = app_state.frame_index;
     json["unit"] = "us";
+    // Last frame's shader debug tape value (globals.readback.debug_value), e.g. a debug-draw probe.
+    auto const debug_value = _renderer->render_context->general_readback.debug_value;
+    json["debug_value"] = {debug_value.x, debug_value.y, debug_value.z, debug_value.w};
     json["groups"] = nlohmann::json::array();
     for (u32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; ++group_i)
     {

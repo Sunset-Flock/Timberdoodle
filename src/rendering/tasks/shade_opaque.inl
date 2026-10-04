@@ -46,6 +46,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec2>, pgi_visibility
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_info)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::RWTexture2DArrayId<daxa_u32>, pgi_requests)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, rtgi_per_pixel_diffuse) // OPTIONAL
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, rtgi_per_pixel_specular) // OPTIONAL, pre-filtered incoming specular radiance
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, rtgi_debug_primary_trace) // OPTIONAL
 DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END

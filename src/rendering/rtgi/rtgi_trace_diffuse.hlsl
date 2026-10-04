@@ -15,6 +15,7 @@
 
 #include "rtgi_shared.hlsl"
 #include "rtgi_guided_sampling.hlsl"
+#include "rtgi_specular_sampling.hlsl"
 #include "shader_lib/debug.glsl"
 
 #define GOLDEN_RATIO 1.6181
@@ -64,6 +65,53 @@ void rtgi_trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload)
     TraceRay(RaytracingAccelerationStructure::get(rtgi_trace_diffuse_push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
 }
 
+// Traces ONE specular ray for a half-res pixel. Uses the caller's rand() state (seed it before calling).
+// Returns the ray-list result (radiance already weighted + RTGI_RADIANCE_SCALE scaled).
+func rtgi_trace_specular_ray(uint2 pixel_xy, float3 world_pos, float3 face_normal, float3 primary_ray, float ws_px_size, float4 guide_sh_y) -> RtgiRayResult
+{
+    let push = rtgi_trace_diffuse_push;
+    let rtgi_settings = push.attach.globals.rtgi_settings;
+
+    const float3 view_dir = -primary_ray;
+    const uint normal_roughness = push.attach.view_cam_half_res_normal_roughness.get()[pixel_xy];
+    const float3 detail_normal = unpack_normal_roughness_normal(normal_roughness);
+    const float3 shading_normal = rtgi_specular_shading_normal(detail_normal, view_dir);
+    const float roughness = unpack_normal_roughness_roughness(normal_roughness);
+
+    float weight = 1.0f;
+    const bool guide_valid = rtgi_settings.pioneer_guiding_enabled != 0 && dot(guide_sh_y.xyz, guide_sh_y.xyz) > 1e-12f;
+    const float3 dir = rtgi_sample_specular_dir(
+        shading_normal, face_normal, view_dir, roughness,
+        guide_sh_y, guide_valid, rtgi_settings.specular_guide_concentration,
+        rtgi_settings.specular_guide_mix, weight);
+
+    if (weight <= 0.0f)
+    {
+        return RtgiRayResult(float3(0, 0, 0), 0.0f, compress_normal_octahedral_32(dir));
+    }
+
+    RayPayload payload = {};
+    payload.dtid = pixel_xy;
+    payload.specular = true;
+
+    const float3 sample_pos = rt_calc_ray_start(world_pos, face_normal, primary_ray);
+    RayDesc ray = {};
+    ray.Origin    = sample_pos - primary_ray * ws_px_size;
+    ray.Direction = dir;
+    ray.TMin      = ws_px_size * 0.5f;
+    ray.TMax      = 100000000000.0f;
+    rtgi_trace_and_shade(ray, 0, payload);
+
+    return RtgiRayResult(payload.color * weight * RTGI_RADIANCE_SCALE, min(payload.t, RTGI_SPECULAR_MAX_HIT_DISTANCE), compress_normal_octahedral_32(dir));
+}
+
+// Specular rays use their own RNG stream so they never correlate with the pixel's diffuse rays.
+func rtgi_specular_seed(uint pixel_seed, uint sample_index)
+{
+    rand_seed(pixel_seed ^ 0x68E31DA4u);
+    [loop] for (uint skip = 0u; skip < sample_index * 4u; ++skip) { rand(); }
+}
+
 void shade_ray_gen(uint2 dtid)
 {
     let clk_start = clockARB();
@@ -96,6 +144,8 @@ void shade_ray_gen(uint2 dtid)
 
     float acc_ray_shortness = 0.0f;        // mean ray shortness [0,1] over the rays; stored in .a
     float3 mean_perceptual_rgb = float3(0, 0, 0); // geometric mean (mean log rgb) over the rays; stored in .rgb
+    float3 mean_specular_perceptual_rgb = float3(0, 0, 0);
+    float  mean_specular_hit = 0.0f;
 
     const uint prime_shift0 = 257;   // just over typical period of frame time roughly (32 - 255 accum frames)
     const uint prime_shift1 = 9629;  // just over typical period of frame width x (480 - 8192)
@@ -113,20 +163,41 @@ void shade_ray_gen(uint2 dtid)
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
     const float  ws_px_size = depth > 0.0f ? rtgi_half_res_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth) : 0.0f;
 
-    // --- Determine this pixel's ray count (0 for sky) ---
+    if (all(dtid.xy == uint2(0, 0)))
+    {
+        // Classic path: base rays are always traced, extras are capped at a quarter-res worth of rays.
+        const uint total_geo = push.attach.ray_counters->total_geo_rays;
+        push.attach.globals.readback.rtgi_requested_base_rays = total_geo;
+        push.attach.globals.readback.rtgi_requested_extra_rays = push.attach.ray_counters->total_extra_rays;
+        push.attach.globals.readback.rtgi_ray_budget = total_geo + (push.attach.globals.settings.render_target_size.x * push.attach.globals.settings.render_target_size.y) / 4;
+    }
+
+    // --- Determine this pixel's ray counts (0 for sky): diffuse + specular from one budget ---
     uint samples = 0u;
+    uint specular_samples = 0u;
     if (depth > 0.0f)
     {
         const uint total_extra_ray_demands = push.attach.ray_counters->total_extra_rays;
         const uint max_extra_rays = (push.attach.globals.settings.render_target_size.x * push.attach.globals.settings.render_target_size.y) / 4;
         const float relative_allowed_rays = min(1.0f, float(max_extra_rays) / (float(total_extra_ray_demands) + 0.0001f));
         const float reproj_sample_count = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[dtid.xy]);
-        const uint desired_extra_samples = calc_desired_extra_rays(reproj_sample_count, rtgi_settings.fast_convergence_samples);
-        const uint allowed_extra_samples = uint(float(desired_extra_samples) * relative_allowed_rays);
-        // Redistribution off: trace a fixed max(floor(ray_budget), 1) rays per pixel. On: adaptive base + extra.
-        samples = rtgi_settings.use_ray_redistribution
-            ? (1u + allowed_extra_samples)
-            : calc_fixed_rays_per_pixel(rtgi_settings.ray_percentage);
+        const float2 impact_factors = push.attach.ray_impact.get()[dtid.xy];
+        const RtgiRayImpact impact = { impact_factors.x, impact_factors.y };
+        const RtgiRayDemand demand = rtgi_calc_ray_demand(reproj_sample_count, push.attach.specular_sample_count.get()[dtid.xy], impact, rtgi_settings);
+        const uint base = rtgi_ray_demand_base(demand);
+        const uint allowed_extra_samples = uint(float(demand.diffuse + demand.specular - base) * relative_allowed_rays);
+        if (rtgi_settings.use_ray_redistribution)
+        {
+            uint extra_diffuse, extra_specular;
+            rtgi_split_extra_rays(allowed_extra_samples, demand, extra_diffuse, extra_specular);
+            specular_samples = (demand.specular > 0u ? 1u : 0u) + extra_specular;
+            samples = 1u + extra_diffuse + specular_samples;
+        }
+        else
+        {
+            // Redistribution off: fixed rays per pixel, at least one per active signal (calc_fixed_ray_split).
+            calc_fixed_ray_split(rtgi_settings.ray_percentage, demand.specular > 0u, samples, specular_samples);
+        }
     }
 
     // --- Wave-coalesced ray-list allocation: exclusive prefix sum of the ray counts within the wave, then
@@ -149,9 +220,23 @@ void shade_ray_gen(uint2 dtid)
     if (my_offset >= ray_list_capacity)               write_count = 0u;
     else if (my_offset + samples > ray_list_capacity) write_count = ray_list_capacity - my_offset;
 
+    // Entries [0, diffuse_write_count) are diffuse, the rest specular.
+    const uint diffuse_write_count  = min(samples - specular_samples, write_count);
+    const uint specular_write_count = write_count - diffuse_write_count;
+    {
+        // Statistics: rays actually traced, per signal.
+        const uint wave_diffuse = WaveActiveSum(diffuse_write_count);
+        const uint wave_specular = WaveActiveSum(specular_write_count);
+        if (WaveIsFirstLane())
+        {
+            InterlockedAdd(push.attach.ray_counters->shot_diffuse_rays, wave_diffuse);
+            InterlockedAdd(push.attach.ray_counters->shot_specular_rays, wave_specular);
+        }
+    }
+    var clk_after_diffuse = clk_start; // splits the pixel's clocks into its diffuse and specular rays (debug)
     if (write_count > 0u)
     {
-        const float  inv_samples   = rcp(float(write_count));
+        const float  inv_samples   = rcp(float(max(diffuse_write_count, 1u)));
         const float3 world_tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
         const float3x3 tbn         = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
         const float3 sample_pos    = rt_calc_ray_start(world_position, face_normal, primary_ray);
@@ -165,7 +250,7 @@ void shade_ray_gen(uint2 dtid)
             pixel_guide_sh_y = push.attach.guide_sh_y.get()[dtid];
         }
 
-        for (uint i = 0u; i < write_count; ++i)
+        for (uint i = 0u; i < diffuse_write_count; ++i)
         {
             float3 sample_dir;
             // Correction weight for pioneer-guided sampling; 1.0 (no-op) unless that branch fires below --
@@ -183,8 +268,7 @@ void shade_ray_gen(uint2 dtid)
                 // Returns a WORLD-space direction directly (builds its own basis internally) -- does NOT
                 // go through `tbn`, unlike the other two branches.
                 sample_dir = rtgi_sample_guided_diffuse_dir(
-                    face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, 1.0f,
-                    rtgi_settings.guide_floor_pull_enabled != 0, guided_weight);
+                    face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, 1.0f, guided_weight);
             }
             else
             {
@@ -218,18 +302,34 @@ void shade_ray_gen(uint2 dtid)
             mean_perceptual_rgb += linear_to_perceptual_rgb(ray_rgb, push.attach.globals.inv_exposure) * inv_samples;
             acc_ray_shortness   += calc_ray_shortness(payload.t, ws_px_size, rtgi_settings.max_visibility_pixel_range) * inv_samples;
         }
+
+        clk_after_diffuse = clockARB();
+
+        // Specular rays (own RNG stream) in the slots after the diffuse ones.
+        const float inv_specular_samples = rcp(float(max(specular_write_count, 1u)));
+        for (uint i = 0u; i < specular_write_count; ++i)
+        {
+            rtgi_specular_seed(thread_seed, i);
+            const RtgiRayResult spec_result = rtgi_trace_specular_ray(dtid, world_position, face_normal, primary_ray, ws_px_size, pixel_guide_sh_y);
+            push.attach.ray_result[my_offset + diffuse_write_count + i] = spec_result;
+            mean_specular_perceptual_rgb += linear_to_perceptual_rgb(spec_result.radiance, push.attach.globals.inv_exposure) * inv_specular_samples;
+            mean_specular_hit += spec_result.t * inv_specular_samples;
+        }
     }
 
     // Same outputs the distribute pass produces: per-pixel ray-list offset, ray count, and the log-rgb /
     // shortness the pre-filter reads. diffuse / diffuse2 are NOT produced (the pre-filter re-blends rays).
     push.attach.pixel_ray_alloc.get()[dtid.xy] = my_offset;
-    push.attach.ray_count_image.get()[dtid.xy] = write_count;
+    push.attach.ray_count_image.get()[dtid.xy] = diffuse_write_count;
+    push.attach.specular_ray_count_image.get()[dtid.xy] = specular_write_count;
     push.attach.perceptual_rgb_shortness.get()[dtid.xy] = float4(mean_perceptual_rgb, acc_ray_shortness);
+    push.attach.specular_perceptual_rgb_hit.get()[dtid.xy] = float4(mean_specular_perceptual_rgb, mean_specular_hit);
 
-    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)
+    let trace_debug_mode = push.attach.globals.settings.debug_draw_mode;
+    if (trace_debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_TRACE_CLOCKS || trace_debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_TRACE_CLOCKS)
     {
         let clk_end = clockARB();
-        const uint clocks = uint(clk_end - clk_start);
+        const uint clocks = trace_debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_TRACE_CLOCKS ? uint(clk_after_diffuse - clk_start) : uint(clk_end - clk_after_diffuse);
         write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(clocks * 0.0001f * push.attach.globals.settings.debug_visualization_scale), 1.0f + push.attach.globals.settings.debug_visualization_blend), 2);
     }
 }
@@ -242,7 +342,7 @@ void ray_gen_from_list_body()
     let clk_start = clockARB();
     const uint ray_index = DispatchRaysIndex().z * 128u + DispatchRaysIndex().x;
 
-    if (ray_index >= push.attach.ray_counters->ray_list_count)
+    if (ray_index >= min(push.attach.ray_counters->ray_list_count, rtgi_ray_list_limit(push.attach.globals.settings.render_target_size >> 1u, push.attach.globals.rtgi_settings)))
         return;
 
     const RtgiRayEntry entry   = push.attach.ray_list[ray_index];
@@ -278,6 +378,9 @@ void ray_gen_from_list_body()
     const uint history_seed   = rtgi_settings.animate_noise ? uint(max(history_count, 0.0f)) * prime_shift3 : 0u;
     const float3 world_tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
     const float3x3 tbn         = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
+    // A pixel's entries are [diffuse 0..n_d) then [specular 0..n_s); the diffuse count says which this one is.
+    const uint diffuse_ray_count = push.attach.ray_count_image.get()[pixel_xy];
+    const bool is_specular_ray = sample_index >= diffuse_ray_count;
 
     // Pioneer-guided direction support: read the same-frame, lag-free guide built by the pioneer trace +
     // spatial RIS resample (rtgi_guide_resample.hlsl) -- already half-res-pixel-aligned, no addressing
@@ -295,6 +398,18 @@ void ray_gen_from_list_body()
     // cosine, a variable count for guided sampling) start from this ray's own decorrelated slot regardless
     // of how many rand() calls they end up consuming — mirrors how the classic per-pixel trace draws
     // sequentially across its sample loop. Harmless no-op for the STBN branch below, which never calls rand().
+    if (is_specular_ray)
+    {
+        rtgi_specular_seed(frame_seed + history_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2, sample_index - diffuse_ray_count);
+        push.attach.ray_result[ray_index] = rtgi_trace_specular_ray(pixel_xy, world_pos, face_normal, primary_ray, ws_px_size, pixel_guide_sh_y);
+        if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_TRACE_CLOCKS)
+        {
+            const uint clocks = uint(clockARB() - clk_start);
+            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(Heatmap(clocks * 0.0001f * push.attach.globals.settings.debug_visualization_scale), 1.0f + push.attach.globals.settings.debug_visualization_blend), 2);
+        }
+        return;
+    }
+
     rand_seed(frame_seed + history_seed + pixel_xy.x * prime_shift1 + pixel_xy.y * prime_shift2);
     [loop] for (uint skip = 0u; skip < sample_index * 2u; ++skip) { rand(); }
 
@@ -324,8 +439,7 @@ void ray_gen_from_list_body()
         // SH dominant direction) and returns a WORLD-space direction directly -- unlike the other two
         // branches, it does NOT go through the pre-built `tbn` here.
         sample_dir = rtgi_sample_guided_diffuse_dir(
-            face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, 1.0f,
-            rtgi_settings.guide_floor_pull_enabled != 0, guided_weight);
+            face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, 1.0f, guided_weight);
     }
     else
     {
@@ -353,13 +467,16 @@ void ray_gen_from_list_body()
     // guided_weight folds in the pioneer-guided-sampling correction (1.0 = no-op unless that path fired).
     push.attach.ray_result[ray_index] = RtgiRayResult(payload.color * guided_weight * RTGI_RADIANCE_SCALE, payload.t, compress_normal_octahedral_32(sample_dir));
 
-    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)
+    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_TRACE_CLOCKS)
     {
         let clk_end = clockARB();
         const uint clocks = uint(clk_end - clk_start);
         write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(Heatmap(clocks * 0.0001f * push.attach.globals.settings.debug_visualization_scale), 1.0f + push.attach.globals.settings.debug_visualization_blend), 2);
     }
 }
+
+// Pioneer ray direction distribution: 1 = uniform hemisphere, 0 = cosine-weighted (see pioneer_ray_gen).
+#define RTGI_GUIDE_PIONEER_UNIFORM_HEMISPHERE 1
 
 // Pioneer trace, gated by rtgi_settings.pioneer_guiding_enabled. Dispatched at a SPARSE grid --
 // 1/RTGI_GUIDE_PIONEER_GRID_DIV resolution of the half-res trace grid in each axis -- one ray per cell.
@@ -408,8 +525,11 @@ void pioneer_ray_gen(uint2 pioneer_dtid)
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
     const float ws_px_size = rtgi_half_res_pixel_width_ws(half_res_inv_render_target_size, camera.near_plane, depth);
 
-    // Plain cosine sampling -- pioneer rays ARE the raw signal being gathered, so they must not guide
-    // off anything themselves. Seeded per pixel+frame like the other paths' per-pixel seeds.
+    // Unguided sampling -- pioneer rays ARE the raw signal being gathered, so they must not guide off anything
+    // themselves. RTGI_GUIDE_PIONEER_UNIFORM_HEMISPHERE (default 1): uniform over the hemisphere, so the search for
+    // bright spots covers grazing directions as densely as the pole (they also feed the rough specular guide mix);
+    // 0 = cosine-weighted (density matches diffuse importance). The guide resample weights candidates by brightness
+    // only (no sampling pdf), so either distribution plugs in unchanged. Seeded per pixel+frame like the other paths.
     const uint prime_shift1 = 9629u;
     const uint prime_shift2 = 10069u;
     const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index * 257u : 0u;
@@ -417,7 +537,16 @@ void pioneer_ray_gen(uint2 pioneer_dtid)
 
     const float3 world_tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
     const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
-    const float3 sample_dir = mul(tbn, rand_cosine_sample_hemi());
+#if RTGI_GUIDE_PIONEER_UNIFORM_HEMISPHERE
+    // Uniform hemisphere: cos(theta) uniform in [0, 1).
+    const float cos_theta = rand();
+    const float sin_theta = sqrt(max(0.0f, 1.0f - cos_theta * cos_theta));
+    const float phi = rand() * 2.0f * PI;
+    const float3 local_dir = float3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
+#else
+    const float3 local_dir = rand_cosine_sample_hemi();
+#endif
+    const float3 sample_dir = mul(tbn, local_dir);
 
     RayPayload payload = {};
     payload.dtid = pixel_xy;

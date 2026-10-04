@@ -3,10 +3,100 @@
 #include <imgui.h>
 #include <implot.h>
 #include <algorithm>
+#include <vector>
+#include <array>
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
 #include "../shader_shared/gpu_work_expansion.inl"
 #include "../shader_lib/volumetric.hlsl"
+
+namespace
+{
+    // Index == DEBUG_DRAW_MODE_* value (shader_shared/shared.inl).
+    constexpr std::array<char const *, DEBUG_DRAW_MODE_COUNT> DEBUG_DRAW_MODE_NAMES = {
+        "NONE",
+        "OVERDRAW",
+        "TRIANGLE_CONNECTIVITY",
+        "TRIANGLE_ID",
+        "MESHLET_ID",
+        "MESH_ID",
+        "MESH_GROUP_ID",
+        "ENTITY_ID",
+        "MESH_LOD",
+        "DEPTH",
+        "ALBEDO",
+        "ROUGHNESS",
+        "METALNESS",
+        "UV",
+        "FACE_NORMAL",
+        "SMOOTH_NORMAL",
+        "MAPPED_NORMAL",
+        "FACE_TANGENT",
+        "SMOOTH_TANGENT",
+        "DIRECT_DIFFUSE",
+        "DIRECT_SPECULAR",
+        "INDIRECT_DIFFUSE",
+        "INDIRECT_DIFFUSE_AO",
+        "AO",
+        "INDIRECT_SPECULAR",
+        "ALL_DIFFUSE",
+        "ALL_SPECULAR",
+        "ALL_LIGHTING",
+        "SHADE_OPAQUE_CLOCKS",
+        "LIGHT_MASK_VOLUME",
+        "VSM_OVERDRAW",
+        "VSM_CLIP_LEVEL",
+        "VSM_SPOT_LEVEL",
+        "VSM_POINT_LEVEL",
+        "PGI_EVAL_CLOCKS",
+        "PGI_CASCADE_SMOOTH",
+        "PGI_CASCADE_ABSOLUTE",
+        "PGI_LOW_QUALITY_SAMPLING",
+        "PGI_IRRADIANCE",
+        "PGI_RADIANCE",
+        "RTGI_DEBUG_PRIMARY_TRACE",
+        "RTGI_DIFFUSE_TRACE_CLOCKS",
+        "RTGI_SPECULAR_TRACE_CLOCKS",
+        "RTGI_TOTAL_RAYS_SHOT",
+        "RTGI_DIFFUSE_RAYS_SHOT",
+        "RTGI_SPECULAR_RAYS_SHOT",
+        "RTGI_TOTAL_RAYS_PER_TILE",
+        "RTGI_DIFFUSE_RAYS_PER_TILE",
+        "RTGI_SPECULAR_RAYS_PER_TILE",
+        "RTGI_RAY_SHARE",
+        "RTGI_RAY_MATERIAL",
+        "RTGI_GUIDE_CONFIDENCE",
+        "RTGI_GUIDE_DIRECTION",
+        "RTGI_DIFFUSE_AO_GUIDE",
+        "RTGI_SPECULAR_HIT_DISTANCE",
+        "RTGI_DIFFUSE_PERCEPTUAL_MEAN",
+        "RTGI_SPECULAR_PERCEPTUAL_MEAN",
+        "RTGI_DIFFUSE_AO_GUIDE_TEMPORAL",
+        "RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL",
+        "RTGI_DIFFUSE_PERCEPTUAL_MEAN_TEMPORAL",
+        "RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL",
+        "RTGI_DIFFUSE_HISTORY_LENGTH",
+        "RTGI_SPECULAR_HISTORY_LENGTH",
+        "RTGI_DIFFUSE_TEMPORAL_REACTIVITY",
+        "RTGI_SPECULAR_TEMPORAL_REACTIVITY",
+        "RTGI_SPECULAR_VIRTUAL_AMOUNT",
+    };
+
+    static_assert(DEBUG_DRAW_MODE_NAMES.back() != nullptr, "DEBUG_DRAW_MODE_NAMES is missing entries for DEBUG_DRAW_MODE_COUNT");
+
+    // Per-feature debug view selector: "NONE" + the feature's modes (its own first, then related ones). Anything
+    // but NONE overrides the main debug visualization.
+    void debug_mode_sub_selector(char const * label, i32 * selected, std::initializer_list<i32> modes, i32 & override_mode)
+    {
+        std::vector<char const *> labels = {"NONE"};
+        for (i32 const mode : modes) { labels.push_back(DEBUG_DRAW_MODE_NAMES[mode]); }
+        tido::ui::filter_combo(label, selected, labels.data(), s_cast<i32>(labels.size()));
+        if (*selected > 0 && *selected <= s_cast<i32>(modes.size()))
+        {
+            override_mode = *(modes.begin() + (*selected - 1));
+        }
+    }
+} // namespace
 
 void setup_colors()
 {
@@ -372,31 +462,23 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             if (ImGui::CollapsingHeader("Lights Settings"))
             {
                 {
-                    auto modes = std::array{
-                        "NONE",                 // DEBUG_DRAW_MODE_NONE
-                        "ALBEDO",               // DEBUG_DRAW_MODE_ALBEDO
-                        "SMOOTH_NORMAL",        // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                        "DIRECT_DIFFUSE",       // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE",     // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "ALL_DIFFUSE",          // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "SHADE_OPAQUE_CLOCKS",  // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
-                        "LIGHT_MASK_VOLUME",    // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
-                    };
-                    auto mode_mappings = std::array{
-                        DEBUG_DRAW_MODE_NONE,
-                        DEBUG_DRAW_MODE_ALBEDO,
-                        DEBUG_DRAW_MODE_SMOOTH_NORMAL,
+                    debug_mode_sub_selector("lights debug visualization", &lights_debug_visualization, {
                         DEBUG_DRAW_MODE_DIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_DIRECT_SPECULAR,
                         DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
+                        DEBUG_DRAW_MODE_AO,
+                        DEBUG_DRAW_MODE_INDIRECT_SPECULAR,
                         DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                        DEBUG_DRAW_MODE_ALL_SPECULAR,
+                        DEBUG_DRAW_MODE_ALL_LIGHTING,
                         DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
                         DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
-                    };
-                    tido::ui::filter_combo("lights debug visualization", &lights_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
-                    if (lights_debug_visualization != 0)
-                    {
-                        debug_visualization_index_override = mode_mappings[lights_debug_visualization];
-                    }
+                        DEBUG_DRAW_MODE_ALBEDO,
+                        DEBUG_DRAW_MODE_ROUGHNESS,
+                        DEBUG_DRAW_MODE_METALNESS,
+                        DEBUG_DRAW_MODE_MAPPED_NORMAL,
+                    }, debug_visualization_index_override);
                 }
                 ImGui::InputFloat3("Mask Volume Size", &render_data.light_settings.mask_volume_size.x);
                 ImGui::InputInt3("Mask Volume Cell Count", &render_data.light_settings.mask_volume_cell_count.x);
@@ -412,54 +494,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             
             if (ImGui::CollapsingHeader("Debug"))
             {
-                auto modes = std::array{
-                    "NONE", // DEBUG_DRAW_MODE_NONE
-                    "OVERDRAW", // DEBUG_DRAW_MODE_OVERDRAW
-                    "TRIANGLE_CONNECTIVITY", // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
-                    "TRIANGLE_ID", // DEBUG_DRAW_MODE_TRIANGLE_ID
-                    "MESHLET_ID", // DEBUG_DRAW_MODE_MESHLET_ID
-                    "MESH_ID", // DEBUG_DRAW_MODE_MESH_ID
-                    "MESH_GROUP_ID", // DEBUG_DRAW_MODE_MESH_GROUP_ID
-                    "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
-                    "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
-                    "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
-                    "VSM_CLIP_LEVEL", // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
-                    "VSM_SPOT_LEVEL", // DEBUG_DRAW_MODE_VSM_SPOT_LEVEL
-                    "VSM_POINT_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
-                    "DEPTH", // DEBUG_DRAW_MODE_DEPTH
-                    "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
-                    "UV", // DEBUG_DRAW_MODE_UV
-                    "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
-                    "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                    "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
-                    "FACE_TANGENT", // DEBUG_DRAW_MODE_FACE_TANGENT
-                    "SMOOTH_TANGENT", // DEBUG_DRAW_MODE_SMOOTH_TANGENT
-                    "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                    "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                    "INDIRECT_DIFFUSE_AO", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                    "AO", // DEBUG_DRAW_MODE_AO
-                    "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                    "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
-                    "PGI_EVAL_CLOCKS", // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                    "PGI_CASCADE_SMOOTH", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
-                    "PGI_CASCADE_ABSOLUTE", // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                    "PGI_LOW_QUALITY_SAMPLING", // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
-                    "PGI_IRRADIANCE", // DEBUG_DRAW_MODE_PGI_IRRADIANCE
-                    "PGI_RADIANCE", // DEBUG_DRAW_MODE_PGI_RADIANCE
-                    "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
-                    "RTGI_TRACE_CLOCKS",              // DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS
-                    "RTGI_DEBUG_PRIMARY_TRACE",       // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
-                    "RTGI_RAYS_SHOT",                 // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT
-                    "RTGI_RAYS_SHOT_PER_TILE",        // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE
-                    "RTGI_AO_GUIDE",              // DEBUG_DRAW_MODE_RTGI_AO_GUIDE
-                    "RTGI_AO_GUIDE_TEMPORAL",  // DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL
-                    "RTGI_PERCEPTUAL_MEAN",                 // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN
-                    "RTGI_PERCEPTUAL_MEAN_TEMPORAL",        // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL
-                    "RTGI_HISTORY_LENGTH",            // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
-                    "RTGI_TEMPORAL_REACTIVITY",       // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
-                    "RTGI_GUIDE_CONFIDENCE",          // DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE
-                    "RTGI_GUIDE_DIRECTION",           // DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION
-                };
+                auto const & modes = DEBUG_DRAW_MODE_NAMES;
                 tido::ui::filter_combo("debug visualization", &debug_visualization_index, modes.data(), s_cast<i32>(modes.size()));
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
                 ImGui::SliderFloat("debug visualization blend", &render_data.settings.debug_visualization_blend, 0.0f, 1.0f);
@@ -560,27 +595,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             if (ImGui::CollapsingHeader("Visbuffer Pipeline Settings"))
             {
                 {
-                    auto modes = std::array{
-                        "NONE", // DEBUG_DRAW_MODE_NONE
-                        "OVERDRAW", // DEBUG_DRAW_MODE_OVERDRAW
-                        "TRIANGLE_CONNECTIVITY", // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
-                        "TRIANGLE_ID", // DEBUG_DRAW_MODE_TRIANGLE_ID
-                        "MESHLET_ID", // DEBUG_DRAW_MODE_MESHLET_ID
-                        "MESH_ID", // DEBUG_DRAW_MODE_MESH_ID
-                        "MESH_GROUP_ID", // DEBUG_DRAW_MODE_MESH_GROUP_ID
-                        "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
-                        "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
-                        "DEPTH", // DEBUG_DRAW_MODE_DEPTH
-                        "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
-                        "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
-                        "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                        "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
-                        "FACE_TANGENT", // DEBUG_DRAW_MODE_FACE_TANGENT
-                        "SMOOTH_TANGENT", // DEBUG_DRAW_MODE_SMOOTH_TANGENT
-                        "UV", // DEBUG_DRAW_MODE_UV
-                    };
-                    auto mode_mappings = std::array{
-                        DEBUG_DRAW_MODE_NONE,
+                    debug_mode_sub_selector("visbuffer debug visualization", &visbuffer_debug_visualization, {
                         DEBUG_DRAW_MODE_OVERDRAW,
                         DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY,
                         DEBUG_DRAW_MODE_TRIANGLE_ID,
@@ -591,18 +606,15 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         DEBUG_DRAW_MODE_MESH_LOD,
                         DEBUG_DRAW_MODE_DEPTH,
                         DEBUG_DRAW_MODE_ALBEDO,
+                        DEBUG_DRAW_MODE_ROUGHNESS,
+                        DEBUG_DRAW_MODE_METALNESS,
+                        DEBUG_DRAW_MODE_UV,
                         DEBUG_DRAW_MODE_FACE_NORMAL,
                         DEBUG_DRAW_MODE_SMOOTH_NORMAL,
                         DEBUG_DRAW_MODE_MAPPED_NORMAL,
                         DEBUG_DRAW_MODE_FACE_TANGENT,
                         DEBUG_DRAW_MODE_SMOOTH_TANGENT,
-                        DEBUG_DRAW_MODE_UV,
-                    };
-                    tido::ui::filter_combo("visbuffer debug visualization", &visbuffer_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
-                    if (visbuffer_debug_visualization != 0)
-                    {
-                        debug_visualization_index_override = mode_mappings[visbuffer_debug_visualization];
-                    }
+                    }, debug_visualization_index_override);
                 }
                 ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
                 ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
@@ -613,37 +625,18 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
                 {
-                    auto modes = std::array{
-                        "NONE",                             // DEBUG_DRAW_MODE_NONE
-                        "INDIRECT_DIFFUSE",                 // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                        "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_AO
-                        "ALL_DIFFUSE",                      // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "PGI_EVAL_CLOCKS",                  // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                        "PGI_CASCADE_SMOOTH",               // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
-                        "PGI_CASCADE_ABSOLUTE",             // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                        "PGI_LOW_QUALITY_SAMPLING",         // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
-                        "PGI_IRRADIANCE",                   // DEBUG_DRAW_MODE_PGI_IRRADIANCE
-                        "PGI_RADIANCE",                     // DEBUG_DRAW_MODE_PGI_RADIANCE
-                    };
-                    auto mode_mappings = std::array{
-                        DEBUG_DRAW_MODE_NONE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
-                        DEBUG_DRAW_MODE_AO,
-                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                    debug_mode_sub_selector("pgi debug visualization", &pgi_debug_visualization, {
                         DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
                         DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
                         DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
                         DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING,
                         DEBUG_DRAW_MODE_PGI_IRRADIANCE,
-                        DEBUG_DRAW_MODE_PGI_RADIANCE
-                    };
-                    tido::ui::filter_combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
-                    if (pgi_debug_visualization != 0)
-                    {
-                        debug_visualization_index_override = mode_mappings[pgi_debug_visualization];
-                    }
+                        DEBUG_DRAW_MODE_PGI_RADIANCE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
+                        DEBUG_DRAW_MODE_AO,
+                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                    }, debug_visualization_index_override);
                 }
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
                 ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
@@ -689,61 +682,44 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             }
             if (ImGui::CollapsingHeader("RTGI Settings"))
             {
-                auto modes = std::array{
-                    "NONE",                             // DEBUG_DRAW_MODE_NONE
-                    "INDIRECT_DIFFUSE",                 // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                    "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                    "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_AO
-                    "ALL_DIFFUSE",                      // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                    "PGI_EVAL_CLOCKS",                  // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                    "PGI_CASCADE_SMOOTH",               // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
-                    "PGI_CASCADE_ABSOLUTE",             // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                    "PGI_LOW_QUALITY_SAMPLING",         // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
-                    "PGI_IRRADIANCE",                   // DEBUG_DRAW_MODE_PGI_IRRADIANCE
-                    "PGI_RADIANCE",                     // DEBUG_DRAW_MODE_PGI_RADIANCE
-                    "RTGI_TRACE_CLOCKS",                // DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS
-                    "RTGI_DEBUG_PRIMARY_TRACE",         // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
-                    "RTGI_RAYS_SHOT",                   // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT
-                    "RTGI_RAYS_SHOT_PER_TILE",          // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE
-                    "RTGI_AO_GUIDE",                // DEBUG_DRAW_MODE_RTGI_AO_GUIDE
-                    "RTGI_AO_GUIDE_TEMPORAL",    // DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL
-                    "RTGI_PERCEPTUAL_MEAN",                   // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN
-                    "RTGI_PERCEPTUAL_MEAN_TEMPORAL",          // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL
-                    "RTGI_HISTORY_LENGTH",              // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
-                    "RTGI_TEMPORAL_REACTIVITY",         // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
-                    "RTGI_GUIDE_CONFIDENCE",            // DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE
-                    "RTGI_GUIDE_DIRECTION",             // DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION
-                };
-                auto mode_mappings = std::array{
-                    DEBUG_DRAW_MODE_NONE,
+                debug_mode_sub_selector("rtgi debug visualization", &rtgi_debug_visualization, {
+                    DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_TRACE_CLOCKS,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_TRACE_CLOCKS,
+                    DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_SHOT,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_RAYS_SHOT,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_RAYS_SHOT,
+                    DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_PER_TILE,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_RAYS_PER_TILE,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_RAYS_PER_TILE,
+                    DEBUG_DRAW_MODE_RTGI_RAY_SHARE,
+                    DEBUG_DRAW_MODE_RTGI_RAY_MATERIAL,
+                    DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE,
+                    DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_AO_GUIDE,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_PERCEPTUAL_MEAN,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_AO_GUIDE_TEMPORAL,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_PERCEPTUAL_MEAN_TEMPORAL,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_HISTORY_LENGTH,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_HISTORY_LENGTH,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_TEMPORAL_REACTIVITY,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_TEMPORAL_REACTIVITY,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_VIRTUAL_AMOUNT,
                     DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
                     DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
                     DEBUG_DRAW_MODE_AO,
+                    DEBUG_DRAW_MODE_DIRECT_SPECULAR,
+                    DEBUG_DRAW_MODE_INDIRECT_SPECULAR,
                     DEBUG_DRAW_MODE_ALL_DIFFUSE,
-                    DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
-                    DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
-                    DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
-                    DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING,
-                    DEBUG_DRAW_MODE_PGI_IRRADIANCE,
-                    DEBUG_DRAW_MODE_PGI_RADIANCE,
-                    DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS,
-                    DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE,
-                    DEBUG_DRAW_MODE_RTGI_RAYS_SHOT,
-                    DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE,
-                    DEBUG_DRAW_MODE_RTGI_AO_GUIDE,
-                    DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL,
-                    DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN,
-                    DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL,
-                    DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH,
-                    DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY,
-                    DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE,
-                    DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION,
-                };
-                tido::ui::filter_combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
-                if (rtgi_debug_visualization != 0)
-                {
-                    debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
-                }
+                    DEBUG_DRAW_MODE_ALL_SPECULAR,
+                    DEBUG_DRAW_MODE_ALL_LIGHTING,
+                    DEBUG_DRAW_MODE_ROUGHNESS,
+                    DEBUG_DRAW_MODE_METALNESS,
+                }, debug_visualization_index_override);
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
                 // Accumulated GPU time (microseconds) for a set of render-time slots.
                 auto rtgi_section_us = [&](std::initializer_list<u32> indices) -> f32 {
@@ -754,35 +730,82 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 // Section tree node that shows the section's accumulated GPU time on its header line.
                 auto rtgi_section = [&](char const * name, std::initializer_list<u32> indices) -> bool {
                     bool const open = ImGui::TreeNodeEx(name, ImGuiTreeNodeFlags_None);
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("%8.1f us", rtgi_section_us(indices));
+                    if (indices.size() > 0) // sections without timers (e.g. Specular) show no time
+                    {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("%8.1f us", rtgi_section_us(indices));
+                    }
                     return open;
                 };
+                // Per-category sub blocks: General / Diffuse / Specular. PushID keeps same-named controls apart.
+                auto rtgi_sub_begin = [](char const * label) { ImGui::SeparatorText(label); ImGui::PushID(label); };
+                auto rtgi_sub_end = []() { ImGui::PopID(); };
+                if (rtgi_section("Specular", {}))
+                {
+                    // Specular signal + material overrides. Per-stage specular settings live in each stage's Specular block.
+                    ImGui::Checkbox("Specular Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_enabled));
+                    ImGui::SliderFloat("Additive Upwards Gloss", &render_data.rtgi_settings.specular_upward_gloss, 0.0f, 1.0f);
+                    ImGui::SetItemTooltip("Lowers roughness on surfaces facing up (wet / polished floors).");
+                    ImGui::SliderFloat("Additive Total Gloss", &render_data.rtgi_settings.specular_total_gloss, 0.0f, 1.0f);
+                    ImGui::SetItemTooltip("Lowers roughness on all surfaces (roughness *= 1 - gloss).");
+                    ImGui::SliderFloat("Additive Metalness", &render_data.rtgi_settings.specular_additive_metalness, 0.0f, 1.0f);
+                    ImGui::SetItemTooltip("Adds to material metalness on all surfaces (metalness = saturate(metalness + value)).");
+                    ImGui::SliderFloat("Max Gloss", &render_data.rtgi_settings.specular_max_gloss, 0.0f, 1.0f);
+                    ImGui::SetItemTooltip("Caps material gloss (1 - roughness) everywhere, applied after the additive gloss knobs.");
+                    ImGui::TreePop();
+                }
                 if (rtgi_section("Trace", {
                         RenderTimes::index<"RTGI", "DISTRIBUTE_RAYS">(),
                         RenderTimes::index<"RTGI", "TRACE">(),
                         RenderTimes::index<"RTGI", "BLEND_RAYS">(),
                     }))
                 {
+                    rtgi_sub_begin("General");
                     ImGui::SliderFloat("Shading AO Range", &render_data.rtgi_settings.shading_ao_range, 0.0f, 4.0f);
                     ImGui::Checkbox("Use Repacked Ray Dispatch", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_repacked_ray_dispatch));
                     ImGui::SliderFloat("Ray Budget (rays/pixel)", &render_data.rtgi_settings.ray_percentage, 0.0f, 4.0f);
                     ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);
+                    ImGui::SliderInt("Max Rays Per Pixel", &render_data.rtgi_settings.max_rays_per_pixel, 1, 32);
+                    ImGui::SetItemTooltip("Max rays (diffuse + specular, base included) a pixel may request per frame. A fully fresh pixel asks for exactly this many. Too many rays in one frame are temporally similar and form stripes. Never below the base rays (2 with specular).");
+                    {
+                        ImGui::SliderFloat("Diffuse/Spec Share Slope", &render_data.rtgi_settings.ray_share_slope, 0.0f, 4.0f, "%.2f");
+                        ImGui::SetItemTooltip("How strongly the visibly brighter signal (diffuse vs specular final radiance, in stops) takes the pixel's extra rays. 0 = even, 1 = linear ratio, 2 = squared ratio. Factors always sum to 2.");
+                        ImGui::SliderFloat("Metal Diffuse Tolerance (stops)", &render_data.rtgi_settings.ray_diffuse_metal_tolerance_stops, 0.0f, 0.5f, "%.3f");
+                        ImGui::SetItemTooltip("Diffuse extra rays fade out once leaving diffuse out would change the pixel by less than this many stops (material only). 0.1 -> full rays up to metalness ~0.93, none at 1. 0 = off.");
+                        ImGui::SliderFloat("Rough Specular Cutoff Start", &render_data.rtgi_settings.ray_specular_roughness_cutoff_start, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Rough Specular Cutoff End", &render_data.rtgi_settings.ray_specular_roughness_cutoff_end, 0.0f, 1.0f, "%.2f");
+                        ImGui::SetItemTooltip("Specular extra rays fade from 1 at Start roughness to 0 at End roughness (base ray stays). Start >= End = off.");
+                    }
                     ImGui::Checkbox("Ray Redistribution", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_ray_redistribution));
-                    ImGui::Checkbox("Trace Use STBN", reinterpret_cast<bool *>(&render_data.rtgi_settings.trace_use_stbn));
                     ImGui::Checkbox("Pioneer Guided Ray Bending", reinterpret_cast<bool *>(&render_data.rtgi_settings.pioneer_guiding_enabled));
-                    ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.guide_concentration, 0.0f, 1.0f);
-                    ImGui::Checkbox("Guide Pull: Floor (vs Schlick)", reinterpret_cast<bool *>(&render_data.rtgi_settings.guide_floor_pull_enabled));
                     ImGui::SliderFloat("Pioneer Trace Max Distance (m)", &render_data.rtgi_settings.guide_pioneer_trace_max_distance, 1.0f, 1024.0f);
-                    ImGui::SliderFloat("Ambient Occlusion Guide Max Pixel Range", &render_data.rtgi_settings.max_visibility_pixel_range, 1.0f, 128.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Diffuse");
+                    ImGui::Checkbox("Trace Use STBN", reinterpret_cast<bool *>(&render_data.rtgi_settings.trace_use_stbn));
+                    ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.guide_concentration, 0.0f, 1.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Specular");
+                    ImGui::SliderFloat("Pioneer Guide Mix", &render_data.rtgi_settings.specular_guide_mix, 0.0f, 1.0f);
+                    ImGui::SetItemTooltip("Probability (at roughness 1) of drawing a specular ray from the pioneer guide lobe (MIS weighted).");
+                    ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.specular_guide_concentration, 0.0f, 1.0f);
+                    rtgi_sub_end();
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Prefilter", { RenderTimes::index<"RTGI", "PRE_FILTER">() }))
                 {
+                    rtgi_sub_begin("Diffuse");
                     ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
                     ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.firefly_clamp_mode, 0); ImGui::SameLine();
                     ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.firefly_clamp_mode, 1);
                     ImGui::SliderFloat("Firefly Perceptual Tolerance", &render_data.rtgi_settings.firefly_perceptual_tolerance, 0.25f, 16.0f);
+                    ImGui::SliderFloat("Ambient Occlusion Guide Max Pixel Range", &render_data.rtgi_settings.max_visibility_pixel_range, 1.0f, 128.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Specular");
+                    ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_firefly_filter_enabled));
+                    ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.specular_firefly_clamp_mode, 0); ImGui::SameLine();
+                    ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.specular_firefly_clamp_mode, 1);
+                    ImGui::SliderFloat("Firefly Perceptual Tolerance", &render_data.rtgi_settings.specular_firefly_perceptual_tolerance, 0.25f, 16.0f);
+                    rtgi_sub_end();
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Pre Blur", {
@@ -792,16 +815,27 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         RenderTimes::index<"RTGI", "PRE_BLUR3">(),
                     }))
                 {
+                    rtgi_sub_begin("General");
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
-                    ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ao_guiding));
-                    ImGui::SliderFloat("Radius Scaling Floor", &render_data.rtgi_settings.ao_guide_floor, 0.0f, 1.0f);
-                    ImGui::Checkbox("Perceptual Radiance Difference Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_perceptual_difference_guiding));
-                    ImGui::SliderFloat("Perceptual Radiance Tolerance", &render_data.rtgi_settings.pre_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
-                    ImGui::Checkbox("Ray Count Sample Weighting", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_count_sample_weighting));
-                    ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_firefly_energy_compensation_enabled));
                     ImGui::SliderFloat("Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
                     ImGui::SliderInt("Sample Count", &render_data.rtgi_settings.pre_blur_sample_count, 1, 32);
                     ImGui::SliderInt("Iterations", &render_data.rtgi_settings.pre_blur_iterations, 1, 4);
+                    ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ao_guiding));
+                    ImGui::SetItemTooltip("Shrinks the blur radius in occluded areas (AO guide from the diffuse rays). Scales both the diffuse disc and the specular lobe radius.");
+                    ImGui::SliderFloat("Radius Scaling Floor", &render_data.rtgi_settings.ao_guide_floor, 0.0f, 1.0f);
+                    ImGui::Checkbox("Ray Count Sample Weighting", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_count_sample_weighting));
+                    ImGui::SetItemTooltip("Taps weighted by the rays they shot this frame (diffuse taps by diffuse rays, specular taps by specular rays).");
+                    ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_firefly_energy_compensation_enabled));
+                    ImGui::SetItemTooltip("Iteration 0: each signal's firefly clamp energy factor boosts its tap weights, spreading the clamped energy instead of losing it.");
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Diffuse");
+                    ImGui::Checkbox("Perceptual Radiance Difference Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_perceptual_difference_guiding));
+                    ImGui::SliderFloat("Perceptual Radiance Tolerance", &render_data.rtgi_settings.pre_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Specular");
+                    ImGui::SliderFloat("Blur Scale", &render_data.rtgi_settings.specular_pre_blur_scale, 0.0f, 4.0f);
+                    ImGui::SetItemTooltip("Scales the specular lobe-footprint radius; taps outside it are dropped (0 = no specular pre blur).");
+                    rtgi_sub_end();
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Temporal", {
@@ -809,16 +843,37 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         RenderTimes::index<"RTGI", "TEMPORAL_ACCUMULATION">(),
                     }))
                 {
-                    ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
+                    rtgi_sub_begin("General");
+                    ImGui::Checkbox("Temporal Noise Animation", reinterpret_cast<bool *>(&render_data.rtgi_settings.animate_noise));
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Diffuse");
+                    ImGui::Checkbox("Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
                     ImGui::SliderInt("Max Temporal Samples", &render_data.rtgi_settings.max_temporal_samples, 1, 255);
                     ImGui::SliderFloat("Fast Convergence Samples", &render_data.rtgi_settings.fast_convergence_samples, 1.0f, 128.0f);
-                    ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
-                    ImGui::SliderInt("Temporal Fast History Frames", &render_data.rtgi_settings.temporal_fast_history_frames, 1, 15);
+                    ImGui::Checkbox("Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
+                    ImGui::SliderInt("Fast History Frames", &render_data.rtgi_settings.temporal_fast_history_frames, 1, 15);
                     ImGui::Checkbox("Temporal Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_firefly_filter_enabled));
                     ImGui::SliderFloat("Temporal Firefly Std Dev Clamp", &render_data.rtgi_settings.temporal_firefly_std_dev_clamp, 0.0f, 8.0f);
-                    ImGui::SliderFloat("Temporal Variance Fast History Blend", &render_data.rtgi_settings.temporal_variance_fast_history_blend, 0.0f, 8.0f);
-                    ImGui::SliderFloat("Temporal Parallax Penalty Strength", &render_data.rtgi_settings.temporal_parallax_penalty_strength, 0.0f, 4.0f);
-                    ImGui::Checkbox("Temporal Noise Animation", reinterpret_cast<bool *>(&render_data.rtgi_settings.animate_noise));
+                    ImGui::SliderFloat("Variance Fast History Blend", &render_data.rtgi_settings.temporal_variance_fast_history_blend, 0.0f, 8.0f);
+                    ImGui::SliderFloat("Parallax Penalty Strength", &render_data.rtgi_settings.temporal_parallax_penalty_strength, 0.0f, 4.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Specular");
+                    ImGui::Checkbox("Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_temporal_accumulation_enabled));
+                    ImGui::SliderFloat("Max Temporal Frames", &render_data.rtgi_settings.specular_max_temporal_frames, 1.0f, 128.0f);
+                    ImGui::SliderFloat("Fast Convergence Samples", &render_data.rtgi_settings.specular_fast_convergence_samples, 1.0f, 128.0f);
+                    ImGui::SetItemTooltip("Ray demand target for specular (capped by Max Temporal Frames).");
+                    ImGui::Checkbox("Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_fast_history_enabled));
+                    ImGui::SliderInt("Fast History Frames", &render_data.rtgi_settings.specular_fast_history_frames, 1, 15);
+                    ImGui::Checkbox("Temporal Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_temporal_firefly_filter_enabled));
+                    ImGui::SliderFloat("Temporal Firefly Std Dev Clamp", &render_data.rtgi_settings.specular_temporal_firefly_std_dev_clamp, 0.0f, 8.0f);
+                    ImGui::SliderFloat("Variance Fast History Blend", &render_data.rtgi_settings.specular_temporal_variance_fast_history_blend, 0.0f, 8.0f);
+                    ImGui::SliderFloat("Parallax Penalty Strength", &render_data.rtgi_settings.specular_temporal_parallax_penalty_strength, 0.0f, 4.0f);
+                    ImGui::Checkbox("Specular Virtual Motion Reprojection", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_virtual_reprojection));
+                    ImGui::Checkbox("Catmull-Rom History", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_catrom_history));
+                    ImGui::SetItemTooltip("Fetch specular history with a 12-tap Catmull-Rom (sharper under motion) where the full footprint is valid; bilinear otherwise.");
+                    ImGui::SliderFloat("Reprojection Disagreement Strength", &render_data.rtgi_settings.specular_reprojection_disagreement_strength, 0.0f, 4.0f);
+                    ImGui::SetItemTooltip("Shortens the specular history where surface and virtual motion reprojection disagree (in stops).");
+                    rtgi_sub_end();
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Post Blur", {
@@ -834,11 +889,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         RenderTimes::index<"RTGI", "POST_BLUR_ATROUS7">(),
                     }))
                 {
+                    rtgi_sub_begin("General");
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
-                    ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_ao_guiding));
-                    ImGui::SliderFloat("Radius Scaling Floor", &render_data.rtgi_settings.post_blur_ao_guide_floor, 0.0f, 1.0f);
-                    ImGui::Checkbox("Perceptual Radiance Difference Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_perceptual_difference_guiding));
-                    ImGui::SliderFloat("Perceptual Radiance Difference Tolerance", &render_data.rtgi_settings.post_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
                     ImGui::Checkbox("Disocclusion Blur", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_disocclusion_blur_enabled));
                     ImGui::RadioButton("Bilateral", &render_data.rtgi_settings.post_blur_mode, 0);
                     ImGui::SameLine();
@@ -855,51 +907,50 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         // NOTE: the LDS variant caps the filter radius at 16 (its preloaded halo).
                         ImGui::Checkbox("Use Groupshared (LDS)", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_use_lds));
                     }
+                    ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_ao_guiding));
+                    ImGui::SetItemTooltip("Shrinks the blur width in occluded areas (temporal AO guide). Scales both the diffuse and the specular width.");
+                    ImGui::SliderFloat("Radius Scaling Floor", &render_data.rtgi_settings.post_blur_ao_guide_floor, 0.0f, 1.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Diffuse");
+                    ImGui::Checkbox("Perceptual Radiance Difference Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_perceptual_difference_guiding));
+                    ImGui::SliderFloat("Perceptual Radiance Difference Tolerance", &render_data.rtgi_settings.post_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Specular");
+                    ImGui::SliderFloat("Blur Scale", &render_data.rtgi_settings.specular_post_blur_scale, 0.0f, 4.0f);
+                    ImGui::SetItemTooltip("Scales the specular lobe-footprint width (capped at Max Width; 0 = no specular post blur).");
+                    rtgi_sub_end();
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Upscaling", { RenderTimes::index<"RTGI", "UPSCALE">() }))
                 {
+                    rtgi_sub_begin("General");
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Diffuse");
                     ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Specular");
+                    ImGui::Checkbox("Detail Normal + Gloss Weighting", reinterpret_cast<bool *>(&render_data.rtgi_settings.specular_upscale_detail_weighting));
+                    ImGui::SetItemTooltip("Upscale weights specular taps by full-res detail normal vs half-res specular normal + gloss. Off = diffuse-style geometry weights only.");
+                    rtgi_sub_end();
                     ImGui::TreePop();
                 }
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {
                 {
-                    auto modes = std::array{
-                        "NONE", // DEBUG_DRAW_MODE_NONE
-                        "MESHLET_ID", // DEBUG_DRAW_MODE_MESHLET_ID
-                        "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
-                        "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
-                        "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
-                        "VSM_CLIP_LEVEL", // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
-                        "VSM_POINT_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
-                        "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
-                        "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
-                    };
-                    auto mode_mappings = std::array{
-                        DEBUG_DRAW_MODE_NONE,
+                    debug_mode_sub_selector("vsm debug visualization", &vsm_debug_visualization, {
+                        DEBUG_DRAW_MODE_VSM_OVERDRAW,
+                        DEBUG_DRAW_MODE_VSM_CLIP_LEVEL,
+                        DEBUG_DRAW_MODE_VSM_SPOT_LEVEL,
+                        DEBUG_DRAW_MODE_VSM_POINT_LEVEL,
+                        DEBUG_DRAW_MODE_DIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
+                        DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
                         DEBUG_DRAW_MODE_MESHLET_ID,
                         DEBUG_DRAW_MODE_ENTITY_ID,
                         DEBUG_DRAW_MODE_MESH_LOD,
-                        DEBUG_DRAW_MODE_VSM_OVERDRAW,
-                        DEBUG_DRAW_MODE_VSM_CLIP_LEVEL,
-                        DEBUG_DRAW_MODE_VSM_POINT_LEVEL,
-                        DEBUG_DRAW_MODE_DIRECT_DIFFUSE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
-                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
-                        DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
-                        DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
-                    };
-                    tido::ui::filter_combo("vsm debug visualization", &vsm_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
-                    if (vsm_debug_visualization != 0)
-                    {
-                        debug_visualization_index_override = mode_mappings[vsm_debug_visualization];
-                    }
+                    }, debug_visualization_index_override);
                 }
                 bool enable = s_cast<bool>(render_context.render_data.vsm_settings.enable);
                 bool shadow_everything = s_cast<bool>(render_context.render_data.vsm_settings.shadow_everything);
@@ -1482,7 +1533,7 @@ void UIEngine::ui_visbuffer_pipeline_statistics(RenderContext & render_context)
         VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
         VisbufferPipelineStat{"First Pass Bitfield Use", "kb", meshlet_bitfield_used_size, meshlet_bitfield_total_size},
     };
-    if (ImGui::CollapsingHeader("Visbuffer Pipeline Statistics"))
+    if (ImGui::CollapsingHeader("Visbuffer Pipeline"))
     {
         if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
         {
@@ -1519,7 +1570,7 @@ void UIEngine::ui_visbuffer_pipeline_statistics(RenderContext & render_context)
 
 void UIEngine::ui_pgi_statistics(RenderContext & render_context)
 {
-    if (ImGui::CollapsingHeader("Probe Global Illumination Statistics"))
+    if (ImGui::CollapsingHeader("Probe Global Illumination"))
     {
         u32 heavy_ray_count = 512000;
         u32 super_heavy_ray_count = 1024000;
@@ -1554,9 +1605,148 @@ void UIEngine::ui_pgi_statistics(RenderContext & render_context)
     }
 }
 
+void ui_rtgi_statistics(RenderContext & render_context)
+{
+    if (ImGui::CollapsingHeader("Ray Traced Global Illumination"))
+    {
+        auto & render_data = render_context.render_data;
+        {
+            auto const & rb = render_context.general_readback;
+            u32 const base_rays = rb.rtgi_requested_base_rays;
+            u32 const extra_rays = rb.rtgi_requested_extra_rays;
+            u32 const budget = rb.rtgi_ray_budget;
+            f32 const half_res_pixels = std::max(1.0f, static_cast<f32>((render_data.settings.render_target_size.x / 2) * (render_data.settings.render_target_size.y / 2)));
+            u32 const requested = base_rays + extra_rays;
+            u32 const req_d = rb.rtgi_requested_diffuse_rays;
+            u32 const req_s = rb.rtgi_requested_specular_rays;
+            u32 const shot_d = rb.rtgi_shot_diffuse_rays;
+            u32 const shot_s = rb.rtgi_shot_specular_rays;
+            u32 const shot = shot_d + shot_s;
+            auto pct = [](u32 part, u32 whole) -> f32 { return whole > 0 ? 100.0f * static_cast<f32>(part) / static_cast<f32>(whole) : 0.0f; };
+            ImGui::SeparatorText("Rays this frame");
+            if (ImGui::BeginTable("##rtgi_ray_stats", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV))
+            {
+                ImGui::TableSetupColumn("");
+                ImGui::TableSetupColumn("Diffuse");
+                ImGui::TableSetupColumn("Specular");
+                ImGui::TableSetupColumn("Total");
+                ImGui::TableHeadersRow();
+                auto row = [](char const * label, char const * fmt, auto d, auto s, auto t)
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(label);
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text(fmt, d);
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text(fmt, s);
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::Text(fmt, t);
+                };
+                row("Requested", "%u", req_d, req_s, req_d + req_s);
+                row("Shot", "%u", shot_d, shot_s, shot);
+                row("Share of shot", "%.0f%%", pct(shot_d, shot), pct(shot_s, shot), shot > 0 ? 100.0f : 0.0f);
+                row("Fulfilled", "%.0f%%", pct(shot_d, req_d), pct(shot_s, req_s), pct(shot, req_d + req_s));
+                row("Shot / half-res px", "%.2f", static_cast<f32>(shot_d) / half_res_pixels, static_cast<f32>(shot_s) / half_res_pixels, static_cast<f32>(shot) / half_res_pixels);
+                ImGui::EndTable();
+            }
+            ImGui::Text("Requested base %u + extra %u, budget %u", base_rays, extra_rays, budget);
+            if (shot > 0)
+            {
+                ImGui::Text("%s gets more rays (%.0f%% of shot)", shot_d >= shot_s ? "Diffuse" : "Specular", std::max(pct(shot_d, shot), pct(shot_s, shot)));
+            }
+            {
+                // Sum over geometry pixels of min(history / max history, 1), averaged.
+                f32 const conv_pixels = static_cast<f32>(rb.rtgi_convergence_pixels) * static_cast<f32>(RTGI_CONVERGENCE_SCALE);
+                f32 const conv_d = conv_pixels > 0.0f ? static_cast<f32>(rb.rtgi_convergence_diffuse_sum) / conv_pixels : 0.0f;
+                f32 const conv_s = conv_pixels > 0.0f ? static_cast<f32>(rb.rtgi_convergence_specular_sum) / conv_pixels : 0.0f;
+                bool const spec_on = render_data.rtgi_settings.specular_enabled != 0;
+                f32 const conv_t = spec_on ? 0.5f * (conv_d + conv_s) : conv_d;
+                ImGui::SeparatorText("Ray distribution & history length");
+                ImGui::Text("Mean convergence: diffuse %.1f%%, specular %.1f%%, total %.1f%%", 100.0f * conv_d, 100.0f * conv_s, 100.0f * conv_t);
+                // Percent of geometry pixels per bucket of history / fast convergence target: buckets 0..14 split
+                // [0, target) evenly, bucket 15 = at or above the target (no extra rays requested).
+                constexpr int bucket_count = RTGI_CONVERGENCE_BUCKETS;
+                f32 const pixel_count = std::max(1.0f, static_cast<f32>(rb.rtgi_convergence_pixels));
+                std::array<f32, 2 * bucket_count> hist = {};
+                for (int b = 0; b < bucket_count; ++b)
+                {
+                    hist[b] = 100.0f * static_cast<f32>(rb.rtgi_convergence_histogram_diffuse[b]) / pixel_count;
+                    hist[bucket_count + b] = 100.0f * static_cast<f32>(rb.rtgi_convergence_histogram_specular[b]) / pixel_count;
+                }
+                f32 const diffuse_target = std::max(render_data.rtgi_settings.fast_convergence_samples, 1.0f);
+                f32 const specular_target = std::max(std::min(render_data.rtgi_settings.specular_fast_convergence_samples, render_data.rtgi_settings.specular_max_temporal_frames), 1.0f);
+                constexpr int line_points = bucket_count - 1; // last bucket (>= target) is shown as text, not on the line
+                std::array<f32, line_points> line_x = {};
+                for (int b = 0; b < line_points; ++b)
+                {
+                    line_x[b] = 100.0f * (static_cast<f32>(b) + 0.5f) / static_cast<f32>(line_points); // bucket center, % of target
+                }
+                ImGui::Text("At target (no extra rays): diffuse %.1f%%, specular %.1f%%", hist[bucket_count - 1], spec_on ? hist[2 * bucket_count - 1] : 0.0f);
+
+                // Left: requested vs shot rays per half-res pixel (blocks), budget as a line. Right: history distribution.
+                if (ImGui::BeginTable("##rtgi_ray_plots", 2, ImGuiTableFlags_SizingStretchSame))
+                {
+                    constexpr f32 plot_height = 200.0f;
+                    ImGui::TableNextColumn();
+                    if (ImPlot::BeginPlot("Rays / half-res px##rtgi_ray_blocks", ImVec2(-1.0f, plot_height), ImPlotFlags_NoMouseText))
+                    {
+                        // Series = signal (diffuse blue, specular orange, same colors as the history lines),
+                        // groups = requested / shot. Series-major: [diffuse req, shot][specular req, shot].
+                        std::array<f32, 4> blocks = {
+                            static_cast<f32>(req_d) / half_res_pixels,
+                            static_cast<f32>(shot_d) / half_res_pixels,
+                            static_cast<f32>(req_s) / half_res_pixels,
+                            static_cast<f32>(shot_s) / half_res_pixels,
+                        };
+                        static char const * const block_series[] = {"diffuse", "specular"};
+                        static constexpr double group_ticks[] = {0.0, 1.0};
+                        static char const * const group_labels[] = {"requested", "shot"};
+                        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
+                        ImPlot::SetupAxisLimits(ImAxis_X1, -0.6, 1.6, ImGuiCond_Always);
+                        ImPlot::SetupAxisTicks(ImAxis_X1, group_ticks, 2, group_labels);
+                        ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+                        ImPlot::PlotBarGroups(block_series, blocks.data(), spec_on ? 2 : 1, 2, 0.7);
+                        double const budget_per_px = static_cast<double>(budget) / static_cast<double>(half_res_pixels);
+                        ImPlot::PlotInfLines("budget", &budget_per_px, 1, ImPlotInfLinesFlags_Horizontal);
+                        ImPlot::EndPlot();
+                    }
+                    ImGui::SetItemTooltip("Requested vs shot rays per half-res pixel (blue diffuse, orange specular). Horizontal line = hard ray budget (diffuse + specular).");
+                    ImGui::TableNextColumn();
+                    if (ImPlot::BeginPlot("History distribution##rtgi_history_lines", ImVec2(-1.0f, plot_height), ImPlotFlags_NoMouseText))
+                    {
+                        char diffuse_label[48];
+                        char specular_label[48];
+                        std::snprintf(diffuse_label, sizeof(diffuse_label), "diffuse (target %.0f)", diffuse_target);
+                        std::snprintf(specular_label, sizeof(specular_label), "specular (target %.0f)", specular_target);
+                        // Fixed scale on both axes (locked, no auto fit / pan / zoom) so frames and A/B runs compare directly.
+                        ImPlot::SetupAxes("history, % of target", "% of pixels", ImPlotAxisFlags_Lock, ImPlotAxisFlags_Lock);
+                        ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, 100.0, ImGuiCond_Always);
+                        ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, 25.0, ImGuiCond_Always);
+                        ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+                        ImPlot::PlotLine(diffuse_label, line_x.data(), hist.data(), line_points);
+                        if (spec_on)
+                        {
+                            ImPlot::PlotLine(specular_label, line_x.data(), hist.data() + bucket_count, line_points);
+                        }
+                        ImPlot::EndPlot();
+                    }
+                    ImGui::SetItemTooltip("Geometry pixels per history bucket below the fast convergence target (the ray demand target): %d buckets of %.2f diffuse / %.2f specular samples. Pixels at or above the target are listed above. %u pixels.",
+                        line_points, diffuse_target / line_points, specular_target / line_points, rb.rtgi_convergence_pixels);
+                    ImGui::EndTable();
+                }
+            }
+            f32 const coverage = static_cast<f32>(budget) / std::max(1.0f, static_cast<f32>(requested));
+            char overlay[32];
+            std::snprintf(overlay, sizeof(overlay), "budget covers %.0f%%", 100.0f * coverage);
+            ImGui::ProgressBar(std::min(coverage, 1.0f), ImVec2(-FLT_MIN, 0.0f), overlay);
+        }
+    }
+}
+
 void ui_light_statistics(RenderContext & render_context)
 {
-    if (ImGui::CollapsingHeader("Lights Statistics"))
+    if (ImGui::CollapsingHeader("Lights"))
     {
         ImGui::Text("Max Point Lights: %i", MAX_POINT_LIGHTS);
         ImGui::Text("Max Spot Lights: %i", MAX_SPOT_LIGHTS);
@@ -1756,10 +1946,11 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                 }
             }
         }
-        ImGui::SeparatorText("Render Systems Utilization");
+        ImGui::SeparatorText("Render System Statistics");
         {
             ui_visbuffer_pipeline_statistics(render_context);
             ui_pgi_statistics(render_context);
+            ui_rtgi_statistics(render_context);
             ui_light_statistics(render_context);
         }
         ImGui::SeparatorText("Device Memory Use");

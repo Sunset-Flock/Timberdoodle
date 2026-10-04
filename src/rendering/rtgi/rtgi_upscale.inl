@@ -23,11 +23,16 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, view_cam_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, view_cam_face_normals)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, view_camera_detail_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, diffuse_resolved)
+// Specular channel: half-res (.rgb radiance, .a hit distance) in, full-res linear radiance out.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, specular_half_res)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, specular_resolved)
+// Specular upscale weights: half-res filtered specular normals + roughness vs the full-res detail normal.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_normal_roughness_half_res) // pack_normal_roughness
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayCounters), ray_counters) // convergence statistics -> general readback
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiUpscaleDiffusePush
 {
-    RtgiUpscaleDiffuseH::AttachmentShaderBlob attach;
-    daxa_u64 scalar_c_layout_missmatch_fix; // annoying 
+    daxa_BufferPtr(RtgiUpscaleDiffuseH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
 };

@@ -406,6 +406,8 @@ static void update_material_manifest_from_gltf(Scene & scene, [[maybe_unused]] S
             .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
             .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
             .emissive_color = f32vec3(material.emissiveFactor[0] * material.emissiveStrength, material.emissiveFactor[1] * material.emissiveStrength, material.emissiveFactor[2] * material.emissiveStrength),
+            .roughness_factor = s_cast<f32>(material.pbrData.roughnessFactor),
+            .metalness_factor = s_cast<f32>(material.pbrData.metallicFactor),
             .name = material.name.c_str(),
         });
         scene._new_material_manifest_entries += 1;
@@ -1114,6 +1116,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             auto const & cpu_material = _material_manifest.at(i + material_manifest_offset);
             tmp_materials.at(i).base_color = std::bit_cast<daxa_f32vec3>(cpu_material.base_color);
             tmp_materials.at(i).emissive_color = daxa_f32vec3(cpu_material.emissive_color[0], cpu_material.emissive_color[1], cpu_material.emissive_color[2]),
+            tmp_materials.at(i).roughness_factor = cpu_material.roughness_factor;
+            tmp_materials.at(i).metalness_factor = cpu_material.metalness_factor;
             tmp_materials.at(i).alpha_discard_enabled = cpu_material.alpha_discard_enabled;
             tmp_materials.at(i).double_sided_enabled = cpu_material.double_sided;
             tmp_materials.at(i).blend_enabled = cpu_material.blend_enabled;
@@ -1352,6 +1356,8 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
             staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
             staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
             staging_origin_ptr[dirty_materials_index].emissive_color = std::bit_cast<daxa_f32vec3>(material.emissive_color);
+            staging_origin_ptr[dirty_materials_index].roughness_factor = material.roughness_factor;
+            staging_origin_ptr[dirty_materials_index].metalness_factor = material.metalness_factor;
             staging_origin_ptr[dirty_materials_index].double_sided_enabled = material.double_sided;
             staging_origin_ptr[dirty_materials_index].blend_enabled = material.blend_enabled;
 

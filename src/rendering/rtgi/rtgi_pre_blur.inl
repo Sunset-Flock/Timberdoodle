@@ -23,14 +23,18 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, firefly_factor_image
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, perceptual_radiance_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, ao_guide_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, ray_count_image)
+// Specular channel (.rgb radiance, .a hit distance) + the lobe inputs its blur weights need.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, rtgi_specular_before)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, rtgi_specular_blurred)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_normal_roughness) // pack_normal_roughness
+// Specular twins of the firefly energy compensation factor and the ray count sample weighting.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, specular_firefly_factor_image)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_ray_count_image)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiPreBlurPush
 {
-    RtgiPreBlurH::AttachmentShaderBlob attach;
-    // C++ pads the blob to a multiple of 8, Slang does not. Align explicitly so `size` / `iteration` stay at
-    // the same offset on both sides whenever the head ends on a 4-byte attachment.
-    daxa_u64 _aligner;
+    daxa_BufferPtr(RtgiPreBlurH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
     daxa_u32 iteration;
 };

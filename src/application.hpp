@@ -48,6 +48,10 @@ public:
     auto run() -> i32;
     auto load_scene(std::filesystem::path const & path) -> bool;
     void set_camera(f32vec3 position, f32 yaw, f32 pitch);
+    // Selects a DEBUG_DRAW_MODE_* (shader_shared/shared.inl) as if picked in the main debug dropdown.
+    void set_debug_draw_mode(i32 mode);
+    void set_rtgi_specular_enabled(bool enabled);
+    void set_upward_gloss(f32 gloss);
     void start_perf_test(PerfTestInfo const & info);
 
 private:

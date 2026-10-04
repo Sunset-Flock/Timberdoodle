@@ -737,6 +737,23 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     daxa::TaskImageView view_camera_half_res_face_normal_image = main_camera_half_res_face_normal_image;
     daxa::TaskImageView view_camera_half_res_depth_image = main_camera_half_res_depth_image;
+    // Half-res detail normal + roughness of the representative pixel (pack_normal_roughness), only read by the RTGI
+    // specular path. Persistent double buffer: the specular reprojection tests it against the previous frame.
+    auto create_half_res_normal_roughness = [&](std::string_view prefix) -> daxa::TaskImageView
+    {
+        auto const half_size = daxa::Extent3D{render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1};
+        return tg.create_task_image({.format = daxa::Format::R32_UINT, .size = half_size, .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER, .name = std::string(prefix) + "_half_res_normal_roughness_image"});
+    };
+    daxa::TaskImageView main_camera_half_res_normal_roughness_image = create_half_res_normal_roughness("main_camera");
+    daxa::TaskImageView view_camera_half_res_normal_roughness_image = main_camera_half_res_normal_roughness_image;
+    // Half-res albedo + metalness of the representative pixel (RGBA8), read by the RTGI ray demand.
+    auto create_half_res_albedo_metalness = [&](std::string_view prefix) -> daxa::TaskImageView
+    {
+        auto const half_size = daxa::Extent3D{render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1};
+        return tg.create_task_image({.format = daxa::Format::R8G8B8A8_UNORM, .size = half_size, .name = std::string(prefix) + "_half_res_albedo_metalness_image"});
+    };
+    daxa::TaskImageView main_camera_half_res_albedo_metalness_image = create_half_res_albedo_metalness("main_camera");
+    daxa::TaskImageView view_camera_half_res_albedo_metalness_image = main_camera_half_res_albedo_metalness_image;
 
     tg.add_task(daxa::HeadTask<GenGbufferH::Info>()
             .head_views(GenGbufferH::Info::Views{
@@ -747,6 +764,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .detail_normal_image = main_camera_detail_normal_image.current(),
                 .half_res_face_normal_image = main_camera_half_res_face_normal_image.current(),
                 .half_res_depth_image = main_camera_half_res_depth_image.current(),
+                .half_res_normal_roughness_image = main_camera_half_res_normal_roughness_image.current(),
+                .half_res_albedo_metalness_image = main_camera_half_res_albedo_metalness_image,
                 .material_manifest = scene->_gpu_material_manifest.view(),
                 .meshes = scene->_gpu_mesh_manifest.view(),
                 .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
@@ -786,6 +805,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             });
             view_camera_half_res_face_normal_image = obs_half_res_normals;
             view_camera_half_res_depth_image = obs_half_res_depth;
+            view_camera_half_res_normal_roughness_image = create_half_res_normal_roughness("view_camera");
+            view_camera_half_res_albedo_metalness_image = create_half_res_albedo_metalness("view_camera");
         }
         tg.add_task(daxa::HeadTask<GenGbufferH::Info>()
                 .head_views(GenGbufferH::Info::Views{
@@ -796,6 +817,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     .detail_normal_image = view_camera_detail_normal_image,
                     .half_res_face_normal_image = view_camera_half_res_face_normal_image.current(),
                     .half_res_depth_image = view_camera_half_res_depth_image.current(),
+                    .half_res_normal_roughness_image = view_camera_half_res_normal_roughness_image.current(),
+                    .half_res_albedo_metalness_image = view_camera_half_res_albedo_metalness_image,
                     .material_manifest = scene->_gpu_material_manifest.view(),
                     .meshes = scene->_gpu_mesh_manifest.view(),
                     .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
@@ -945,6 +968,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     // RTGI
     daxa::TaskImageView rtgi_per_pixel_diffuse = daxa::NullTaskImage;
+    daxa::TaskImageView rtgi_per_pixel_specular = daxa::NullTaskImage;
     daxa::TaskImageView rtgi_debug_primary_trace = daxa::NullTaskImage;
     if (render_context->render_data.rtgi_settings.enabled)
     {
@@ -955,6 +979,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.debug_image = debug_image;
         info.view_cam_half_res_depth = view_camera_half_res_depth_image;
         info.view_cam_half_res_face_normals = view_camera_half_res_face_normal_image;
+        info.view_cam_half_res_normal_roughness = view_camera_half_res_normal_roughness_image;
+        info.view_cam_half_res_albedo_metalness = view_camera_half_res_albedo_metalness_image;
         info.view_cam_depth = view_camera_depth;
         info.view_cam_face_normals = view_camera_face_normal_image;
         info.view_camera_detail_normal_image = view_camera_detail_normal_image;
@@ -976,6 +1002,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
         auto rtgi_result = tasks_rtgi_main(info);
         rtgi_per_pixel_diffuse = rtgi_result.opaque_diffuse;
+        rtgi_per_pixel_specular = rtgi_result.opaque_specular;
     }
 
     auto selected_mark_image = tg.create_task_image({
@@ -1055,6 +1082,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     .pgi_info = pgi_info,
                     .pgi_requests = pgi_requests,
                     .rtgi_per_pixel_diffuse = rtgi_per_pixel_diffuse,
+                    .rtgi_per_pixel_specular = rtgi_per_pixel_specular,
                     .rtgi_debug_primary_trace = rtgi_debug_primary_trace,
                     .tlas = scene_main_tlas,
                 })

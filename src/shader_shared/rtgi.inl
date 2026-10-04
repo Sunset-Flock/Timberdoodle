@@ -69,6 +69,9 @@ struct RtgiSettings
     // demand-scaled ray budget. 0.5 -> a rotating checkerboard (2 of every 4 pixels in a quad) always
     // traces, so converged pixels can never be starved below half coverage by disocclusion bursts.
     daxa_f32 min_ray_budget;
+    // Max rays (diffuse + specular, base included) one pixel may request per frame (rtgi_calc_ray_demand). Many
+    // rays in one frame are too temporally similar and form stripes. Also sets the demand curve amplitude.
+    daxa_i32 max_rays_per_pixel;
 
     // 0 = classic per-pixel trace (one dispatch per pixel), 1 = repacked ray-list dispatch
     // (reproject demand -> allocate -> trace-from-list -> blend). Only one path runs per frame.
@@ -94,13 +97,6 @@ struct RtgiSettings
     // rtgi_guided_sampling.hlsl for the exact mapping.
     daxa_f32 guide_concentration;
 
-    // 0 = plain Schlick pull (rtgi_schlick_pull) -- its own density at the far side of the disc (away
-    // from the guide) still fades toward 0 as concentration climbs, so at high concentration almost all
-    // rays land in a narrow cone around the guide. 1 = the same Schlick density with a fixed floor mixed
-    // in (rtgi_floor_pull) -- verified to converge its far-side density DOWN TO that floor and never
-    // below it, so some rays keep landing across the whole disc no matter how high concentration goes.
-    // See rtgi_guided_sampling.hlsl.
-    daxa_i32 guide_floor_pull_enabled;
 
     // Max ray length (in meters/world units) for the spatial-pretrace pioneer rays (pioneer_ray_gen). The
     // pioneer trace only needs to find NEARBY bounce lighting to build a useful direction guide -- unlike
@@ -109,6 +105,71 @@ struct RtgiSettings
     // (not a graph-shape setting), read straight into ray.TMax every frame -- no rebuild trigger needed.
     daxa_f32 guide_pioneer_trace_max_distance;
 
+    // == Specular ==========================================================================================
+    // A second color channel carried through every RTGI pass. Each ray-list entry traces one diffuse ray AND
+    // one GGX-VNDF specular ray (around the half-res detail normal). The specular signal (linear rgb + hit
+    // distance) reuses the diffuse pipeline's geometry tests, ray budget, firefly machinery and blurs, with
+    // roughness-driven lobe weights / radii and a virtual-motion temporal reprojection.
+    daxa_i32 specular_enabled;
+    // Perceptual (log) headroom above the neighborhood specular mean before a specular ray is clamped.
+    daxa_f32 specular_firefly_perceptual_tolerance;
+    // Specular history length cap in frames (NRD maxAccumulatedFrameNum).
+    daxa_f32 specular_max_temporal_frames;
+    // Scales of the roughness/hit-distance driven pre-blur and post-blur radii. 0 disables that blur.
+    daxa_f32 specular_pre_blur_scale;
+    daxa_f32 specular_post_blur_scale;
+    // 1 = reproject low-roughness specular with the virtual (reflected image) motion, 0 = surface motion only.
+    daxa_i32 specular_virtual_reprojection;
+    // 1 = fetch specular history with a 12-tap Catmull-Rom (NRD ReBLUR) when the whole footprint is valid,
+    // falling back to bilinear custom weights; 0 = always bilinear.
+    daxa_i32 specular_catrom_history;
+    // Upscale: weight specular taps by full-res detail normal vs half-res specular normal + gloss (1), or use
+    // the diffuse-style geometry weights only (0).
+    daxa_i32 specular_upscale_detail_weighting;
+    // Diffuse / specular extra-ray share steepness per stop of final radiance difference (rtgi_calc_ray_share).
+    // 0 = always even, 1 = linear ratio, 2 = squared ratio.
+    daxa_f32 ray_share_slope;
+    // Material ray factors (rtgi_calc_ray_material_factors), applied to the extras even without history:
+    // diffuse: saturate(E / tolerance), E = stops the pixel would change if diffuse were left out
+    //          (log2((D + S) / S), material reflectances only) -> ~1 until metalness ~0.93, 0 at full metal.
+    //          tolerance <= 0 = off.
+    // specular: 1 - smoothstep(start, end, roughness) -> 1 below start, 0 at end. start >= end = off.
+    daxa_f32 ray_diffuse_metal_tolerance_stops;
+    daxa_f32 ray_specular_roughness_cutoff_start;
+    daxa_f32 ray_specular_roughness_cutoff_end;
+    // Pioneer guide reuse: probability (at roughness 1, fading to 0 at roughness 0.25) of drawing a specular
+    // ray from the pioneer-guided lobe instead of the GGX VNDF. MIS-weighted, so it stays unbiased.
+    daxa_f32 specular_guide_mix;
+    // Art knob: lowers material roughness on upward facing surfaces (roughness *= 1 - gloss * up^2, up =
+    // saturate(normal.z)), e.g. for wet / polished floors. Applied in evaluate_material, so primary shading,
+    // the g-buffer and ray hits all agree. 0 = off.
+    daxa_f32 specular_upward_gloss;
+    // Art knob: lowers material roughness on ALL surfaces (roughness *= 1 - gloss). Applied in evaluate_material
+    // after specular_upward_gloss, before specular_max_gloss.
+    daxa_f32 specular_total_gloss;
+    // Art knob: added to material metalness on ALL surfaces (saturated). Applied in evaluate_material.
+    daxa_f32 specular_additive_metalness;
+    // When the surface-motion and virtual-motion reprojected specular histories disagree (brightness ratio in
+    // stops, above a small deadzone), the carried specular frame count is cut so the history re-converges
+    // instead of smearing the wrong reflection. 0 = off, higher = cut harder.
+    daxa_f32 specular_reprojection_disagreement_strength;
+    // Specular fast history (short window brightness mean + relative variance, like the diffuse one): temporal
+    // firefly clamp of the fast stats + anti-lag (slow history confidence cut where slow and fast means diverge).
+    // Own window / firefly / variance settings (specular_fast_history_frames etc.).
+    daxa_i32 specular_fast_history_enabled;
+    // Specular twins of settings that used to be shared with diffuse (same meaning, specular signal only).
+    daxa_i32 specular_temporal_accumulation_enabled;
+    daxa_f32 specular_fast_convergence_samples;          // ray demand target (capped by specular_max_temporal_frames)
+    daxa_i32 specular_fast_history_frames;               // fast-history window length in frames (max 15)
+    daxa_i32 specular_temporal_firefly_filter_enabled;
+    daxa_f32 specular_temporal_firefly_std_dev_clamp;
+    daxa_f32 specular_temporal_variance_fast_history_blend;
+    daxa_f32 specular_temporal_parallax_penalty_strength;
+    daxa_i32 specular_firefly_filter_enabled;
+    daxa_i32 specular_firefly_clamp_mode;                // 0=multichromatic, 1=monochromatic
+    daxa_f32 specular_guide_concentration;               // pioneer guide lobe sharpness for rough specular rays
+    // Max gloss (1 - roughness) of any material, applied in evaluate_material after upward gloss.
+    daxa_f32 specular_max_gloss;
 };
 
 struct RtgiRayCounters
@@ -116,8 +177,24 @@ struct RtgiRayCounters
     daxa_u32 total_extra_rays; // sum of (desired_rays - 1) per geometry pixel, written by reproject
     daxa_u32 ray_list_count;   // atomic write cursor filled by the allocate pass
     daxa_u32 total_geo_rays;   // number of geometry (non-sky) pixels = base ray count, written by reproject
+    // Statistics (readback only, copied by the pre-filter): per-signal demand (base + extras, reproject) and the
+    // rays actually put into the ray list (distribute / classic trace).
+    daxa_u32 requested_diffuse_rays;
+    daxa_u32 requested_specular_rays;
+    daxa_u32 shot_diffuse_rays;
+    daxa_u32 shot_specular_rays;
+    // Convergence statistics (accumulate): per geometry pixel min(history / max history, 1) in 1/RTGI_CONVERGENCE_SCALE
+    // fixed point, summed; copied to the general readback by the upscale.
+    daxa_u32 convergence_diffuse_sum;
+    daxa_u32 convergence_specular_sum;
+    daxa_u32 convergence_pixels;
+    // History length distribution: geometry pixels per bucket of min(history / max history, 1), 16 equal buckets.
+    daxa_u32 convergence_histogram_diffuse[16];
+    daxa_u32 convergence_histogram_specular[16];
     daxa_u32 pad0;
 };
+#define RTGI_CONVERGENCE_SCALE 1024
+#define RTGI_CONVERGENCE_BUCKETS 16
 
 // One entry in the flat ray list built by the allocate pass.
 struct RtgiRayEntry

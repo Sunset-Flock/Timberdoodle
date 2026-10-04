@@ -22,4 +22,7 @@ struct RayPayload
     float3 color;    
     float t;
     bool skip_sky_shader;
+    // Specular rays need sharp, fully shaded hits (mirror reflections), so they skip the PGI radiance-cache
+    // shortcut the diffuse rays take on hit.
+    bool specular;
 };

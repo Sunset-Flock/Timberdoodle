@@ -102,6 +102,10 @@ struct GPUMaterial
     daxa_b32 normal_compressed_bc5_rg;
     daxa_f32vec3 base_color;
     daxa_f32vec3 emissive_color;
+    // glTF metallic-roughness factors. Multiplied with the roughnes_metalness_id texture (G = roughness,
+    // B = metalness) when present.
+    daxa_f32 roughness_factor;
+    daxa_f32 metalness_factor;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 
@@ -116,7 +120,9 @@ static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
     false,
     false,
     daxa_f32vec3(1,1,1),
-    daxa_f32vec3(0,0,0)
+    daxa_f32vec3(0,0,0),
+    1.0f,
+    0.0f
 );
 #endif
 

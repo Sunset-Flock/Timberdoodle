@@ -18,6 +18,7 @@ func entry_blend_rays(uint2 dtid : SV_DispatchThreadID)
     if (depth == 0.0f)
     {
         push.attach.perceptual_rgb_shortness.get()[dtid] = float4(0, 0, 0, 0);
+        push.attach.specular_perceptual_rgb_hit.get()[dtid] = float4(0, 0, 0, 0);
         return;
     }
 
@@ -29,6 +30,17 @@ func entry_blend_rays(uint2 dtid : SV_DispatchThreadID)
 
     const uint ray_offset  = push.attach.pixel_ray_alloc.get()[dtid];
     const uint ray_count   = push.attach.ray_count_image.get()[dtid];
+
+    const uint specular_ray_count = push.attach.specular_ray_count_image.get()[dtid];
+    float3 mean_specular_perceptual_rgb = float3(0, 0, 0);
+    float  mean_specular_hit = 0.0f;
+    for (uint s = 0u; s < specular_ray_count; s++)
+    {
+        const RtgiRayResult spec = push.attach.ray_result[ray_offset + ray_count + s];
+        mean_specular_perceptual_rgb += linear_to_perceptual_rgb(spec.radiance, push.attach.globals.inv_exposure) * rcp(float(specular_ray_count));
+        mean_specular_hit += spec.t * rcp(float(specular_ray_count));
+    }
+    push.attach.specular_perceptual_rgb_hit.get()[dtid] = float4(mean_specular_perceptual_rgb, mean_specular_hit);
 
     if (ray_count == 0u)
     {

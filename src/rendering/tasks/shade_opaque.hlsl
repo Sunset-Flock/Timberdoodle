@@ -853,9 +853,17 @@ void entry_main_cs(
         float3 point_lights_direct = point_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.point_lights, AT.globals.vsm_settings.point_light_count, ws_pixel_footprint, skip_shadows, primary_ray);
         float3 spot_lights_direct = spot_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.spot_lights, AT.globals.vsm_settings.spot_light_count, ws_pixel_footprint, skip_shadows, primary_ray);
 
-        const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
+        const float3 sun_illuminance = get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
             sun_direction, atmo_position);
+        const float3 directional_light_direct = final_shadow * sun_illuminance;
+
+        // PBR split: metals have no diffuse, everything has a (4% dielectric .. albedo metal) specular F0.
+        const float3 view_dir = -primary_ray;
+        const float NoV = saturate(dot(mapped_normal, view_dir));
+        const float3 diffuse_color = brdf_diffuse_color(albedo, material_point.metalness);
+        const float3 specular_f0 = brdf_specular_f0(albedo, material_point.metalness);
+        const float3 sun_specular = shadow * sun_illuminance * brdf_ggx_specular_nol(mapped_normal, view_dir, sun_direction, specular_f0, material_point.roughness);
 
         float3 indirect_lighting = {};        
         if (AT.globals.pgi_settings.enabled)
@@ -888,16 +896,25 @@ void entry_main_cs(
             ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.001f);
         }
 
+        // Indirect specular: pre-filtered incoming radiance from the RTGI specular channel. Without it, fall back
+        // to the indirect irradiance / PI (a fully rough, uniformly lit environment approximation).
+        float3 indirect_specular_radiance = indirect_lighting * M_FRAC_1_PI * ambient_occlusion;
+
         const bool rtgi_enabled = AT.globals.rtgi_settings.enabled;
         if (rtgi_enabled)
         {
             indirect_lighting = AT.rtgi_per_pixel_diffuse.get()[int3(index,0)].rgb * rcp(M_FRAC_1_PI);
+            indirect_specular_radiance = indirect_lighting * M_FRAC_1_PI * ambient_occlusion;
+            if (AT.globals.rtgi_settings.specular_enabled != 0 && !AT.rtgi_per_pixel_specular.id.is_empty())
+            {
+                indirect_specular_radiance = AT.rtgi_per_pixel_specular.get()[int3(index,0)].rgb;
+            }
             // ambient_occlusion = 1.0f;
         }
-
+        const float3 indirect_specular = indirect_specular_radiance * brdf_env_approx(specular_f0, material_point.roughness, NoV);
 
         const float3 lighting = (directional_light_direct + point_lights_direct + spot_lights_direct) + (indirect_lighting.rgb * ambient_occlusion);
-        let shaded_color = albedo.rgb * M_FRAC_1_PI * lighting + material.emissive_color;
+        let shaded_color = diffuse_color * M_FRAC_1_PI * lighting + sun_specular + indirect_specular + material.emissive_color;
 
 
         uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
@@ -1033,6 +1050,34 @@ void entry_main_cs(
                     write_debug_image(dbg, dbg_slot, index, float4((directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI * AT.globals->exposure, debug_alpha + 1.0f));
                     break;
                 }
+                case DEBUG_DRAW_MODE_DIRECT_SPECULAR:
+                {
+                    // Sun GGX only: point / spot lights are diffuse only.
+                    write_debug_image(dbg, dbg_slot, index, float4(sun_specular * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_INDIRECT_SPECULAR:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(indirect_specular * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_ALL_LIGHTING:
+                {
+                    // Everything that lights the pixel (diffuse with a white albedo + specular), no surface color.
+                    const float3 all_lighting = M_FRAC_1_PI * lighting + sun_specular + indirect_specular;
+                    write_debug_image(dbg, dbg_slot, index, float4(all_lighting * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_ROUGHNESS:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(material_point.roughness.xxx, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_METALNESS:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(material_point.metalness.xxx, debug_alpha + 1.0f));
+                    break;
+                }
                 case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
                 {
                     write_debug_image(dbg, dbg_slot, index, float4(indirect_lighting * AT.globals->exposure, debug_alpha + 1.0f));
@@ -1051,6 +1096,12 @@ void entry_main_cs(
                 case DEBUG_DRAW_MODE_ALL_DIFFUSE:
                 {
                     write_debug_image(dbg, dbg_slot, index, float4(((directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + indirect_lighting * ambient_occlusion + material.emissive_color) * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_ALL_SPECULAR:
+                {
+                    // Direct (sun GGX) + indirect (RTGI) specular, as composited.
+                    write_debug_image(dbg, dbg_slot, index, float4((sun_specular + indirect_specular) * AT.globals->exposure, debug_alpha + 1.0f));
                     break;
                 }
                 case DEBUG_DRAW_MODE_UV:

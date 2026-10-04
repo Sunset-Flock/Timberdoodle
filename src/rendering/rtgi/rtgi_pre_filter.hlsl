@@ -16,6 +16,11 @@
 // Knee sharpness for the softplus path. Larger -> tighter knee, closer to the hard clamp.
 #define RTGI_FIREFLY_SOFTPLUS_SHARPNESS 8.0f
 
+// Hardcoded full-screen debug view of the pre-filtered specular detail normal + gloss
+// (view_cam_half_res_normal_roughness). Overrides any other debug draw.
+// 0 = off, 1 = detail normal (world space, n * 0.5 + 0.5), 2 = gloss (1 - roughness, grayscale).
+#define RTGI_DEBUG_DRAW_SPECULAR_NORMAL_GLOSS 0
+
 // Outer gather reaches EXTENT cells at STRIDE spacing → EXTENT*STRIDE cells = EXTENT*STRIDE*2 pixels per side.
 static const int QUAD_HALO_CELLS   = RTGI_QUAD_FILTER_EXTENT * RTGI_QUAD_FILTER_STRIDE;
 static const int TOTAL_FILTER_REACH = QUAD_HALO_CELLS * 2;
@@ -44,6 +49,11 @@ groupshared float4 gs_quad_position_depth[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];
 groupshared float3 gs_quad_normal_ws[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y]; // unpacked face normal per blur-cell (precomputed so the quad loop skips the octahedral decode)
 groupshared float  gs_quad_rayshortness[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y]; // mean ray shortness [0,1] per blur-cell
 groupshared float  gs_quad_raycount[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];     // mean rays-shot per blur-cell (for firefly-ring ceiling reduction)
+groupshared float3 gs_spec_blur_color[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];   // specular twin of gs_blur_color (log rgb, same geometry-aware 2x2 average)
+// Per blur-cell signal validity: .x = has diffuse rays, .y = has specular rays (1 / 0), .z = mean specular rays-shot
+// over the specular-valid pixels. A cell can be real geometry but invalid for one or both signals (sparse ray
+// rates); every ring consumer gates each signal's contribution by its own flag.
+groupshared float3 gs_quad_signal[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];
 groupshared float4 gs_quad_pos_depth[PRELOAD_SIZE_X][PRELOAD_SIZE_Y];  // .xyz = ws pos, .w = depth; full 12×12 tile
 groupshared uint   gs_quad_normals_oct[PRELOAD_SIZE_X][PRELOAD_SIZE_Y]; // packed octahedral normals; full tile, indexed by tile coord
 
@@ -73,6 +83,15 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
 {
     let push = rtgi_pre_filter_prepare_push;
     RWTexture2D<float4> dbg = push.attach.debug_image.get();
+
+    // Ray statistics: the pre-filter runs after both trace paths, so the counters are final here.
+    if (all(dtid_raw == uint2(0, 0)))
+    {
+        push.attach.globals.readback.rtgi_requested_diffuse_rays = push.attach.ray_counters->requested_diffuse_rays;
+        push.attach.globals.readback.rtgi_requested_specular_rays = push.attach.ray_counters->requested_specular_rays;
+        push.attach.globals.readback.rtgi_shot_diffuse_rays = push.attach.ray_counters->shot_diffuse_rays;
+        push.attach.globals.readback.rtgi_shot_specular_rays = push.attach.ray_counters->shot_specular_rays;
+    }
 
     // Load and precalculate constants
     CameraInfo *camera = &push.attach.globals->view_camera;
@@ -144,12 +163,15 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
             const int2 src_base = int2(gid) * int2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) + int2(bx - QUAD_HALO_CELLS, by - QUAD_HALO_CELLS) * 2;
 
             // Load all 4 pixels including normals upfront — needed for normal-aware rep selection.
-            float  depths[4];
+            float  depths[4];         // folded to 0 for pixels without DIFFUSE rays (diffuse representative pick)
+            float  depths_real[4];    // real depth, 0 == genuine sky only
             float3 ws_pos[4];
             float3 perceptual_rgbs[4];
             uint   normals_oct[4];
             float3 normals_ws[4];
             float  ray_shortness[4]; // ray-length texture now stores mean shortness [0,1] directly
+            float3 spec_perceptual_rgbs[4];
+            float  spec_ray_counts[4];
             float  ray_counts[4];    // rays shot per pixel this frame
             [unroll]
             for (int pi = 0; pi < 4; pi++)
@@ -158,11 +180,12 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
                 const int2 gs_pi = int2(bx * 2 + (pi & 1), by * 2 + (pi >> 1));
                 const float4 gs_pd = gs_quad_pos_depth[gs_pi.x][gs_pi.y];
                 ray_counts[pi]    = float(push.attach.ray_count_image.get()[src_idx]);
-                // gs_quad_pos_depth now holds real depth for no-ray pixels too. Re-fold them to the sky
-                // sentinel HERE (locally) so the representative pick and radiance average skip no-ray
-                // pixels exactly as before — keeps gs_blur_color / gs_quad_* reductions bit-identical.
+                // gs_quad_pos_depth holds real depth for no-ray pixels too. `depths` folds pixels without
+                // diffuse rays to 0 for the diffuse representative pick; per-signal stats are gated by each
+                // signal's own ray count below.
                 const float pd = ray_counts[pi] > 0.0f ? gs_pd.w : 0.0f;
                 depths[pi] = pd;
+                depths_real[pi] = gs_pd.w;
                 ws_pos[pi] = gs_pd.xyz;
                 normals_oct[pi] = LOAD_NORMAL_OCT(gs_pi);
                 normals_ws[pi]  = uncompress_normal_octahedral_32(normals_oct[pi]);
@@ -171,9 +194,26 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
                 const float4 perceptual_geo = push.attach.perceptual_rgb_shortness.get()[src_idx];
                 perceptual_rgbs[pi]      = perceptual_geo.rgb;
                 ray_shortness[pi]        = perceptual_geo.a;
+                spec_perceptual_rgbs[pi] = push.attach.specular_perceptual_rgb_hit.get()[src_idx].rgb;
+                spec_ray_counts[pi]      = float(push.attach.specular_ray_count_image.get()[src_idx]);
             }
 
-            int rep_i = quad_downsample_representative(depths);
+            // Geometry representative: from the diffuse-ray pixels when the cell has any (bit-identical to the old
+            // diffuse-only fold), else from the specular-ray pixels, else from any real surface pixel. So a cell
+            // without diffuse rays still carries real geometry (and its specular stats) instead of looking like sky.
+            float depths_spec[4];
+            bool any_diffuse = false;
+            bool any_spec = false;
+            [unroll]
+            for (int pi = 0; pi < 4; pi++)
+            {
+                depths_spec[pi] = spec_ray_counts[pi] > 0.0f ? depths_real[pi] : 0.0f;
+                any_diffuse = any_diffuse || depths[pi] != 0.0f;
+                any_spec = any_spec || depths_spec[pi] != 0.0f;
+            }
+            int rep_i = any_diffuse ? quad_downsample_representative(depths)
+                      : any_spec    ? quad_downsample_representative(depths_spec)
+                      :               quad_downsample_representative(depths_real);
 
             const float3 rep_normal_ws = normals_ws[rep_i];
 
@@ -184,27 +224,40 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
             float  rs_acc      = 0.0f;
             float  rc_acc      = 0.0f;
             float  diffuse_weight = 0.0f;
-            if (depths[rep_i] != 0.0f)
+            float3 spec_acc    = float3(0.0f, 0.0f, 0.0f);
+            float  spec_weight = 0.0f;
+            float  spec_rc_acc = 0.0f;
+            if (depths_real[rep_i] != 0.0f)
             {
                 [unroll]
                 for (int pi = 0; pi < 4; pi++)
                 {
-                    const float gw = depths[pi] != 0.0f ? calc_similar_surface_weight(pixel_width_ws_rcp, ws_pos[rep_i], rep_normal_ws, ws_pos[pi], normals_ws[pi], 4.0f) : 0.0f;
-                    rgb_acc  += perceptual_rgbs[pi]  * gw;
-                    radiance_weight += gw;
-                    rs_acc += ray_shortness[pi] * gw;
-                    rc_acc += ray_counts[pi] * gw;
-                    diffuse_weight += gw;
+                    const float gw = depths_real[pi] != 0.0f ? calc_similar_surface_weight(pixel_width_ws_rcp, ws_pos[rep_i], rep_normal_ws, ws_pos[pi], normals_ws[pi], 4.0f) : 0.0f;
+                    // Diffuse stats only from pixels that shot diffuse rays this frame.
+                    const float diffuse_gw = ray_counts[pi] > 0.0f ? gw : 0.0f;
+                    rgb_acc  += perceptual_rgbs[pi]  * diffuse_gw;
+                    radiance_weight += diffuse_gw;
+                    rs_acc += ray_shortness[pi] * diffuse_gw;
+                    rc_acc += ray_counts[pi] * diffuse_gw;
+                    diffuse_weight += diffuse_gw;
+                    // Specular stats only from pixels that shot specular rays this frame.
+                    const float spec_gw = spec_ray_counts[pi] > 0.0f ? gw : 0.0f;
+                    spec_acc += spec_perceptual_rgbs[pi] * spec_gw;
+                    spec_weight += spec_gw;
+                    spec_rc_acc += spec_ray_counts[pi] * spec_gw;
                 }
             }
             const float3 blur_perceptual_rgb  = radiance_weight > 0.0f ? rgb_acc / radiance_weight : perceptual_rgbs[rep_i];
             // Perceptual radiance is derived from the (geometry-averaged) perceptual rgb, no separate accumulator.
             const float  blur_perceptual_radiance = perceptual_radiance_from_rgb(blur_perceptual_rgb);
             gs_blur_color[bx][by]           = float4(blur_perceptual_rgb, blur_perceptual_radiance);
-            gs_quad_position_depth[bx][by]  = float4(ws_pos[rep_i], depths[rep_i]);
+            gs_quad_position_depth[bx][by]  = float4(ws_pos[rep_i], depths_real[rep_i]); // real geometry, 0 == sky only
             gs_quad_normal_ws[bx][by]       = rep_normal_ws;
             gs_quad_rayshortness[bx][by]    = radiance_weight > 0.0f ? rs_acc / radiance_weight : 0.0f;
             gs_quad_raycount[bx][by]        = radiance_weight > 0.0f ? rc_acc / radiance_weight : 1.0f;
+            gs_spec_blur_color[bx][by]      = spec_weight > 0.0f ? spec_acc / spec_weight : spec_perceptual_rgbs[rep_i];
+            gs_quad_signal[bx][by]          = float3(radiance_weight > 0.0f ? 1.0f : 0.0f, spec_weight > 0.0f ? 1.0f : 0.0f,
+                                                     spec_weight > 0.0f ? spec_rc_acc / spec_weight : 0.0f);
         }
     }
 
@@ -236,6 +289,13 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     // unweighted ff_* mean above is only used as a fallback when the footprint drops too low.
     float3 ff_perceptual_rgb_sum_geo = float3(0.0f, 0.0f, 0.0f);
     float ff_weight_geo = 0.0f;
+    // Specular firefly reference: same ring, same weights, specular log rgb.
+    // Own weights (cells without specular rays don't count) and its own ray count for the specular fitness.
+    float3 ff_spec_sum_geo = float3(0.0f, 0.0f, 0.0f);
+    float3 ff_spec_sum     = float3(0.0f, 0.0f, 0.0f);
+    float  ff_spec_weight_geo = 0.0f;
+    float  ff_spec_weight     = 0.0f;
+    float  ring_spec_raycount_geo_acc = 0.0f;
     // Surrounding quads — skip center (qx==0, qy==0), handled at pixel resolution below.
     [unroll]
     for (int qy = -RTGI_QUAD_FILTER_EXTENT; qy <= RTGI_QUAD_FILTER_EXTENT; qy++)
@@ -251,23 +311,36 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
             const float3 sq_normal_ws = gs_quad_normal_ws[sq.x][sq.y];
             const float  gw = !sq_sky ? calc_similar_surface_weight( pixel_width_ws_rcp, world_position, pixel_face_normal, sq_vs_data.xyz, sq_normal_ws, 4.0f) : 0.0f;
 
+            // Per-signal validity of this cell (0 / 1): a real surface cell may have no rays for one signal.
+            const float3 sq_signal = gs_quad_signal[sq.x][sq.y];
+            const float  diffuse_valid = sq_signal.x;
+            const float  spec_valid = sq_signal.y;
+            const float  diffuse_gw = gw * diffuse_valid;
+
             // gs_blur_color is already in log (perceptual) space.
             const float3 perceptual_rgb  = gs_blur_color[sq.x][sq.y].xyz;
-            perceptual_rgb_acc   += perceptual_rgb  * gw;
-            geo_weight_acc    += gw;
-            ring_raycount_geo_acc += gs_quad_raycount[sq.x][sq.y] * gw;
-            ray_shortness_acc += gs_quad_rayshortness[sq.x][sq.y] * gw;
+            perceptual_rgb_acc   += perceptual_rgb  * diffuse_gw;
+            geo_weight_acc    += diffuse_gw;
+            ring_raycount_geo_acc += gs_quad_raycount[sq.x][sq.y] * diffuse_gw;
+            ray_shortness_acc += gs_quad_rayshortness[sq.x][sq.y] * diffuse_gw;
 
             if (!sq_sky)
             {
-                ff_ray_count_sum += gs_quad_raycount[sq.x][sq.y];
-                ff_weight += 1.0f;
+                ff_ray_count_sum += gs_quad_raycount[sq.x][sq.y] * diffuse_valid;
+                ff_weight += diffuse_valid;
                 // Geometry-aware reference (primary): weight by surface similarity to the center pixel.
-                ff_perceptual_rgb_sum_geo  += perceptual_rgb * gw;
-                ff_weight_geo += gw;
-                // Non-geometry-aware reference: unweighted over all non-sky ring neighbors (ignores surface
+                ff_perceptual_rgb_sum_geo  += perceptual_rgb * diffuse_gw;
+                ff_weight_geo += diffuse_gw;
+                // Non-geometry-aware reference: unweighted over all valid non-sky ring neighbors (ignores surface
                 // similarity). Genuinely distinct from the geo-aware mean; used as the fallback.
-                ff_perceptual_rgb_sum  += perceptual_rgb;
+                ff_perceptual_rgb_sum  += perceptual_rgb * diffuse_valid;
+                const float3 spec_perceptual_rgb = gs_spec_blur_color[sq.x][sq.y];
+                const float  spec_gw = gw * spec_valid;
+                ff_spec_sum_geo += spec_perceptual_rgb * spec_gw;
+                ff_spec_weight_geo += spec_gw;
+                ff_spec_sum     += spec_perceptual_rgb * spec_valid;
+                ff_spec_weight  += spec_valid;
+                ring_spec_raycount_geo_acc += sq_signal.z * spec_gw;
             }
         }
     }
@@ -282,10 +355,12 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     // unchanged from when no-ray pixels were folded to the sky sentinel.
     float center_surface_weight_acc = 0.0f;
     float center_quad_ray_sum_acc = 0.0f; // geometry-weighted sum of the quad pixels' ray counts
+    float center_quad_spec_ray_sum_acc = 0.0f; // same for specular rays (specular sample fitness)
     // First center-quad tap (0..3, == quad lane index) that is a valid imposter for THIS pixel: on the same
     // surface (tap_gw > 0) AND has >= 1 ray. A no-ray pixel adopts this lane's diffuse + firefly factor via
     // quad ops at the writeout. Per-lane (uses this pixel's own surface test). -1 = none found.
     int imposter_quad_index = -1;
+    int specular_imposter_quad_index = -1; // same, for pixels without specular rays
     {
         const int2  center_quad_base = int2(gid) * int2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) + pixel_quad_id * 2;
         [unroll]
@@ -301,6 +376,13 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
             const float  tap_gw      = calc_similar_surface_weight(pixel_width_ws_rcp, world_position, pixel_face_normal, tap_pos_ws, tap_nrm_ws, 4.0f);
             // Geometry membership: any same-surface tap counts, no-ray included.
             center_surface_weight_acc += tap_gw;
+
+            const float tap_spec_ray_count = float(push.attach.specular_ray_count_image.get()[tap_idx]);
+            if (specular_imposter_quad_index < 0 && tap_gw > 0.0f && tap_spec_ray_count > 0.0f)
+            {
+                specular_imposter_quad_index = pi;
+            }
+            center_quad_spec_ray_sum_acc += tap_spec_ray_count * tap_gw;
 
             // Radiance / fitness contribution: ONLY from taps that actually have rays, exactly as before
             // (no-ray taps used to be folded to depth 0 and skipped entirely).
@@ -338,6 +420,9 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     const float  neighborhood_raycount_geo = ring_raycount_geo_acc + center_quad_ray_sum_acc;
     const float  neighborhood_sample_fitness = min(neighborhood_raycount_geo, total_quad_taps) / total_quad_taps;
     const float  neighborhood_sample_fitness_sharp = min(neighborhood_sample_fitness, 0.25f) * 4.0f;
+    // Specular twin: specular rays in the same footprint (cells / pixels without specular rays add nothing).
+    const float  spec_neighborhood_raycount_geo = ring_spec_raycount_geo_acc + center_quad_spec_ray_sum_acc;
+    const float  spec_neighborhood_sample_fitness_sharp = min(min(spec_neighborhood_raycount_geo, total_quad_taps) / total_quad_taps, 0.25f) * 4.0f;
 
     let rtgi = push.attach.globals->rtgi_settings;
 
@@ -430,6 +515,72 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
         }
     }
 
+    // === Specular firefly filter + blend ===
+    // Same structure as the diffuse filter above: a ceiling from the SURROUNDING ring's geometry-aware log
+    // mean (never the center), tightened by the non-geometry-aware mean when the neighborhood is sparse, then
+    // every specular ray of the pixel is hue-preservingly clamped against it and averaged.
+    float4 filtered_specular = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float specular_firefly_energy_factor = 1.0f; // energy_pre / energy_post of the specular clamp (pre-blur energy compensation)
+    float3 spec_mean_perceptual_rgb = float3(0.0f, 0.0f, 0.0f); // geometry-aware ring log mean (debug)
+    {
+        const float3 own_spec_perceptual = push.attach.specular_perceptual_rgb_hit.get()[clamped_index].rgb;
+        // Only ring cells WITH specular rays count (own weights); the center pixel's own stats are the last resort.
+        const float3 spec_geo    = ff_spec_weight_geo > 0.0f ? ff_spec_sum_geo / ff_spec_weight_geo
+                                 : ff_spec_weight     > 0.0f ? ff_spec_sum / ff_spec_weight : own_spec_perceptual;
+        const float3 spec_nongeo = ff_spec_weight     > 0.0f ? ff_spec_sum     / ff_spec_weight     : spec_geo;
+        spec_mean_perceptual_rgb = spec_geo;
+        float3 spec_ceiling_perceptual = spec_geo;
+        if (spec_neighborhood_sample_fitness_sharp < 1.0f)
+        {
+            spec_ceiling_perceptual = min(spec_ceiling_perceptual, spec_nongeo);
+        }
+        const float spec_tolerance = rtgi.specular_firefly_perceptual_tolerance * (pixel_matches_quad ? 1.0f : 0.1f);
+        const float3 spec_ceil_rgb = perceptual_to_linear(spec_ceiling_perceptual + spec_tolerance);
+        const float  spec_ceil_merged = dot(spec_ceil_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+
+        // Specular entries follow the pixel's diffuse entries in the ray list.
+        const uint ray_offset = push.attach.pixel_ray_alloc.get()[clamped_index] + push.attach.ray_count_image.get()[clamped_index];
+        const uint ray_count  = push.attach.specular_ray_count_image.get()[clamped_index];
+        const bool do_clamp   = rtgi.specular_firefly_filter_enabled != 0;
+        const bool ff_mono    = rtgi.specular_firefly_clamp_mode == 1;
+        float spec_energy_pre = 0.0f;
+        float spec_energy_post = 0.0f;
+        if (ray_count > 0u && rtgi.specular_enabled != 0)
+        {
+            const float inv_count = 1.0f / float(ray_count);
+            for (uint s = 0u; s < ray_count; ++s)
+            {
+                const RtgiRayResult res = push.attach.ray_result[ray_offset + s];
+                float3 clamped = res.radiance;
+                if (do_clamp)
+                {
+                    float over;
+                    if (ff_mono)
+                    {
+                        over = dot(res.radiance, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS) / spec_ceil_merged;
+                    }
+                    else
+                    {
+                        const float3 ex = (res.radiance * RTGI_CHANNEL_PERCEIVED_BRIGHTNESS) / spec_ceil_rgb;
+                        over = max(ex.r, max(ex.g, ex.b));
+                    }
+#if RTGI_FIREFLY_SOFTPLUS_CLAMP
+                    clamped = res.radiance * firefly_softplus_clamp_factor(over, RTGI_FIREFLY_SOFTPLUS_SHARPNESS);
+#else
+                    clamped = res.radiance / max(over, 1.0f);
+#endif
+                }
+                filtered_specular += float4(clamped, res.t) * inv_count;
+                spec_energy_pre  += dot(res.radiance, float3(1.0f, 1.0f, 1.0f)) * inv_count;
+                spec_energy_post += dot(clamped, float3(1.0f, 1.0f, 1.0f)) * inv_count;
+            }
+        }
+        if (do_clamp && rtgi.pre_blur_firefly_energy_compensation_enabled != 0 && spec_energy_post > 1e-8f)
+        {
+            specular_firefly_energy_factor = spec_energy_pre / spec_energy_post;
+        }
+    }
+
     // --- Ambient occlusion guide ---
     const float ao_guide = (1.0f - sqrt(ray_shortness_mean));
 
@@ -460,35 +611,122 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     // Quad mechanics: the reswizzle made each hardware wave quad exactly this center quad, so quad lane
     // index == center-quad tap index. Gather the 4 lanes with QuadReadAcross (uniform control flow); cand[k]
     // is at quad position pi_self ^ k, so the imposter lane is cand[pi_self ^ imposter].
+    bool diffuse_has_value = false;  // own rays or quad imposter (consumed by the quad-pair fill below)
+    bool specular_has_value = false;
     {
         const float4 cand_sh[4]   = { filtered_diffuse, QuadReadAcrossX(filtered_diffuse), QuadReadAcrossY(filtered_diffuse), QuadReadAcrossDiagonal(filtered_diffuse) };
         const float2 cand_cocg[4] = { filtered_diffuse2, QuadReadAcrossX(filtered_diffuse2), QuadReadAcrossY(filtered_diffuse2), QuadReadAcrossDiagonal(filtered_diffuse2) };
         const float  cand_ff[4]   = { firefly_energy_factor, QuadReadAcrossX(firefly_energy_factor), QuadReadAcrossY(firefly_energy_factor), QuadReadAcrossDiagonal(firefly_energy_factor) };
+        const float4 cand_spec[4] = { filtered_specular, QuadReadAcrossX(filtered_specular), QuadReadAcrossY(filtered_specular), QuadReadAcrossDiagonal(filtered_specular) };
+        const float  cand_spec_ff[4] = { specular_firefly_energy_factor, QuadReadAcrossX(specular_firefly_energy_factor), QuadReadAcrossY(specular_firefly_energy_factor), QuadReadAcrossDiagonal(specular_firefly_energy_factor) };
 
+        const uint pi_self = (gtid.x & 1u) | ((gtid.y & 1u) << 1u); // this lane's position in its quad
         const uint lane_ray_count = push.attach.ray_count_image.get()[clamped_index];
+        diffuse_has_value = depth != 0.0f && (lane_ray_count > 0u || imposter_quad_index >= 0);
         if (imposter_quad_index >= 0 && lane_ray_count == 0u)
         {
-            const uint pi_self = (gtid.x & 1u) | ((gtid.y & 1u) << 1u); // this lane's position in its quad
             const uint k       = pi_self ^ uint(imposter_quad_index);
             filtered_diffuse      = cand_sh[k];
             filtered_diffuse2     = cand_cocg[k];
             firefly_energy_factor = cand_ff[k];
+        }
+        // Specular has its own ray count (single budget split), so its own imposter.
+        const uint lane_specular_ray_count = push.attach.specular_ray_count_image.get()[clamped_index];
+        specular_has_value = depth != 0.0f && (lane_specular_ray_count > 0u || specular_imposter_quad_index >= 0);
+        if (specular_imposter_quad_index >= 0 && lane_specular_ray_count == 0u)
+        {
+            filtered_specular = cand_spec[pi_self ^ uint(specular_imposter_quad_index)];
+            specular_firefly_energy_factor = cand_spec_ff[pi_self ^ uint(specular_imposter_quad_index)];
+        }
+    }
+
+    // === Horizontal quad-pair fill ===
+    // A pixel whose whole 2x2 block got no ray for a signal (so the imposter fill above found nothing) copies the
+    // same quad-local pixel of the horizontally paired quad (2 pixels left / right), if that one has a value and
+    // passes a geometry similarity test. Same COPY (never blend) reasoning as the imposter fill, one quad further
+    // out, so sample rates below one ray per quad per signal still feed the pre-blur.
+    // Pairing via wave lanes: threads are laid out x-then-y with group width 8 (lane = gtid_raw.y * 8 + gtid_raw.x)
+    // and the reswizzle above puts bit 1 of a quad's screen x origin in gtid_raw.y bit 0, so flipping it (lane ^ 8)
+    // lands on the quad 2 pixels right / left at the same quad-local position, y unchanged (screen x pairs 0-1 <-> 2-3
+    // and 4-5 <-> 6-7). Pairs stay inside one wave for wave sizes >= 16. All lanes run the shuffles (uniform
+    // control flow, no early outs in this pass).
+    {
+        const uint pair_lane = WaveGetLaneIndex() ^ 8u;
+        const float4 pair_diffuse         = WaveReadLaneAt(filtered_diffuse, pair_lane);
+        const float2 pair_diffuse2        = WaveReadLaneAt(filtered_diffuse2, pair_lane);
+        const float  pair_firefly         = WaveReadLaneAt(firefly_energy_factor, pair_lane);
+        const float4 pair_specular        = WaveReadLaneAt(filtered_specular, pair_lane);
+        const float  pair_specular_firefly = WaveReadLaneAt(specular_firefly_energy_factor, pair_lane);
+        const bool   pair_diffuse_valid   = WaveReadLaneAt(diffuse_has_value, pair_lane);
+        const bool   pair_specular_valid  = WaveReadLaneAt(specular_has_value, pair_lane);
+        const float3 pair_position        = WaveReadLaneAt(world_position, pair_lane);
+        const float3 pair_face_normal     = WaveReadLaneAt(pixel_face_normal, pair_lane);
+
+        const bool needs_diffuse  = depth != 0.0f && !diffuse_has_value && pair_diffuse_valid;
+        const bool needs_specular = depth != 0.0f && !specular_has_value && pair_specular_valid;
+        if (needs_diffuse || needs_specular)
+        {
+            const bool same_surface = calc_similar_surface_weight(pixel_width_ws_rcp, world_position, pixel_face_normal, pair_position, pair_face_normal, 4.0f) > 0.5f;
+            if (same_surface && needs_diffuse)
+            {
+                filtered_diffuse      = pair_diffuse;
+                filtered_diffuse2     = pair_diffuse2;
+                firefly_energy_factor = pair_firefly;
+            }
+            if (same_surface && needs_specular)
+            {
+                filtered_specular = pair_specular;
+                specular_firefly_energy_factor = pair_specular_firefly;
+            }
         }
     }
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;
     push.attach.firefly_factor_image.get()[dtid] = firefly_energy_factor;
+    push.attach.specular_firefly_factor_image.get()[dtid] = specular_firefly_energy_factor;
     push.attach.perceptual_radiance_image.get()[dtid] = radiance_mean_perceptual;
     push.attach.ao_guide_image.get()[dtid] = ao_guide;
 
+    // Debug view of the half-res detail normal + roughness (gen_gbuffer's persistent image, read directly by every
+    // specular consumer).
+    {
+        const uint packed_out = push.attach.view_cam_half_res_normal_roughness.get()[clamped_index];
+
+#if RTGI_DEBUG_DRAW_SPECULAR_NORMAL_GLOSS != 0
+        {
+            float3 color = float3(0.0f, 0.0f, 0.0f); // sky
+            if (depth != 0.0f)
+            {
+#if RTGI_DEBUG_DRAW_SPECULAR_NORMAL_GLOSS == 1
+                color = unpack_normal_roughness_normal(packed_out) * 0.5f + 0.5f;
+#else
+                color = (1.0f - unpack_normal_roughness_roughness(packed_out)).xxx;
+#endif
+            }
+            write_debug_image(dbg, -1, dtid, float4(color, 1.999f), 2); // alpha [1,2): opaque blend-over, untonemapped
+        }
+#endif
+    }
+    push.attach.pre_filtered_specular_image.get()[dtid] = filtered_specular;
+
     const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
-    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_AO_GUIDE)
+    let debug_mode = push.attach.globals.settings.debug_draw_mode;
+    if (debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_AO_GUIDE)
     {
         write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(ao_guide), debug_alpha), 2);
     }
-    else if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN)
+    else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE)
+    {
+        const float3 color = depth != 0.0f ? rtgi_hit_distance_debug_color(filtered_specular.a) : float3(0.0f, 0.0f, 0.0f);
+        write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, dtid, float4(color, debug_alpha), 2);
+    }
+    else if (debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_PERCEPTUAL_MEAN)
     {
         write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, dtid, float4(perceptual_radiance_colormap(radiance_mean_perceptual, push.attach.globals.exposure), debug_alpha + 1.0f), 2);
+    }
+    else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN)
+    {
+        write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, dtid, float4(perceptual_radiance_colormap(perceptual_radiance_from_rgb(spec_mean_perceptual_rgb), push.attach.globals.exposure), debug_alpha + 1.0f), 2);
     }
 }

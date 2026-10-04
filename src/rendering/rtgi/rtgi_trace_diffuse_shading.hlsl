@@ -127,7 +127,7 @@ void shade_closest_hit(inout RayPayload payload, float2 barycentrics, uint primi
     );
 
     #if RTGI_USE_PGI_RADIANCE_ON_HIT
-        if (ray_t_current > RTGI_PGI_RADIANCE_CACHE_TMIN || RTGI_PGI_RADIANCE_CACHE_TMIN == 0.0f)
+        if (!payload.specular && (ray_t_current > RTGI_PGI_RADIANCE_CACHE_TMIN || RTGI_PGI_RADIANCE_CACHE_TMIN == 0.0f))
         {
             const float3 sample_offset_direction = tri_point.face_normal;
             const float3 sample_direction = float3(0,0,0); // ignored with probe_relative_sample_dir
