@@ -225,7 +225,6 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_blend_rays_compile_info()},
         {rtgi_guide_resample_horizontal_compile_info()},
         {rtgi_guide_resample_vertical_compile_info()},
-        {rtgi_guide_resolve_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},

@@ -93,7 +93,6 @@ namespace RenderTimes
                 "GUIDE_PIONEER_TRACE",
                 "GUIDE_RESAMPLE_H",
                 "GUIDE_RESAMPLE_V",
-                "GUIDE_RESOLVE",
                 "TEMPORAL_REPROJECT",
                 "DISTRIBUTE_RAYS",
                 "TRACE",

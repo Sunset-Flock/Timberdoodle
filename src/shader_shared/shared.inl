@@ -241,9 +241,11 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RTGI_RAY_SHARE 49
 // Per-pixel material ray factors (rtgi_calc_ray_material_factors): red = diffuse, green = specular
 #define DEBUG_DRAW_MODE_RTGI_RAY_MATERIAL 50
-// Pioneer guide (resolve output, shared by both signals)
-#define DEBUG_DRAW_MODE_RTGI_GUIDE_CONFIDENCE 51
-#define DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION 52
+// Pioneer guide (shared by both signals)
+// Guide direction of the first ray traced per pixel (written by the trace; black = unguided)
+#define DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION 51
+// Pioneer-resolution guide pick (pioneer_guide_hit_y) as a direction from each cell's reference pixel (blocky)
+#define DEBUG_DRAW_MODE_RTGI_GUIDE_LOW_RES_DIRECTION 52
 // Pre-filter: ray length guide (diffuse: AO from ray shortness, specular: hit distance) and perceptual mean
 #define DEBUG_DRAW_MODE_RTGI_DIFFUSE_AO_GUIDE 53
 #define DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE 54

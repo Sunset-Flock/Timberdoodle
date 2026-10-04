@@ -66,7 +66,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, view_cam_half_res_fa
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, h_resample_hit_y)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, h_resample_weight)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, pioneer_guide_hit_y)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, pioneer_guide_confidence)
+DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiGuideResampleVerticalPush
@@ -75,25 +75,3 @@ struct RtgiGuideResampleVerticalPush
     daxa_u32vec2 size; // pioneer_grid_size
 };
 
-// Guide-cell neighborhood radius (in PIONEER CELLS) entry_guide_resolve examines around each half-res
-// output pixel's own cell -- (2*EXTENT+1)^2 candidates, geometry-gated then radiance-weighted-RIS-picked
-// (see entry_guide_resolve). The groupshared preload tile in rtgi_guide_resample.hlsl is sized generously
-// enough (tile + 2*EXTENT) to comfortably cover it.
-#define RTGI_GUIDE_RESOLVE_EXTENT 1
-
-DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiGuideResolveH)
-DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, view_cam_half_res_depth)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, view_cam_half_res_face_normals)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, pioneer_guide_hit_y)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, pioneer_guide_confidence)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, guide_sh_y)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, guide_confidence)
-DAXA_DECL_TASK_HEAD_END
-
-struct RtgiGuideResolvePush
-{
-    RtgiGuideResolveH::AttachmentShaderBlob attach;
-    daxa_u32vec2 size; // half_res_image_size
-};

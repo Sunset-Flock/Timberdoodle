@@ -38,10 +38,9 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_norma
 // .xyz = the pioneer ray's actual hit position (world space), .w = direction-independent brightness Y
 // at that hit (Lambertian exitant radiance is the same in every exit direction, so no direction is
 // baked in here) -- a reconnection payload, not a baked SH-Y lobe. Every stage downstream reuses (X, Y)
-// as-is; only entry_guide_resolve ever turns it into a real direction, computed fresh relative to
+// as-is; only rtgi_fetch_ray_guide (trace) ever turns it into a real direction, computed fresh relative to
 // whichever half-res pixel actually consumes it as a guide. See rtgi_guide_resample.hlsl.
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, pioneer_hit_y)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, guide_sh_y)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, sky)
@@ -59,6 +58,9 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec2>, ray_impact) // classic path ray demand (reproject: extra ray factor per signal)
+// Pioneer-resolution guide picks (vertical resample output: hit position + brightness), read by the stochastic
+// guide fetch (rtgi_settings.guide_stochastic_fetch). Unused by the pioneer trace itself.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, pioneer_guide_hit_y)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTraceDiffusePush

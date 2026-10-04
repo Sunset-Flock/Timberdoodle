@@ -302,12 +302,6 @@ inline void rtgi_guide_resample_vertical_callback(daxa::TaskInterface ti, Render
     dispatch_image_relative(RtgiGuideResampleVerticalPush(), ti, render_context, AT.pioneer_guide_hit_y, RTGI_GUIDE_RESAMPLE_X, RenderTimes::index<"RTGI", "GUIDE_RESAMPLE_V">(), rtgi_guide_resample_vertical_compile_info().name);
 }
 
-inline void rtgi_guide_resolve_callback(daxa::TaskInterface ti, RenderContext * render_context)
-{
-    auto const & AT = RtgiGuideResolveH::Info::AT;
-    dispatch_image_relative(RtgiGuideResolvePush(), ti, render_context, AT.guide_sh_y, RTGI_GUIDE_RESAMPLE_X, RenderTimes::index<"RTGI", "GUIDE_RESOLVE">(), rtgi_guide_resolve_compile_info().name);
-}
-
 ///
 /// === Transient Images ===
 ///
@@ -470,16 +464,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .size = pioneer_grid_size,
         .name = "rtgi_pioneer_hit_y_image",
     });
-    auto guide_sh_y_image = info.tg.create_task_image({
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
-        .size = half_res_image_size,
-        .name = "rtgi_guide_sh_y_image",
-    });
-    auto guide_confidence_image = info.tg.create_task_image({
-        .format = daxa::Format::R16_SFLOAT,
-        .size = half_res_image_size,
-        .name = "rtgi_guide_confidence_image",
-    });
     // Intermediate, pioneer-resolution-sized: horizontal pass's per-row pick + (weight, valid_count),
     // consumed by the vertical pass. See rtgi_guide_resample.hlsl for the two-stage reservoir math.
     auto h_resample_hit_y_image = info.tg.create_task_image({
@@ -493,17 +477,12 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "rtgi_h_resample_weight_image",
     });
     // Intermediate, ALSO pioneer-resolution-sized: the vertical pass's own output (one RIS pick per
-    // pioneer cell). entry_guide_resolve upsamples this to the final half-res guide_sh_y_image/
-    // guide_confidence_image above.
+    // pioneer cell). The trace reads it per ray (rtgi_fetch_ray_guide) and reconnects each pick to the ray's
+    // own position.
     auto pioneer_guide_hit_y_image = info.tg.create_task_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = pioneer_grid_size,
         .name = "rtgi_pioneer_guide_hit_y_image",
-    });
-    auto pioneer_guide_confidence_image = info.tg.create_task_image({
-        .format = daxa::Format::R16_SFLOAT,
-        .size = pioneer_grid_size,
-        .name = "rtgi_pioneer_guide_confidence_image",
     });
     bool const pioneer_guiding_enabled = info.render_context.render_data.rtgi_settings.pioneer_guiding_enabled != 0;
 
@@ -564,7 +543,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                 .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                 .pioneer_hit_y = pioneer_hit_y_image,
-                .guide_sh_y = guide_sh_y_image,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.mesh_instances,
                 .sky = info.sky,
@@ -581,6 +559,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .vsm_memory_block = info.vsm_memory_block,
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
                 .ray_impact = ray_impact_image,
+                .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
             })
             .executes(rtgi_trace_pioneer_callback, &info.render_context));
 
@@ -603,22 +582,10 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .h_resample_hit_y = h_resample_hit_y_image,
                 .h_resample_weight = h_resample_weight_image,
                 .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
-                .pioneer_guide_confidence = pioneer_guide_confidence_image,
+                .debug_image = info.debug_image,
             })
             .executes(rtgi_guide_resample_vertical_callback, &info.render_context));
 
-        info.tg.add_task(daxa::HeadTask<RtgiGuideResolveH::Info>()
-            .head_views(RtgiGuideResolveH::Info::Views{
-                .globals = info.render_context.tgpu_render_data.view(),
-                .debug_image = info.debug_image,
-                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
-                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
-                .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
-                .pioneer_guide_confidence = pioneer_guide_confidence_image,
-                .guide_sh_y = guide_sh_y_image,
-                .guide_confidence = guide_confidence_image,
-            })
-            .executes(rtgi_guide_resolve_callback, &info.render_context));
     }
 
     info.tg.add_task(daxa::HeadTask<RtgiTemporalReprojectH::Info>()
@@ -667,7 +634,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                     .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                     .pioneer_hit_y = pioneer_hit_y_image,
-                    .guide_sh_y = guide_sh_y_image,
                     .meshlet_instances = info.meshlet_instances,
                     .mesh_instances = info.mesh_instances,
                     .sky = info.sky,
@@ -684,6 +650,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .vsm_memory_block = info.vsm_memory_block,
                     .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
                     .ray_impact = ray_impact_image,
+                    .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
                 })
                 .executes(rtgi_trace_diffuse_callback, &info.render_context, RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = false}));
     }
@@ -727,7 +694,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
                 .view_cam_half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                 .pioneer_hit_y = pioneer_hit_y_image,
-                .guide_sh_y = guide_sh_y_image,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.mesh_instances,
                 .sky = info.sky,
@@ -744,6 +710,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .vsm_memory_block = info.vsm_memory_block,
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
                 .ray_impact = ray_impact_image,
+                .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
             })
             .executes(rtgi_trace_from_list_callback, &info.render_context));
 

@@ -65,6 +65,109 @@ void rtgi_trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload)
     TraceRay(RaytracingAccelerationStructure::get(rtgi_trace_diffuse_push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
 }
 
+// == Per-ray guide fetch =========================================================================
+// Why per ray: if all rays of a pixel (or all pixels of a neighborhood) shared one guide per frame, a super-sampled
+// pixel would bake that frame's guide into many samples at once (stripes / splotches where the allocator put
+// bursts). Each ray instead picks its own guide, so burst rays and neighbouring pixels follow different guides.
+// Each ray reads a pioneer-RESOLUTION guide cell
+// (pioneer_guide_hit_y: the vertical resample's RIS pick per pioneer cell, a hit position + brightness), taken
+// from the pre-blur's Poisson disc sequence (g_Poisson16, rtgi_shared.hlsl) scaled to
+// RTGI_GUIDE_STOCHASTIC_FETCH_CELL_RADIUS pioneer cells around the pixel's own cell. ONE sequence per pixel,
+// walked across the pixel's rays: ray i, attempt a uses tap (i * ATTEMPTS + a) mod 16, rotated by a random
+// per-pixel angle and offset from the pixel's continuous position inside its cell.
+// The cell's hit is RECONNECTED to THIS ray's own position (exact direction, unlike reading a neighbor's
+// already-resolved per-pixel guide, which was reconnected from the neighbor). The cell must be geometry, have a
+// pick, pass the same distance gate the resolve uses (RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD), and the reconnected
+// direction must lie in this pixel's hemisphere; after RTGI_GUIDE_STOCHASTIC_FETCH_ATTEMPTS failed taps the ray
+// gets no guide (zero) and samples unguided. Any guide works for correctness (the pdf weight is computed for the guide
+// actually used). Uses no RNG, so the ray direction sequence (rand()) is untouched.
+#define RTGI_GUIDE_STOCHASTIC_FETCH_CELL_RADIUS 4.0f
+#define RTGI_GUIDE_STOCHASTIC_FETCH_ATTEMPTS 3u
+
+// 1 = only the FIRST ray of each signal per pixel is guided, further burst rays sample plain cosine / GGX VNDF
+// (the older fix for burst correlation, before the per-ray fetch decorrelated guides). 0 = every ray is guided.
+#define RTGI_GUIDE_FIRST_RAY_ONLY 0
+
+// A fetched guide is usable when it is non-zero (rtgi_fetch_ray_guide returns zero when no cell qualified).
+func rtgi_guide_is_valid(float4 guide_sh_y) -> bool
+{
+    return dot(guide_sh_y.xyz, guide_sh_y.xyz) > 1e-12f;
+}
+
+// Whether ray `ray_index_in_signal` (0-based within its signal) of a pixel uses the guide.
+func rtgi_ray_uses_guide(uint ray_index_in_signal) -> bool
+{
+    return RTGI_GUIDE_FIRST_RAY_ONLY == 0 || ray_index_in_signal == 0u;
+}
+
+// Debug view: the guide direction a pixel's FIRST ray (diffuse ray 0) used, as color. Black = no guide (unguided).
+void rtgi_guide_direction_debug_draw(uint2 pixel_xy, float4 guide_sh_y)
+{
+    let push = rtgi_trace_diffuse_push;
+    if (push.attach.globals.settings.debug_draw_mode != DEBUG_DRAW_MODE_RTGI_GUIDE_DIRECTION) { return; }
+    const float moment_len = length(guide_sh_y.xyz);
+    const float3 color = moment_len > 1e-8f ? (guide_sh_y.xyz / moment_len) * 0.5f + 0.5f : float3(0.0f, 0.0f, 0.0f);
+    write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, pixel_xy, float4(color, 1.0f + push.attach.globals.settings.debug_visualization_blend), 2);
+}
+
+// Per-pixel hash for the guide fetch kernel rotation (PCG). Static per pixel: the pioneer cells themselves rotate
+// and get new picks every frame.
+func rtgi_guide_fetch_pixel_hash(uint2 pixel_xy) -> uint
+{
+    const uint state = (pixel_xy.x * 9629u ^ pixel_xy.y * 10069u ^ 0x2545F491u) * 747796405u + 2891336453u;
+    const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// ray_key: the ray's index within the pixel; diffuse and specular rays each walk the sequence from tap 0.
+func rtgi_fetch_ray_guide(uint2 pixel_xy, float3 world_pos, float3 face_normal, float ws_px_size, uint ray_key) -> float4
+{
+    let push = rtgi_trace_diffuse_push;
+    let rtgi_settings = push.attach.globals.rtgi_settings;
+    if (rtgi_settings.pioneer_guiding_enabled == 0) { return float4(0.0f, 0.0f, 0.0f, 0.0f); }
+
+    const CameraInfo camera = push.attach.globals.view_camera;
+    const uint2 half_res_size = push.attach.globals.settings.render_target_size >> 1u;
+    // Same pioneer cell rotation + grid as pioneer_ray_gen and the resample / resolve passes -- MUST stay in sync.
+    const uint rotation_frame = rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
+    const int2 rotation = int2(
+        int(rotation_frame % RTGI_GUIDE_PIONEER_GRID_DIV),
+        int((rotation_frame / RTGI_GUIDE_PIONEER_GRID_DIV) % RTGI_GUIDE_PIONEER_GRID_DIV));
+    const int2 pioneer_grid_size = int2((half_res_size + RTGI_GUIDE_PIONEER_GRID_DIV - 1u) / RTGI_GUIDE_PIONEER_GRID_DIV);
+    // The pixel's continuous position in pioneer-cell space (so pixels at different spots inside one cell reach
+    // different neighbor cells), and a per-pixel random rotation of the Poisson kernel: without it every pixel
+    // walks the same tap sequence, so whole 4x4 blocks pick the same cells and the guides stay spatially uniform.
+    const float2 own_cell_pos = (float2(int2(pixel_xy) - rotation) + 0.5f) / float(RTGI_GUIDE_PIONEER_GRID_DIV);
+    const uint pixel_hash = rtgi_guide_fetch_pixel_hash(pixel_xy);
+    const float kernel_angle = float(pixel_hash >> 8u) * (6.28318530718f / 16777216.0f);
+    float kernel_sin, kernel_cos;
+    sincos(kernel_angle, kernel_sin, kernel_cos);
+    const float2x2 kernel_rotation = float2x2(kernel_cos, -kernel_sin, kernel_sin, kernel_cos);
+    for (uint attempt = 0u; attempt < RTGI_GUIDE_STOCHASTIC_FETCH_ATTEMPTS; ++attempt)
+    {
+        const float2 tap = mul(kernel_rotation, g_Poisson16[(ray_key * RTGI_GUIDE_STOCHASTIC_FETCH_ATTEMPTS + attempt) & 15u].xy);
+        const int2 cell = clamp(int2(floor(own_cell_pos + tap * RTGI_GUIDE_STOCHASTIC_FETCH_CELL_RADIUS)), int2(0, 0), pioneer_grid_size - 1);
+        const int2 ref_pixel = cell * int(RTGI_GUIDE_PIONEER_GRID_DIV) + rotation;
+        if (any(ref_pixel < 0) || any(ref_pixel >= int2(half_res_size))) { continue; }
+        const float ref_depth = push.attach.view_cam_half_res_depth.get()[uint2(ref_pixel)];
+        if (ref_depth == 0.0f) { continue; }
+        const float4 hit_y = push.attach.pioneer_guide_hit_y.get()[uint2(cell)]; // .xyz hit position, .w brightness
+        if (hit_y.w <= 0.0f) { continue; }
+        // Same distance-only gate as the resolve (the cell's reference pixel vs this pixel).
+        const float3 ref_position = rtgi_half_res_depth_to_world_space(camera, (float2(ref_pixel * 2) + 1.0f) * camera.inv_screen_size * 2.0f - 1.0f, ref_depth);
+        const float ref_px_size = rtgi_half_res_pixel_width_ws(rcp(float2(half_res_size)), camera.near_plane, ref_depth);
+        if (distance(world_pos, ref_position) > RTGI_GUIDE_RESAMPLE_PX_DIST_THRESHOLD * min(ws_px_size, ref_px_size)) { continue; }
+        // Reconnect the cell's picked hit to THIS pixel.
+        const float3 to_hit = hit_y.xyz - world_pos;
+        const float dist = length(to_hit);
+        if (dist < 1e-4f) { continue; }
+        const float3 dir = to_hit / dist;
+        if (dot(face_normal, dir) <= 0.0f) { continue; }
+        return y_to_sh(hit_y.w, dir);
+    }
+    return float4(0.0f, 0.0f, 0.0f, 0.0f); // no valid cell: unguided
+}
+
 // Traces ONE specular ray for a half-res pixel. Uses the caller's rand() state (seed it before calling).
 // Returns the ray-list result (radiance already weighted + RTGI_RADIANCE_SCALE scaled).
 func rtgi_trace_specular_ray(uint2 pixel_xy, float3 world_pos, float3 face_normal, float3 primary_ray, float ws_px_size, float4 guide_sh_y) -> RtgiRayResult
@@ -244,15 +347,15 @@ void shade_ray_gen(uint2 dtid)
         // Pioneer-guided direction support -- see the matching block (and rtgi_guided_sampling.hlsl) in
         // ray_gen_from_list_body for the full explanation. Read once per pixel, reused by every ray below.
         // Already half-res-pixel-aligned, no addressing needed.
-        float4 pixel_guide_sh_y = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        if (rtgi_settings.pioneer_guiding_enabled)
-        {
-            pixel_guide_sh_y = push.attach.guide_sh_y.get()[dtid];
-        }
 
         for (uint i = 0u; i < diffuse_write_count; ++i)
         {
             float3 sample_dir;
+            // This ray's guide (pioneer-resolution pick reconnected to this pixel); zero = unguided.
+            const float4 ray_guide_sh_y = rtgi_ray_uses_guide(i)
+                ? rtgi_fetch_ray_guide(dtid, world_position, face_normal, ws_px_size, i)
+                : float4(0.0f, 0.0f, 0.0f, 0.0f);
+            if (i == 0u) { rtgi_guide_direction_debug_draw(dtid, rtgi_settings.trace_use_stbn == 0 ? ray_guide_sh_y : float4(0.0f, 0.0f, 0.0f, 0.0f)); }
             // Correction weight for pioneer-guided sampling; 1.0 (no-op) unless that branch fires below --
             // see the matching comment in ray_gen_from_list_body.
             float guided_weight = 1.0f;
@@ -263,12 +366,12 @@ void shade_ray_gen(uint2 dtid)
                 const float3 importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, (rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0) + rand());
                 sample_dir = mul(tbn, importance_rand_hemi_sample);
             }
-            else if (rtgi_settings.pioneer_guiding_enabled)
+            else if (rtgi_settings.pioneer_guiding_enabled && rtgi_ray_uses_guide(i) && rtgi_guide_is_valid(ray_guide_sh_y))
             {
                 // Returns a WORLD-space direction directly (builds its own basis internally) -- does NOT
                 // go through `tbn`, unlike the other two branches.
                 sample_dir = rtgi_sample_guided_diffuse_dir(
-                    face_normal, pixel_guide_sh_y, rtgi_settings.guide_concentration, 1.0f, guided_weight);
+                    face_normal, ray_guide_sh_y, rtgi_settings.guide_concentration, 1.0f, guided_weight);
             }
             else
             {
@@ -310,7 +413,11 @@ void shade_ray_gen(uint2 dtid)
         for (uint i = 0u; i < specular_write_count; ++i)
         {
             rtgi_specular_seed(thread_seed, i);
-            const RtgiRayResult spec_result = rtgi_trace_specular_ray(dtid, world_position, face_normal, primary_ray, ws_px_size, pixel_guide_sh_y);
+            // Zero guide = invalid -> plain GGX VNDF for the non-first specular rays.
+            const float4 ray_guide_sh_y = rtgi_ray_uses_guide(i)
+                ? rtgi_fetch_ray_guide(dtid, world_position, face_normal, ws_px_size, i)
+                : float4(0.0f, 0.0f, 0.0f, 0.0f);
+            const RtgiRayResult spec_result = rtgi_trace_specular_ray(dtid, world_position, face_normal, primary_ray, ws_px_size, ray_guide_sh_y);
             push.attach.ray_result[my_offset + diffuse_write_count + i] = spec_result;
             mean_specular_perceptual_rgb += linear_to_perceptual_rgb(spec_result.radiance, push.attach.globals.inv_exposure) * inv_specular_samples;
             mean_specular_hit += spec_result.t * inv_specular_samples;
@@ -385,11 +492,13 @@ void ray_gen_from_list_body()
     // Pioneer-guided direction support: read the same-frame, lag-free guide built by the pioneer trace +
     // spatial RIS resample (rtgi_guide_resample.hlsl) -- already half-res-pixel-aligned, no addressing
     // needed. Feeds rtgi_sample_guided_diffuse_dir below. See rtgi_guided_sampling.hlsl.
-    float4 pixel_guide_sh_y = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    if (rtgi_settings.pioneer_guiding_enabled)
-    {
-        pixel_guide_sh_y = push.attach.guide_sh_y.get()[pixel_xy];
-    }
+    // Each ray fetches its own guide from the pioneer-resolution picks (rtgi_fetch_ray_guide); zero = unguided.
+    const uint ray_index_in_signal = is_specular_ray ? sample_index - diffuse_ray_count : sample_index;
+    const bool use_guide = rtgi_ray_uses_guide(ray_index_in_signal);
+    // Zero guide = invalid -> plain GGX VNDF for non-guided specular rays (diffuse branches on use_guide below).
+    const float4 pixel_guide_sh_y = use_guide
+        ? rtgi_fetch_ray_guide(pixel_xy, world_pos, face_normal, ws_px_size, sample_index)
+        : float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     // Seed ONCE per pixel+frame (NOT per ray). Each ray is a separate shader invocation, so we advance
     // the per-pixel RNG sequence to this ray's slot instead of folding sample_index into the seed:
@@ -422,6 +531,10 @@ void ray_gen_from_list_body()
     // traced radiance below. Stays 1.0 (no-op) for STBN/plain-cosine sampling, which need no such weight
     // because their pdf's cos(theta)/PI cancels exactly against the Lambertian estimator's own numerator.
     float guided_weight = 1.0f;
+    if (sample_index == 0u)
+    {
+        rtgi_guide_direction_debug_draw(pixel_xy, rtgi_settings.trace_use_stbn == 0 ? pixel_guide_sh_y : float4(0.0f, 0.0f, 0.0f, 0.0f));
+    }
     if (rtgi_settings.trace_use_stbn != 0)
     {
         // STBN z-slice = frame + sample_index. The per-ray offset MUST be an integer slice step: a pixel's
@@ -433,7 +546,7 @@ void ray_gen_from_list_body()
         const float3 importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, stbn_frame);
         sample_dir = mul(tbn, importance_rand_hemi_sample);
     }
-    else if (rtgi_settings.pioneer_guiding_enabled)
+    else if (rtgi_settings.pioneer_guiding_enabled && use_guide && rtgi_guide_is_valid(pixel_guide_sh_y))
     {
         // rtgi_sample_guided_diffuse_dir builds its own basis internally (around either face_normal or the
         // SH dominant direction) and returns a WORLD-space direction directly -- unlike the other two
@@ -568,13 +681,13 @@ void pioneer_ray_gen(uint2 pioneer_dtid)
     // direction -- Y needs no per-receiver re-derivation, ever. What changes per receiver is only the
     // DIRECTION from the receiver to X, and that's deliberately not computed here: baking `sample_dir` in
     // now would make it only valid for THIS pixel, defeating the point of storing X at all. Every reuse
-    // downstream (H/V passes) just carries (X, Y) forward unchanged; entry_guide_resolve is the one place
+    // downstream (H/V passes) just carries (X, Y) forward unchanged; rtgi_fetch_ray_guide (trace) is the one place
     // that turns this into a real direction, computed fresh for whichever half-res pixel actually consumes
     // it as a guide. On a sky miss payload.t is a huge sentinel (see shade_miss) that's WAY past this
     // ray's own TMax -- clamp to ray.TMax (the pioneer trace's bounded, finite max distance) before
     // building the position. Two reasons: (1) pioneer_hit_y is stored as R16G16B16A16_SFLOAT (half
     // float, max finite ~65504) -- origin + direction*1e12 overflows that to +-Inf on write, which then
-    // turns into a NaN reconnection direction downstream (entry_guide_resolve) that silently slips past
+    // turns into a NaN reconnection direction downstream (rtgi_fetch_ray_guide) that silently slips past
     // the `dot(normal, recon_dir) <= 0` guard (NaN comparisons are always false) and NaNs the guide's
     // SH-Y, which rtgi_sh_dominant_direction then falls back to the surface normal for -- i.e. exactly
     // the sky-miss-guided rays (bright, likely to win the RIS pick) silently losing their real direction.

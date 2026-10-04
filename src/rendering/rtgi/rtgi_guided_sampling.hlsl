@@ -52,8 +52,8 @@ func rtgi_build_basis(float3 axis) -> float3x3
     return transpose(float3x3(tangent, bitangent, axis));
 }
 
-// sh_y is a single RIS-picked (hit_direction * Y, Y) pair (see entry_guide_resolve in
-// rtgi_guide_resample.hlsl), never averaged -- dividing back out Y recovers that pick's direction.
+// sh_y is a single RIS-picked (hit_direction * Y, Y) pair (see rtgi_fetch_ray_guide in
+// rtgi_trace_diffuse.hlsl), never averaged -- dividing back out Y recovers that pick's direction.
 // Falls back to the surface normal when no candidate was found this frame (sh_y.xyz ~= 0, e.g. sky or
 // no matching-surface pioneer cell nearby) -- harmless to bend toward, just not yet useful.
 func rtgi_sh_dominant_direction(float4 sh_y, float3 normal_fallback) -> float3
