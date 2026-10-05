@@ -30,6 +30,15 @@ func rtgi_specular_fold_above_face(float3 dir, float3 face_normal) -> float3
     return d < 0.01f ? normalize(dir + face_normal * (0.01f - d)) : dir;
 }
 
+// VNDF reflection samples below the shading hemisphere (frequent at grazing view angles) used to get weight 0,
+// i.e. a BLACK ray averaged into the pixel. But the signal is the lobe's mean incoming radiance and the energy
+// lost to masking is applied at composite time (brdf_env_approx), so counting them as black darkens grazing
+// reflections a second time (towards black at very shallow angles). With this on, such samples are redrawn up to
+// RTGI_SPECULAR_BELOW_HORIZON_RETRIES times (= excluding them from the mean), and a last failure is folded just
+// above the shading hemisphere instead of returning black. 0 = old behavior (weight 0).
+#define RTGI_SPECULAR_RESAMPLE_BELOW_HORIZON 1
+#define RTGI_SPECULAR_BELOW_HORIZON_RETRIES 4u
+
 func rtgi_specular_guide_probability(float roughness, float guide_mix, bool guide_valid) -> float
 {
     return guide_valid ? guide_mix * saturate((roughness - 0.25f) * (1.0f / 0.75f)) : 0.0f;
@@ -68,6 +77,17 @@ func rtgi_sample_specular_dir(
     else
     {
         dir = brdf_sample_ggx_vndf_reflection(shading_normal, view_dir, a, float2(rand(), rand()));
+#if RTGI_SPECULAR_RESAMPLE_BELOW_HORIZON
+        for (uint retry = 0u; retry < RTGI_SPECULAR_BELOW_HORIZON_RETRIES && dot(dir, shading_normal) <= 0.0f; ++retry)
+        {
+            dir = brdf_sample_ggx_vndf_reflection(shading_normal, view_dir, a, float2(rand(), rand()));
+        }
+        const float below = dot(dir, shading_normal);
+        if (below <= 0.0f)
+        {
+            dir = normalize(dir + shading_normal * (0.01f - below)); // last resort: fold just above the horizon
+        }
+#endif
     }
 
     if (p_guide > 0.0f)

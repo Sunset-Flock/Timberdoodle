@@ -199,7 +199,12 @@ func rtgi_trace_specular_ray(uint2 pixel_xy, float3 world_pos, float3 face_norma
 
     const float3 sample_pos = rt_calc_ray_start(world_pos, face_normal, primary_ray);
     RayDesc ray = {};
-    ray.Origin    = sample_pos - primary_ray * ws_px_size;
+    // The half-res position is reconstructed from ONE representative sub-pixel's depth at the half-res pixel
+    // center, so it can sit off the true surface. Pull back along the view ray (covers the error at steep views)
+    // AND lift along the face normal by one pixel width: at grazing views the view-ray pullback lifts the origin
+    // by only ws_px_size * NoV, so near-tangent reflection rays would start on / below the surface and hit it
+    // (black grazing reflections).
+    ray.Origin    = sample_pos - primary_ray * ws_px_size + face_normal * ws_px_size;
     ray.Direction = dir;
     ray.TMin      = ws_px_size * 0.5f;
     ray.TMax      = 100000000000.0f;
