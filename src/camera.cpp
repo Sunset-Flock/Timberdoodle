@@ -2,6 +2,11 @@
 
 void CameraController::process_input(Window & window, f32 dt)
 {
+    // Mouse wheel scales the fly speed by 5% per notch (only while flying, so scrolling UI panels does not touch it).
+    if (window.is_cursor_captured() && window.scroll_y() != 0.0f)
+    {
+        translationSpeed = std::clamp(translationSpeed * std::pow(1.05f, window.scroll_y()), 0.01f, 100000.0f);
+    }
     f32 speed = window.key_pressed(GLFW_KEY_LEFT_SHIFT) ? translationSpeed * 4.0f : translationSpeed;
     speed = window.key_pressed(GLFW_KEY_LEFT_CONTROL) ? speed * 0.25f : speed;
 

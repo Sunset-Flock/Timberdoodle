@@ -447,6 +447,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "rtgi_reproject_weights_image",
     });
 
+    // Occluder coverage of the reprojection footprint (written by reproject, read by the specular accumulate).
+    auto reproject_occluder_coverage_image = info.tg.create_task_image({
+        .format = daxa::Format::R8_UNORM,
+        .size = half_res_image_size,
+        .name = "rtgi_reproject_occluder_coverage_image",
+    });
+
     // Ray demand: extra ray factor per signal (.x diffuse, .y specular), written by reproject (rtgi_calc_ray_share).
     auto ray_impact_image = info.tg.create_task_image({
         .format = daxa::Format::R16G16_SFLOAT,
@@ -608,6 +615,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .half_res_specular_history = half_res_specular_history.previous(),
             .ray_impact = ray_impact_image,
             .half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
+            .reproject_occluder_coverage = reproject_occluder_coverage_image,
         })
         .executes(rtgi_temporal_reproject_callback, &info.render_context));
 
@@ -895,6 +903,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .ray_counters = ray_counters_buffer,
             .specular_fast_history_accumulated = specular_fast_history.current(),
             .specular_fast_history_history = specular_fast_history.previous(),
+            .reproject_occluder_coverage = reproject_occluder_coverage_image,
         })
         .executes(rtgi_temporal_accumulate_callback, &info.render_context));
 

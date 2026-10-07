@@ -54,6 +54,13 @@ void cursor_move_callback(GLFWwindow *window, double xpos, double ypos)
     self->cursor_change_y = static_cast<i32>(std::floor(ypos)) - self->old_cursor_pos_y;
 }
 
+void scroll_callback(GLFWwindow *window, double xoffset, double yoffset)
+{
+    WindowState *self = reinterpret_cast<WindowState *>(glfwGetWindowUserPointer(window));
+    self->scroll_x += static_cast<f32>(xoffset);
+    self->scroll_y += static_cast<f32>(yoffset);
+}
+
 void window_focus_callback(GLFWwindow *window, int focused)
 {
     WindowState *self = reinterpret_cast<WindowState *>(glfwGetWindowUserPointer(window));
@@ -78,6 +85,7 @@ Window::Window(i32 width, i32 height, std::string_view name)
     glfwSetKeyCallback(this->glfw_handle, key_callback);
     glfwSetMouseButtonCallback(this->glfw_handle, mouse_button_callback);
     glfwSetCursorPosCallback(this->glfw_handle, cursor_move_callback);
+    glfwSetScrollCallback(this->glfw_handle, scroll_callback);
     glfwSetWindowFocusCallback(this->glfw_handle, window_focus_callback);
     // Windows clamps windows to the desktop size on creation (WM_GETMINMAXINFO). Explicit size limits make
     // GLFW override that clamp, so resolutions larger than the monitor (e.g. 4K on a 1440p screen) work.
@@ -165,6 +173,18 @@ bool Window::button_just_released(Button button) const
     return this->window_state->mouse_button_down_old[button] && !this->window_state->mouse_button_down[button];
 }
 
+// scroll (accumulated wheel offset since the last update)
+
+f32 Window::scroll_x() const
+{
+    return this->window_state->scroll_x;
+}
+
+f32 Window::scroll_y() const
+{
+    return this->window_state->scroll_y;
+}
+
 // cursor
 
 i32 Window::get_cursor_x() const
@@ -223,6 +243,8 @@ bool Window::update([[maybe_unused]]f32 deltaTime)
     this->window_state->old_cursor_pos_y = this->get_cursor_y();
     this->window_state->cursor_change_x = {};
     this->window_state->cursor_change_y = {};
+    this->window_state->scroll_x = {};
+    this->window_state->scroll_y = {};
 
     glfwPollEvents();
     if (this->is_cursor_captured())

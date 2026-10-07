@@ -2,6 +2,7 @@
 #include <implot.h>
 
 #include "helpers.hpp"
+#include "../../scene/mesh_lod.hpp"
 
 namespace tido
 {
@@ -495,6 +496,101 @@ namespace tido
                                 ImGui::Text(fmt::format("  * blend_enabled            {}", material_manifest.blend_enabled).c_str());              
                                 ImGui::Text(fmt::format("  * normal_compressed_bc5_rg {}", material_manifest.normal_compressed_bc5_rg).c_str());                        
                                 ImGui::Text(fmt::format("  * is_metal                 {}", material_manifest.is_metal).c_str());          
+
+                                ImGui::SeparatorText("Mesh Lods");
+                                if (!mesh_lod_group_manifest.runtime.has_value())
+                                {
+                                    ImGui::TextDisabled("Mesh not loaded yet.");
+                                }
+                                else
+                                {
+                                    auto const & runtime = mesh_lod_group_manifest.runtime.value();
+                                    RenderGlobalData const & render_data = render_context.render_data;
+                                    f32 const aabb_pixel_size = estimate_lod_aabb_pixel_size(render_data, mesh_lod_group_manifest, ent_slot);
+                                    f32 const acceptable_error = lod_acceptable_pixel_error(render_data);
+                                    u32 const selected_lod = select_lod(render_data, mesh_lod_group_manifest, mesh_lod_group_manifest_index, ent_slot) % MAX_MESHES_PER_LOD_GROUP;
+
+                                    static bool draw_picked_mesh_aabb = true;
+                                    ImGui::Checkbox("Draw mesh aabb", &draw_picked_mesh_aabb);
+                                    if (draw_picked_mesh_aabb)
+                                    {
+                                        // Lod0 aabb (the one lod selection measures), transformed as an oriented box.
+                                        AABB const & aabb = runtime.lods[0].aabb;
+                                        static constexpr std::array corner_signs = {
+                                            glm::vec2(-1, 1), glm::vec2(-1, -1), glm::vec2(1, -1), glm::vec2(1, 1)};
+                                        ShaderDebugBoxDraw box_draw = {};
+                                        box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+                                        box_draw.color = {1.0f, 0.6f, 0.15f};
+                                        for (u32 i = 0; i < 8; ++i)
+                                        {
+                                            glm::vec3 const sign = glm::vec3(corner_signs[i % 4], i < 4 ? -1.0f : 1.0f);
+                                            glm::vec3 const local = std::bit_cast<glm::vec3>(aabb.center) + 0.5f * sign * std::bit_cast<glm::vec3>(aabb.size);
+                                            glm::vec3 const world = ent_slot->combined_transform * glm::vec4(local, 1.0f);
+                                            box_draw.vertices[i] = {world.x, world.y, world.z};
+                                        }
+                                        render_context.gpu_context->shader_debug_context.box_draws.draw(box_draw);
+                                    }
+
+                                    ImGui::Text("Lod count:             %u / %u", runtime.lod_count, MAX_MESHES_PER_LOD_GROUP);
+                                    ImGui::Text("Selected lod:          %u", selected_lod);
+                                    ImGui::Text("Est. aabb pixel size:  %.1f px", aabb_pixel_size);
+                                    ImGui::Text("Acceptable px error:   %.3f px (%.3f x 2^%.2f bias)", acceptable_error, render_data.settings.lod_acceptable_pixel_error, render_data.settings.lod_bias);
+                                    if (runtime.lod_count > 0 && aabb_pixel_size * runtime.lods[runtime.lod_count - 1].lod_error < acceptable_error)
+                                    {
+                                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.15f, 1.0f), "Last lod is still under the error limit: mesh would use coarser lods if they existed.");
+                                    }
+
+                                    ImGuiTableFlags const lod_table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg;
+                                    if (ImGui::BeginTable("Mesh Lod Table", 7, lod_table_flags))
+                                    {
+                                        ImGui::TableSetupColumn("Lod");
+                                        ImGui::TableSetupColumn("Triangles");
+                                        ImGui::TableSetupColumn("Tri %");
+                                        ImGui::TableSetupColumn("Meshlets");
+                                        ImGui::TableSetupColumn("Vertices");
+                                        ImGui::TableSetupColumn("Lod Error");
+                                        ImGui::TableSetupColumn("Est. Px Error");
+                                        ImGui::TableHeadersRow();
+                                        f32 const lod0_primitives = static_cast<f32>(std::max(runtime.lods[0].primitive_count, 1u));
+                                        for (u32 lod = 0; lod < runtime.lod_count; ++lod)
+                                        {
+                                            GPUMesh const & lod_mesh = runtime.lods[lod];
+                                            f32 const est_pixel_error = aabb_pixel_size * lod_mesh.lod_error;
+                                            bool const is_selected = lod == selected_lod;
+                                            if (is_selected)
+                                            {
+                                                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.85f, 0.45f, 1.0f));
+                                            }
+                                            ImGui::TableNextRow();
+                                            ImGui::TableSetColumnIndex(0);
+                                            ImGui::Text("%u%s", lod, is_selected ? " <" : "");
+                                            ImGui::TableSetColumnIndex(1);
+                                            ImGui::Text("%u", lod_mesh.primitive_count);
+                                            ImGui::TableSetColumnIndex(2);
+                                            ImGui::Text("%.1f%%", static_cast<f32>(lod_mesh.primitive_count) / lod0_primitives * 100.0f);
+                                            ImGui::TableSetColumnIndex(3);
+                                            ImGui::Text("%u", lod_mesh.meshlet_count);
+                                            ImGui::TableSetColumnIndex(4);
+                                            ImGui::Text("%u", lod_mesh.vertex_count);
+                                            ImGui::TableSetColumnIndex(5);
+                                            ImGui::Text("%.6f", lod_mesh.lod_error);
+                                            ImGui::TableSetColumnIndex(6);
+                                            if (!is_selected && est_pixel_error >= acceptable_error)
+                                            {
+                                                ImGui::TextDisabled("%.3f", est_pixel_error);
+                                            }
+                                            else
+                                            {
+                                                ImGui::Text("%.3f", est_pixel_error);
+                                            }
+                                            if (is_selected)
+                                            {
+                                                ImGui::PopStyleColor();
+                                            }
+                                        }
+                                        ImGui::EndTable();
+                                    }
+                                }
                             }
                             
                             ImGui::PopStyleColor();

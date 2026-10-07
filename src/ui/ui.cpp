@@ -581,6 +581,17 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::InputInt("override_lod", &render_data.settings.lod_override);
                 ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
                 ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
+                ImGui::Checkbox("auto lod bias", r_cast<bool *>(&render_data.settings.enable_auto_lod_bias));
+                ImGui::SetItemTooltip("Raises the lod bias when the visbuffer mesh/meshlet buffers run above the usage soft limit (sharply above 100%%), slowly lowers it again otherwise.");
+                ImGui::BeginDisabled(render_data.settings.enable_auto_lod_bias);
+                ImGui::SliderFloat("lod bias", &render_data.settings.lod_bias, 0.0f, RenderContext::AUTO_LOD_BIAS_MAX);
+                ImGui::SetItemTooltip("log2 scale on the acceptable pixel error.");
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("reset##lod_bias"))
+                {
+                    render_data.settings.lod_bias = 0.0f;
+                }
             }
             if (ImGui::CollapsingHeader("Task Graph"))
             {
@@ -621,6 +632,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
+                ImGui::SliderFloat("buffer usage soft limit", &render_data.settings.visbuffer_usage_soft_limit, 0.1f, 1.0f, "%.2f");
+                ImGui::SetItemTooltip("Relative mesh/meshlet buffer usage above which the auto lod bias starts rising.\nThe bias descends again once usage is 0.1 below this limit.");
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
@@ -1533,6 +1546,22 @@ void UIEngine::ui_visbuffer_pipeline_statistics(RenderContext & render_context)
         VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
         VisbufferPipelineStat{"First Pass Bitfield Use", "kb", meshlet_bitfield_used_size, meshlet_bitfield_total_size},
     };
+    Settings const & settings = render_context.render_data.settings;
+    f32 const soft_limit_percentage = settings.visbuffer_usage_soft_limit * 100.0f;
+    ImVec4 const LOD_BIAS_RED = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+    ImVec4 const LOD_BIAS_ORANGE = ImVec4(1.0f, 0.6f, 0.15f, 1.0f);
+    ImVec4 const LOD_BIAS_YELLOW = ImVec4(1.0f, 0.9f, 0.25f, 1.0f);
+    ImVec4 const LOD_BIAS_GREEN = ImVec4(0.4f, 0.85f, 0.45f, 1.0f);
+
+    // Short history for the lod bias / usage plots.
+    static constexpr i32 LOD_BIAS_HISTORY_SIZE = 256;
+    static std::array<f32, LOD_BIAS_HISTORY_SIZE> lod_bias_history = {};
+    static std::array<f32, LOD_BIAS_HISTORY_SIZE> usage_history = {};
+    static i32 lod_bias_history_offset = 0;
+    lod_bias_history[lod_bias_history_offset] = settings.lod_bias;
+    usage_history[lod_bias_history_offset] = render_context.lod_bias_max_usage * 100.0f;
+    lod_bias_history_offset = (lod_bias_history_offset + 1) % LOD_BIAS_HISTORY_SIZE;
+
     if (ImGui::CollapsingHeader("Visbuffer Pipeline"))
     {
         if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
@@ -1557,13 +1586,144 @@ void UIEngine::ui_visbuffer_pipeline_statistics(RenderContext & render_context)
                 ImGui::TableSetColumnIndex(2);
                 ImGui::Text("%i%s", stat.max_value, stat.unit);
                 ImGui::TableSetColumnIndex(3);
+                bool const over_soft_limit = percentage <= 100.0f && percentage > soft_limit_percentage;
+                if (over_soft_limit)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(LOD_BIAS_ORANGE));
+                }
                 ImGui::Text("%f%%", percentage);
+                if (over_soft_limit)
+                {
+                    ImGui::PopStyleColor();
+                }
                 if (percentage > 100.0f)
                 {
                     ImGui::PopStyleColor();
                 }
             }
             ImGui::EndTable();
+        }
+
+        ImGui::SeparatorText("Automatic Lod Bias");
+        {
+            using LodBiasState = RenderContext::LodBiasState;
+            f32 const usage = render_context.lod_bias_max_usage;
+
+            ImVec4 state_color = LOD_BIAS_GREEN;
+            char const * state_name = "SETTLED";
+            char const * state_tooltip = "Usage below the soft limit. The bias slowly descends.";
+            if (!settings.enable_auto_lod_bias)
+            {
+                state_color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+                state_name = "OFF";
+                state_tooltip = "Auto lod bias is disabled (Settings > Geometry).";
+            }
+            else
+            {
+                switch (render_context.lod_bias_state)
+                {
+                    case LodBiasState::SPIKE:
+                        state_color = LOD_BIAS_RED;
+                        state_name = "SPIKE";
+                        state_tooltip = "Usage exceeded 100%. The bias was raised sharply.";
+                        break;
+                    case LodBiasState::RISING:
+                        state_color = LOD_BIAS_ORANGE;
+                        state_name = "RISING";
+                        state_tooltip = "Usage above the soft limit. The bias slowly rises.";
+                        break;
+                    case LodBiasState::DECREASING:
+                        state_color = LOD_BIAS_YELLOW;
+                        state_name = "HOLDING";
+                        state_tooltip = "Usage above the soft limit but already decreasing. The bias is held.";
+                        break;
+                    default: break;
+                }
+            }
+
+            ImVec4 usage_color = LOD_BIAS_GREEN;
+            if (usage > 1.0f)
+            {
+                usage_color = LOD_BIAS_RED;
+            }
+            else if (usage > settings.visbuffer_usage_soft_limit)
+            {
+                usage_color = LOD_BIAS_ORANGE;
+            }
+
+            if (ImGui::BeginTable("Lod Bias Status", 2, ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("State");
+                ImGui::TableSetColumnIndex(1);
+                {
+                    // Colored status chip.
+                    ImVec4 const chip_bg = ImVec4(state_color.x, state_color.y, state_color.z, 0.25f);
+                    ImGui::PushStyleColor(ImGuiCol_Button, chip_bg);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, chip_bg);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, chip_bg);
+                    ImGui::PushStyleColor(ImGuiCol_Text, state_color);
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
+                    ImGui::Button(state_name, ImVec2(ImGui::CalcTextSize("HOLDING").x + ImGui::GetStyle().FramePadding.x * 4.0f, 0.0f));
+                    ImGui::PopStyleVar();
+                    ImGui::PopStyleColor(4);
+                    ImGui::SetItemTooltip("%s", state_tooltip);
+                }
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Lod Bias");
+                ImGui::TableSetColumnIndex(1);
+                {
+                    std::string const overlay = fmt::format("{:.3f}  (x{:.2f} pixel error)", settings.lod_bias, std::exp2(settings.lod_bias));
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, state_color);
+                    f32 const reset_width = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                    ImGui::ProgressBar(settings.lod_bias / RenderContext::AUTO_LOD_BIAS_MAX, ImVec2(-(reset_width + ImGui::GetStyle().ItemSpacing.x), 0.0f), overlay.c_str());
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset##lod_bias_stats"))
+                    {
+                        render_context.render_data.settings.lod_bias = 0.0f;
+                    }
+                }
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Max Buffer Usage");
+                ImGui::TableSetColumnIndex(1);
+                {
+                    std::string const overlay = fmt::format("{:.1f}%  (soft limit {:.0f}%)", usage * 100.0f, soft_limit_percentage);
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, usage_color);
+                    ImGui::ProgressBar(std::min(usage, 1.0f), ImVec2(-FLT_MIN, 0.0f), overlay.c_str());
+                    ImGui::PopStyleColor();
+                    // Soft limit marker.
+                    ImVec2 const bar_min = ImGui::GetItemRectMin();
+                    ImVec2 const bar_max = ImGui::GetItemRectMax();
+                    f32 const marker_x = bar_min.x + (bar_max.x - bar_min.x) * settings.visbuffer_usage_soft_limit;
+                    ImGui::GetWindowDrawList()->AddLine(ImVec2(marker_x, bar_min.y), ImVec2(marker_x, bar_max.y), ImGui::GetColorU32(LOD_BIAS_ORANGE), 2.0f);
+                }
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted("History");
+                ImGui::TableSetColumnIndex(1);
+                {
+                    ImGui::PushStyleColor(ImGuiCol_PlotLines, state_color);
+                    ImGui::PlotLines("##lod_bias_history", lod_bias_history.data(), LOD_BIAS_HISTORY_SIZE, lod_bias_history_offset, "lod bias", 0.0f, RenderContext::AUTO_LOD_BIAS_MAX, ImVec2(-FLT_MIN, 40.0f));
+                    ImGui::PopStyleColor();
+                    ImGui::PushStyleColor(ImGuiCol_PlotLines, usage_color);
+                    ImGui::PlotLines("##usage_history", usage_history.data(), LOD_BIAS_HISTORY_SIZE, lod_bias_history_offset, "buffer usage %", 0.0f, 100.0f, ImVec2(-FLT_MIN, 40.0f));
+                    ImGui::PopStyleColor();
+                }
+                ImGui::EndTable();
+            }
         }
     }
 }

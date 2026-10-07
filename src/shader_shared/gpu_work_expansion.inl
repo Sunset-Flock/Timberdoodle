@@ -122,7 +122,7 @@ struct PrefixSumWorkExpansionBufferHead
     #if defined(__cplusplus)
         static daxa::u32 calc_buffer_size(daxa::u32 max_expansions)
         {
-            return sizeof(PrefixSumWorkExpansionBufferHead) + sizeof(daxa_u32) * max_expansions * 3;
+            return sizeof(PrefixSumWorkExpansionBufferHead) + (sizeof(daxa_u32) * 2 + sizeof(daxa_u32vec2)) * max_expansions;
         }
 
         static auto create(
@@ -139,7 +139,7 @@ struct PrefixSumWorkExpansionBufferHead
             ret.expansions_payloads = 
                 reinterpret_cast<daxa_u32vec2*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa::u32) * 1);
             ret.expansions_expansion_factor = 
-                reinterpret_cast<daxa_u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa_u32vec2) * 2);
+                reinterpret_cast<daxa_u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * (sizeof(daxa_u32) + sizeof(daxa_u32vec2)));
             return ret;
         }
     #endif

@@ -20,6 +20,8 @@ struct WindowState
     i32 old_cursor_pos_y = {};
     i32 cursor_change_x = {};
     i32 cursor_change_y = {};
+    f32 scroll_x = {};
+    f32 scroll_y = {};
 };
 
 using Key = i32;

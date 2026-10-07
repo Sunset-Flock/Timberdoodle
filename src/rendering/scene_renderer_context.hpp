@@ -651,6 +651,20 @@ struct RenderContext
     // Data
     ReadbackValues general_readback;
 
+    // Auto lod bias state, driven by the visbuffer buffer usage readback (see update_auto_lod_bias in renderer.cpp).
+    enum struct LodBiasState
+    {
+        IDLE,       // Usage below the soft limit, bias slowly descends.
+        SPIKE,      // Usage exceeded 100%, bias was raised sharply.
+        RISING,     // Usage above the soft limit and not falling, bias slowly rises.
+        DECREASING, // Usage above the soft limit but already falling, bias held.
+    };
+    static constexpr f32 AUTO_LOD_BIAS_MAX = 8.0f;
+    LodBiasState lod_bias_state = LodBiasState::IDLE;
+    f32 lod_bias_max_usage = 0.0f;
+    f32 lod_bias_prev_max_usage = 0.0f;
+    u32 lod_bias_spike_cooldown = 0;
+
     // Prev Settings
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};

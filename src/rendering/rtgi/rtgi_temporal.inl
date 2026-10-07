@@ -39,6 +39,9 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_diffuse
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_specular_history)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, ray_impact)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, half_res_normal_roughness) // pack_normal_roughness
+// Bilinear coverage of OCCLUDER taps in the reprojection footprint (failed taps in front of the expected point),
+// read by the specular accumulate's surface-motion footprint quality (RTGI_REPROJECT_OCCLUDER_AWARE_COUNT).
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, reproject_occluder_coverage)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTemporalReprojectPush
@@ -94,6 +97,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RtgiRayCounters), ray
 // Specular fast history: .x fast brightness mean, .y fast relative variance, .z fast frame count (frames, not rays).
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, specular_fast_history_accumulated)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, specular_fast_history_history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, reproject_occluder_coverage) // written by reproject
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTemporalAccumulatePush

@@ -291,6 +291,12 @@ struct Settings
     daxa_b32 enable_prefix_sum_work_expansion;
     daxa_i32 lod_override;
     daxa_f32 lod_acceptable_pixel_error;
+    // When set, the renderer drives lod_bias from the visbuffer pipeline buffer usage readback.
+    daxa_b32 enable_auto_lod_bias;
+    // log2 scale on lod_acceptable_pixel_error (effective error = lod_acceptable_pixel_error * 2^lod_bias).
+    daxa_f32 lod_bias;
+    // Relative visbuffer mesh/meshlet buffer usage above which the auto lod bias rises.
+    daxa_f32 visbuffer_usage_soft_limit;
     daxa_i32 enable_async_compute;
     daxa_i32 enable_memory_aliasing;
     daxa_i32 enable_task_reordering;
@@ -329,6 +335,9 @@ struct Settings
           enable_prefix_sum_work_expansion{0},
           lod_override{ -1 },
           lod_acceptable_pixel_error{ 2.0f },
+          enable_auto_lod_bias{ 1 },
+          lod_bias{ 0.0f },
+          visbuffer_usage_soft_limit{ 0.8f },
           enable_async_compute{ 1 },
           enable_memory_aliasing{ 1 },
           enable_task_reordering{ 1 },

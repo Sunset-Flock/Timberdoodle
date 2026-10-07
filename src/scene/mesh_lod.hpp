@@ -40,9 +40,38 @@
 //
 // ===== Timberdoodle Mesh Lod System =====
 
+// Rough on-screen pixel size of a mesh's lod0 aabb, used to estimate lod pixel errors (rough_pixel_error = size * lod_error).
+// Keep in sync with select_lod in mesh_lod.hlsl
+inline auto estimate_lod_aabb_pixel_size(RenderGlobalData const& render_data, MeshLodGroupManifestEntry const& mesh_lod_group, RenderEntity const* r_ent) -> f32
+{
+    // Calculate perspective and size based on lod 0:
+    GPUMesh const & mesh_lod0 = mesh_lod_group.runtime->lods[0]; 
+    f32 const aabb_extent_x = glm::length(r_ent->combined_transform[0]) * mesh_lod0.aabb.size.x;
+    f32 const aabb_extent_y = glm::length(r_ent->combined_transform[1]) * mesh_lod0.aabb.size.y;
+    f32 const aabb_extent_z = glm::length(r_ent->combined_transform[2]) * mesh_lod0.aabb.size.z;
+    f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
+
+    glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh_lod0.aabb.center), 1.0f);
+    f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.main_camera.position)) - 0.5f * aabb_rough_extent);
+
+    f32 const rough_resolution = s_cast<f32>(std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y));
+
+    // Assumes a 90 fov camera for simplicity
+    f32 const fov90_distance_to_screen_ratio = 2.0f;
+    f32 const pixel_size_at_1m = fov90_distance_to_screen_ratio / rough_resolution;
+    f32 const aabb_size_at_1m = (aabb_rough_extent / aabb_rough_camera_distance);
+    return aabb_size_at_1m / pixel_size_at_1m;
+}
+
+// Lod error threshold used by select_lod, including the (auto) lod bias.
+inline auto lod_acceptable_pixel_error(RenderGlobalData const& render_data) -> f32
+{
+    return render_data.settings.lod_acceptable_pixel_error * std::exp2(render_data.settings.lod_bias);
+}
+
 // TODO: Optimize.
 // Keep in sync with select_lod in mesh_lod.hlsl
-auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry const& mesh_lod_group, usize mesh_lod_group_index, RenderEntity const* r_ent) -> u32
+inline auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry const& mesh_lod_group, usize mesh_lod_group_index, RenderEntity const* r_ent) -> u32
 {
     /// ===== Select LOD ======
     // To select the lod we use calculate an acceptable error for each mesh transformed in world position.
@@ -77,29 +106,14 @@ auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry c
     }
     else
     {
-        // Calculate perspective and size based on lod 0:
-        GPUMesh const & mesh_lod0 = mesh_lod_group.runtime->lods[0]; 
-        f32 const aabb_extent_x = glm::length(r_ent->combined_transform[0]) * mesh_lod0.aabb.size.x;
-        f32 const aabb_extent_y = glm::length(r_ent->combined_transform[1]) * mesh_lod0.aabb.size.y;
-        f32 const aabb_extent_z = glm::length(r_ent->combined_transform[2]) * mesh_lod0.aabb.size.z;
-        f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
-
-        glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh_lod0.aabb.center), 1.0f);
-        f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.main_camera.position)) - 0.5f * aabb_rough_extent);
-
-        f32 const rough_resolution = s_cast<f32>(std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y));
-
-        // Assumes a 90 fov camera for simplicity
-        f32 const fov90_distance_to_screen_ratio = 2.0f;
-        f32 const pixel_size_at_1m = fov90_distance_to_screen_ratio / rough_resolution;
-        f32 const aabb_size_at_1m = (aabb_rough_extent / aabb_rough_camera_distance);
-        f32 const rough_aabb_pixel_size = aabb_size_at_1m / pixel_size_at_1m;
+        f32 const rough_aabb_pixel_size = estimate_lod_aabb_pixel_size(render_data, mesh_lod_group, r_ent);
+        f32 const acceptable_pixel_error = lod_acceptable_pixel_error(render_data);
 
         for (u32 lod = 1; lod < mesh_lod_group.runtime->lod_count; ++lod)
         {
             GPUMesh const & mesh = mesh_lod_group.runtime->lods[lod]; 
             f32 const rough_pixel_error = rough_aabb_pixel_size * mesh.lod_error;
-            if (rough_pixel_error < render_data.settings.lod_acceptable_pixel_error)
+            if (rough_pixel_error < acceptable_pixel_error)
             {
                 selected_lod_lod = lod;
             }

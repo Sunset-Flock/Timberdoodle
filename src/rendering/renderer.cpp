@@ -1419,6 +1419,78 @@ auto Renderer::prepare_frame(
         tape_smoothed = std::bit_cast<daxa_f32vec4>(prev_smoothed * (63.0f / 64.0f) + new_value * (1.0f / 64.0f));
     }
 
+    // Auto lod bias, driven by the visbuffer pipeline buffer usage.
+    // Above the soft limit (visbuffer_usage_soft_limit) the bias slowly rises until usage settles below it again.
+    // Above 100% the bias rises sharply once, then waits for the readback latency before it may spike again.
+    // Below the hysteresis limit it slowly descends, so lods do not flicker back into overflow.
+    {
+        constexpr f32 RISE_PER_SECOND = 0.5f;
+        constexpr f32 DESCEND_PER_SECOND = 0.5f;
+        constexpr f32 SPIKE_STEP = 1.5f;
+        // A bias change shows up in the readback MAX_GPU_FRAMES_IN_FLIGHT frames later.
+        constexpr u32 SPIKE_COOLDOWN_FRAMES = MAX_GPU_FRAMES_IN_FLIGHT + 1;
+
+        auto const & rb = render_context->general_readback;
+        auto const usage = [](u32 value, u32 max_value) { return static_cast<f32>(value) / static_cast<f32>(max_value); };
+        f32 const max_usage = std::max({
+            usage(rb.first_pass_mesh_count_post_cull[0] + rb.first_pass_mesh_count_post_cull[1], MAX_MESH_INSTANCES),
+            usage(rb.second_pass_mesh_count_post_cull[0] + rb.second_pass_mesh_count_post_cull[1], MAX_MESH_INSTANCES),
+            usage(rb.first_pass_meshlet_count_pre_cull[0] + rb.first_pass_meshlet_count_pre_cull[1], WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS),
+            usage(rb.second_pass_meshlet_count_pre_cull[0] + rb.second_pass_meshlet_count_pre_cull[1], WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS),
+            usage(rb.first_pass_meshlet_count_post_cull + rb.second_pass_meshlet_count_post_cull, MAX_MESHLET_INSTANCES),
+        });
+        render_context->lod_bias_prev_max_usage = render_context->lod_bias_max_usage;
+        render_context->lod_bias_max_usage = max_usage;
+
+        auto & settings = render_context->render_data.settings;
+        f32 const soft_limit = settings.visbuffer_usage_soft_limit;
+        // Hysteresis gap below the soft limit, so the bias does not oscillate around it.
+        f32 const descend_limit = std::max(0.0f, soft_limit - 0.1f);
+        auto & state = render_context->lod_bias_state;
+        auto & cooldown = render_context->lod_bias_spike_cooldown;
+        cooldown = cooldown > 0 ? cooldown - 1 : 0;
+        if (settings.enable_auto_lod_bias)
+        {
+            using LodBiasState = RenderContext::LodBiasState;
+            if (max_usage > 1.0f && cooldown == 0)
+            {
+                settings.lod_bias += SPIKE_STEP;
+                cooldown = SPIKE_COOLDOWN_FRAMES;
+                state = LodBiasState::SPIKE;
+            }
+            else if (cooldown > 0 && state == LodBiasState::SPIKE)
+            {
+                // Hold the spike until its effect is visible in the readback.
+            }
+            else if (max_usage > soft_limit)
+            {
+                // Usage still falling from an earlier raise: hold instead of overshooting due to readback latency.
+                if (max_usage < render_context->lod_bias_prev_max_usage)
+                {
+                    state = LodBiasState::DECREASING;
+                }
+                else
+                {
+                    settings.lod_bias += RISE_PER_SECOND * delta_time;
+                    state = LodBiasState::RISING;
+                }
+            }
+            else
+            {
+                if (max_usage < descend_limit)
+                {
+                    settings.lod_bias -= DESCEND_PER_SECOND * delta_time;
+                }
+                state = LodBiasState::IDLE;
+            }
+            settings.lod_bias = std::clamp(settings.lod_bias, 0.0f, RenderContext::AUTO_LOD_BIAS_MAX);
+        }
+        else
+        {
+            state = RenderContext::LodBiasState::IDLE;
+        }
+    }
+
     if (sky_settings_changed)
     {
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name

@@ -29,6 +29,36 @@ float apply_bilinear_custom_weights_soft_normalize( float s00, float s10, float 
     // return v_acc;
 }
 
+// Occluder-aware history count carry (RTGI_REPROJECT_OCCLUDER_AWARE_COUNT).
+// A partially valid bilinear footprint has two very different causes:
+//   * EDGE: the pixel lies on a surface whose silhouette the footprint overhangs (thin foliage, edges in slow
+//     motion). The failed taps hit what was BEHIND that surface (or sky). The point itself was visible last frame
+//     and the valid taps describe it completely -> its history is genuine, keep the full count.
+//   * DISOCCLUSION: the pixel was hidden last frame. Failed taps hit the OCCLUDER, i.e. something CLOSER to the
+//     previous camera than the expected point. The valid taps are only neighbours of the revealed area ->
+//     inheriting their full count would streak, so penalize.
+// The old soft normalization penalized every partial footprint by W^0.34 PER FRAME (W = total tap weight, incl.
+// the soft normal weight), so slow-moving edges / thin geometry / curved surfaces decayed to ~4-5 samples forever,
+// and the low edge counts then diffused into the interior through the bilinear average.
+// New: fully normalized mean of the valid taps' counts, penalized only by the OCCLUDER coverage (bilinear weight of
+// failed taps that lie in front of the expected point), with the same 0.34 exponent; the max(valid tap, 4) floor
+// of the old version is kept. 0 = old soft normalization.
+#define RTGI_REPROJECT_OCCLUDER_AWARE_COUNT 1
+
+float rtgi_reproject_count_occluder_aware(float4 counts, float4 w, float occluder_coverage)
+{
+    float max_v = 0.0f;
+    max_v = max(max_v, w.x > 0.1f ? counts.x : 0.0f);
+    max_v = max(max_v, w.y > 0.1f ? counts.y : 0.0f);
+    max_v = max(max_v, w.z > 0.1f ? counts.z : 0.0f);
+    max_v = max(max_v, w.w > 0.1f ? counts.w : 0.0f);
+    const float weight_sum = dot(w, 1.0f);
+    const float normalized = weight_sum > 1e-6f ? dot(counts, w) / weight_sum : 0.0f;
+    const float SOFT_NORMALIZE_EXPONENT = 0.66f; // same strength as the old penalty, applied to occluders only
+    const float penalty = pow(saturate(1.0f - occluder_coverage), 1.0f - SOFT_NORMALIZE_EXPONENT);
+    return max(min(max_v, 4.0f), normalized * penalty);
+}
+
 // The accumulation pass re-reads history by gathering the 2x2 block whose top-left texel is
 // bilinear.origin. We store (origin + 1) because origin can be -1 at the screen edge (uv==0),
 // and origin + 1 is always >= 0, so it fits an unsigned u16x2.
@@ -145,6 +175,7 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
 
     // Calculate plane distance based occlusion and normal similarity
     float4 occlusion = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    float4 occluder_taps = float4(0.0f, 0.0f, 0.0f, 0.0f); // 1 = failed tap lying IN FRONT of the expected point (occluder)
     float4 normal_similarity = float4(1.0f, 1.0f, 1.0f, 1.0f);
     {
         const float in_screen = all(uv_prev_frame > 0.0f && uv_prev_frame < 1.0f) ? 1.0f : 0.0f;
@@ -188,6 +219,17 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
             surface_weights[1] *= depth_reprojected4[1] != 0.0f;
             surface_weights[2] *= depth_reprojected4[2] != 0.0f;
             surface_weights[3] *= depth_reprojected4[3] != 0.0f;
+
+            // Failed taps that are CLOSER to the previous camera than the expected point (by more than a couple of
+            // pixel widths) occluded it last frame -> evidence of a real disocclusion. Failed taps behind it (or sky)
+            // only mean the footprint overhangs an edge.
+            const float expected_dist = distance(previous_camera->position, expected_world_position_prev_frame);
+            const float occluder_tolerance = 2.0f * pixel_width_ws;
+            [unroll] for (uint t = 0u; t < 4u; ++t)
+            {
+                const bool failed = surface_weights[t] <= 0.0f && depth_reprojected4[t] != 0.0f;
+                occluder_taps[t] = (failed && distance(previous_camera->position, texel_ws_prev_frame[t]) < expected_dist - occluder_tolerance) ? 1.0f : 0.0f;
+            }
         }
 
         occlusion = surface_weights * in_screen;
@@ -217,7 +259,13 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     //   * this still causes the "streaking" artifacts but MUCH less so :)
     //   * its good enough to very significantly increase temporal stability :)
     //   * the streaking it causes is nearly completely hidden by the post blur :)
+    const float occluder_coverage = dot(get_bilinear_custom_weights(bilinear_filter_at_prev_pos, float4(1.0f, 1.0f, 1.0f, 1.0f)), occluder_taps);
+    push.attach.reproject_occluder_coverage.get()[halfres_pixel_index] = saturate(occluder_coverage);
+#if RTGI_REPROJECT_OCCLUDER_AWARE_COUNT
+    float reprojected_sample_count = rtgi_reproject_count_occluder_aware(samplecnt_reprojected4, sample_weights, occluder_coverage);
+#else
     float reprojected_sample_count = apply_bilinear_custom_weights_soft_normalize( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights );
+#endif
     if (any(isnan(reprojected_sample_count)))
     {
         reprojected_sample_count = {};
@@ -641,6 +689,16 @@ func rtgi_spec_apply_footprint_quality(float frames, float4 footprint_weights) -
     return frames * lerp(quality, 1.0f, 1.0f / (1.0f + frames));
 }
 
+// Occluder-aware variant (RTGI_REPROJECT_OCCLUDER_AWARE_COUNT, surface motion only): the footprint only loses
+// quality for taps that OCCLUDED the point last frame (real disocclusion), not for taps that merely overhang an edge
+// (failed taps behind the point / sky). NRD's sum-of-valid-weights quality shrinks the frames of every partial
+// footprint every moving frame, so thin glossy geometry and edges never build specular history in motion.
+func rtgi_spec_apply_occluder_footprint_quality(float frames, float occluder_coverage) -> float
+{
+    const float quality = sqrt(saturate(1.0f - occluder_coverage));
+    return frames * lerp(quality, 1.0f, 1.0f / (1.0f + frames));
+}
+
 func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface_disocclusion, float2 surface_gather_uv, float4 surface_weights, float2 half_res_size) -> RtgiSpecularAccumulation
 {
     let push = rtgi_temporal_accumulate_push;
@@ -723,7 +781,11 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
             rtgi_gather_specular_history(surface_gather_uv, tested_weights, smb_allow_catrom, smb_sample_pos, inv_size, surface_history, smb_frames, surface_fast);
             // Footprint quality from the GEOMETRIC footprint only (NRD: occlusion, not lobes). The lobe weights only
             // pick which taps contribute; folding them in here would shrink the history every moving frame.
+#if RTGI_REPROJECT_OCCLUDER_AWARE_COUNT
+            smb_frames = rtgi_spec_apply_occluder_footprint_quality(smb_frames, push.attach.reproject_occluder_coverage.get()[dtid]);
+#else
             smb_frames = rtgi_spec_apply_footprint_quality(smb_frames, surface_weights);
+#endif
         }
     }
 

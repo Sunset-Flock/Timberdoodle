@@ -33,7 +33,13 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
             push.pass,
             draw_list_type);
             
-        meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES);
+        // The second pass draw list section starts after the first pass section, both share MAX_MESHLET_INSTANCES.
+        uint draw_list_offset = 0;
+        if (push.pass == VISBUF_SECOND_PASS)
+        {
+            draw_list_offset = min(get_meshlet_draw_count(push.attach.globals, push.attach.meshlet_instances, VISBUF_FIRST_PASS, draw_list_type), MAX_MESHLET_INSTANCES);
+        }
+        meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES - draw_list_offset);
         uint blocks = round_up_div(meshlets_to_draw, MESH_SHADER_DISPATCH_BLOCK_SIZE);
 
         DispatchIndirectStruct command;

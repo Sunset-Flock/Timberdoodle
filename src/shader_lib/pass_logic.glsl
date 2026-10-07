@@ -27,7 +27,8 @@ uint get_meshlet_instance_index(
     // Due to how mesh and task shaders are dispatched (in blocks of 32 to 32 * 1024 threads),
     // all overhanding threads must be detected and discarded.
     const uint draw_list_instance_count = deref(meshlet_instances).prepass_draw_lists[draw_list_type].pass_counts[0] + deref(meshlet_instances).prepass_draw_lists[draw_list_type].pass_counts[1];
-    if (draw_list_index >= draw_list_instance_count)
+    // Draw list counts include meshlets that failed allocation and can exceed the list capacity.
+    if (draw_list_index >= draw_list_instance_count || draw_list_index >= MAX_MESHLET_INSTANCES)
     {
         return (~0u);
     }
