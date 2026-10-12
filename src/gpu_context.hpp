@@ -165,9 +165,18 @@ struct ShaderDebugDrawContext
     }
 };
 
+// GPU used by the app, chosen by device name in GPU_PREFERENCE_PATH (written by the UI, applied on the next start).
+// Missing / unknown name = DEFAULT_PHYSICAL_DEVICE_INDEX (clamped to the device count).
+inline constexpr char const * GPU_PREFERENCE_PATH = "settings/gpu.json";
+inline constexpr u32 DEFAULT_PHYSICAL_DEVICE_INDEX = 0;
+auto load_gpu_preference() -> std::string;
+void save_gpu_preference(std::string const & device_name);
+
 struct GPUContext
 {
     GPUContext(Window const & window);
+    // Physical device index the device was created from.
+    u32 physical_device_index = {};
     GPUContext(GPUContext &&) = default;
     ~GPUContext();
 

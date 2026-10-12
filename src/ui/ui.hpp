@@ -73,6 +73,11 @@ struct RenderTimesHistory
     std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_ewa = {};
     std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_mean = {};
     std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_raw = {};
+    // Smoothed standard deviation per group (us), sampled with the group series above (same indices).
+    std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_std_dev = {};
+    // Per pass (flat timing index): smoothed average and smoothed standard deviation (us), shorter window.
+    std::array<ScrollingBuffer<ImVec2, 2000>, RenderTimes::FLAT_TIMINGS_COUNT> pass_average = {};
+    std::array<ScrollingBuffer<ImVec2, 2000>, RenderTimes::FLAT_TIMINGS_COUNT> pass_std_dev = {};
     i32 mean_sample_count = {};
 };
 

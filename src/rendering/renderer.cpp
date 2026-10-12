@@ -119,6 +119,7 @@ Renderer::Renderer(
 
 Renderer::~Renderer()
 {
+    finish_shader_hotload();
     for (auto & tbuffer : buffers)
     {
         if (!tbuffer.id().is_empty())
@@ -221,6 +222,11 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_post_blur_lds_compile_info()},
         {rtgi_atrous_post_blur_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
+        {rtgi_hash_grid_query_compile_info()},
+        {rtgi_hash_grid_allocate_compile_info()},
+        {rtgi_hash_grid_scatter_compile_info()},
+        {rtgi_hash_grid_blend_compile_info()},
+        {rtgi_hash_grid_debug_compile_info()},
         {rtgi_distribute_rays_compile_info()},
         {rtgi_blend_rays_compile_info()},
         {rtgi_guide_resample_horizontal_compile_info()},
@@ -316,10 +322,8 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
     }
 }
 
-void Renderer::reload_pipelines_parallel()
+static void apply_pipeline_reload_result(GPUContext * gpu_context, daxa::PipelineReloadResult const & result)
 {
-    auto const result = gpu_context->pipeline_manager.reload_all_parallel(
-        make_pipeline_parallel_info(*thread_pool));
     if (daxa::holds_alternative<daxa::PipelineReloadError>(result))
     {
         std::cout << daxa::get<daxa::PipelineReloadError>(result).message << std::endl;
@@ -335,6 +339,35 @@ void Renderer::reload_pipelines_parallel()
             pipe.sbt_buffer = sbt_info.buffer;
         }
     }
+}
+
+void Renderer::reload_pipelines_parallel()
+{
+    finish_shader_hotload();
+    apply_pipeline_reload_result(gpu_context, gpu_context->pipeline_manager.reload_all_parallel(make_pipeline_parallel_info(*thread_pool)));
+}
+
+void Renderer::begin_shader_hotload()
+{
+    finish_shader_hotload();
+    shader_hotload_future = std::async(std::launch::async, [this]()
+    {
+        return gpu_context->pipeline_manager.reload_all_parallel(make_pipeline_parallel_info(*thread_pool));
+    });
+}
+
+void Renderer::finish_shader_hotload()
+{
+    if (!shader_hotload_future.valid())
+    {
+        return;
+    }
+    auto const result = shader_hotload_future.get();
+    if (daxa::holds_alternative<daxa::PipelineReloadSuccess>(result))
+    {
+        std::cout << "Successfully reloaded!\n";
+    }
+    apply_pipeline_reload_result(gpu_context, result);
 }
 
 void Renderer::recreate_sky_luts()
@@ -1280,25 +1313,8 @@ auto Renderer::prepare_frame(
         render_context->mesh_instance_counts = scene->cpu_mesh_instance_counts;
 
         /// THIS SHOULD BE DONE SOMEWHERE ELSE!
-        {
-            auto const reloaded_result = gpu_context->pipeline_manager.reload_all_parallel(
-                make_pipeline_parallel_info(*thread_pool));
-            if (auto reload_err = daxa::get_if<daxa::PipelineReloadError>(&reloaded_result))
-            {
-                std::cout << "Failed to reload " << reload_err->message << '\n';
-            }
-            if (auto _ = daxa::get_if<daxa::PipelineReloadSuccess>(&reloaded_result))
-            {
-                std::cout << "Successfully reloaded!\n";
-                for (auto & [name, pipe] : gpu_context->ray_tracing_pipelines)
-                {
-                    this->gpu_context->device.destroy_buffer(pipe.sbt_buffer);
-                    auto sbt_info = pipe.pipeline->create_default_sbt();
-                    pipe.sbt = sbt_info.table;
-                    pipe.sbt_buffer = sbt_info.buffer;
-                }
-            }
-        }
+        // Shader hot reload runs in the background (begin_shader_hotload at frame start), joined by
+        // finish_shader_hotload right before the first task graph execute / pipeline use.
 
         CameraInfo real_camera_info = camera_info;
         if (render_context->debug_frustum >= 0)
@@ -1339,6 +1355,7 @@ auto Renderer::prepare_frame(
 
     if (render_context->render_data.frame_index == 0)
     {
+        finish_shader_hotload();
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
         clear_select_buffers();
     }
@@ -1366,7 +1383,8 @@ auto Renderer::prepare_frame(
         render_context->render_data.rtgi_settings.post_blur_mode != render_context->prev_rtgi_settings.post_blur_mode ||
         render_context->render_data.rtgi_settings.post_blur_atrous_iterations != render_context->prev_rtgi_settings.post_blur_atrous_iterations ||
         render_context->render_data.rtgi_settings.use_repacked_ray_dispatch != render_context->prev_rtgi_settings.use_repacked_ray_dispatch ||
-        render_context->render_data.rtgi_settings.pioneer_guiding_enabled != render_context->prev_rtgi_settings.pioneer_guiding_enabled;
+        render_context->render_data.rtgi_settings.pioneer_guiding_enabled != render_context->prev_rtgi_settings.pioneer_guiding_enabled ||
+        render_context->render_data.rtgi_settings.hash_grid_enabled != render_context->prev_rtgi_settings.hash_grid_enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
@@ -1380,6 +1398,7 @@ auto Renderer::prepare_frame(
     }
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || rtgi_settings_changed || volumetrics_settings_changed)
     {
+        finish_shader_hotload();
         this->gpu_context->device.wait_idle();
         this->gpu_context->device.collect_garbage();
         gpu_context->swapchain.set_present_mode(render_context->render_data.settings.enable_vsync ? daxa::PresentMode::FIFO : daxa::PresentMode::IMMEDIATE);
@@ -1493,6 +1512,7 @@ auto Renderer::prepare_frame(
 
     if (sky_settings_changed)
     {
+        finish_shader_hotload();
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name
         if (sky_res_changed_flags.multiscattering_changed || sky_res_changed_flags.transmittance_changed)
         {

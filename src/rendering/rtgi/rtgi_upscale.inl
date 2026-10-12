@@ -29,6 +29,8 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, specular_resolv
 // Specular upscale weights: half-res filtered specular normals + roughness vs the full-res detail normal.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_normal_roughness_half_res) // pack_normal_roughness
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayCounters), ray_counters) // convergence statistics -> general readback
+// Hash grid (null when hash_grid_enabled is off): diffuse fallback for full-res pixels no half-res tap matches.
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiHashGridCell), hash_grid)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiUpscaleDiffusePush

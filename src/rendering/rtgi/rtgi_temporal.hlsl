@@ -5,6 +5,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 #include "rtgi_shared.hlsl"
+#include "rtgi_hash_grid_shared.hlsl"
 #include "shader_lib/brdf.hlsl"
 #include "shader_lib/debug.glsl"
 
@@ -148,6 +149,7 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
         push.attach.half_res_sample_count.get()[halfres_pixel_index] = rtgi_pack_sample_counts_sky();
         push.attach.specular_sample_count.get()[halfres_pixel_index] = 0.0f;
         push.attach.ray_impact.get()[halfres_pixel_index] = float2(1.0f, 1.0f);
+        push.attach.revive_cell.get()[halfres_pixel_index] = RTGI_HASH_GRID_INVALID_CELL;
     }
     else
     {
@@ -301,6 +303,29 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     // pass — which reprojects the fast-history frame count and applies the SAME penalty to it — without
     // recomputing geometry there. Penalty [0,1] is scaled to the fast field's [0,15] range for precision
     // and divided back in accumulate; accumulate then overwrites this texel with the real fast count.
+    // Hash grid revive, decided HERE so the ray demand (distribute / trace) already sees the revived history. The
+    // pixel's cell (hash grid query, last frame's grid content: the grid update runs after the accumulate) holds the
+    // temporal result of the pixels that saw this surface, also in the past, and their average history length. When
+    // that history (clamped to half the fast convergence target, so a revived pixel still takes extra rays and a wrong
+    // revive corrects itself) is longer than the pixel's own by more than one count quantization step (0.25), the
+    // pixel's history becomes the cell's: count here, color + fast history in the accumulate (revive_cell).
+    uint revive_cell = RTGI_HASH_GRID_INVALID_CELL;
+    if (rtgi_settings.hash_grid_enabled != 0 && rtgi_settings.hash_grid_disocclusion_fill != 0 && uint64_t(push.attach.hash_grid) != 0)
+    {
+        const uint cell_index = push.attach.hash_grid_pixel_cell.get()[halfres_pixel_index].x;
+        if (cell_index != RTGI_HASH_GRID_INVALID_CELL && push.attach.hash_grid[cell_index].sample_count > 0.0f)
+        {
+            const float revive_sample_count = min(min(push.attach.hash_grid[cell_index].sample_count, rtgi_history_count_cap(rtgi_settings.max_temporal_samples)),
+                0.25f * rtgi_settings.fast_convergence_samples);
+            if (revive_sample_count > reprojected_history_count + 0.25f)
+            {
+                revive_cell = cell_index;
+                reprojected_history_count = revive_sample_count;
+                parallax_penalty = 0.0f; // the revived history replaces the stretched one
+            }
+        }
+    }
+    push.attach.revive_cell.get()[halfres_pixel_index] = revive_cell;
     push.attach.half_res_sample_count.get()[halfres_pixel_index] = rtgi_pack_sample_counts(reprojected_history_count, parallax_penalty * 15.0f);
     push.attach.reproject_corner.get()[halfres_pixel_index] = rtgi_reproject_corner(bilinear_filter_at_prev_pos.origin);
     push.attach.reproject_weights.get()[halfres_pixel_index] = sample_weights;
@@ -344,6 +369,10 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
                 dot(prev_spec.rgb, float3(0.25f, 0.5f, 0.25f)));
             reprojected_luma = select(isnan(reprojected_luma), float2(0.0f, 0.0f), max(reprojected_luma, 0.0f));
         }
+    }
+    if (revive_cell != RTGI_HASH_GRID_INVALID_CELL)
+    {
+        reprojected_luma.x = max(push.attach.hash_grid[revive_cell].sh_y.w, 0.0f); // the revived history's brightness
     }
     const uint packed_normal_roughness = push.attach.half_res_normal_roughness.get()[halfres_pixel_index];
     const float NoV = saturate(dot(unpack_normal_roughness_normal(packed_normal_roughness), normalize(camera.position - pixel.position_ws)));
@@ -1062,7 +1091,14 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     // Detect disocclusion from the reprojection footprint weights (identical test to the reproject
     // pass), since the sample count no longer drops to zero on disocclusion.
     const float disocclusion_threshold = 0.025f;
-    const bool disocclusion = dot(sample_weights, 1.0f) < disocclusion_threshold;
+    const bool geometry_disocclusion = dot(sample_weights, 1.0f) < disocclusion_threshold;
+    // Hash grid revive (decided by the reproject, which also wrote the revived count as the carry count): the diffuse
+    // history (color, fast history) comes from the cell instead of the screen-space history. A revived pixel is NOT a
+    // disocclusion for the diffuse color: this frame's rays blend into the revived history normally. AO guide,
+    // perceptual radiance and specular are not in the grid and keep the geometric disocclusion test.
+    const uint revive_cell = push.attach.revive_cell.get()[dtid.xy];
+    const bool revived = revive_cell != RTGI_HASH_GRID_INVALID_CELL && uint64_t(push.attach.hash_grid) != 0;
+    const bool disocclusion = geometry_disocclusion && !revived;
     SamplerState linear_clamp_s = push.attach.globals.samplers.linear_clamp.get();
 
     // Reproject color & statistics history using the precomputed bilinear custom weights.
@@ -1133,6 +1169,17 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
             rtgi_unpack_fast_count(ffp4.w));
         reprojected_fast_frames = apply_bilinear_custom_weights( ff4[0], ff4[1], ff4[2], ff4[3], sample_weights );
         if (isnan(reprojected_fast_frames)) { reprojected_fast_frames = 0.0f; }
+    }
+    if (revived)
+    {
+        const RtgiHashGridCell cell = push.attach.hash_grid[revive_cell];
+        reprojected_diffuse = cell.sh_y;
+        reprojected_diffuse2 = cell.cocg;
+        // Full fast history: otherwise it holds stale brightness and the anti-lag (sample count > fast window) sees slow
+        // vs fast disagree and drops the revived history.
+        reprojected_fast_temporal_mean = cell.sh_y.w;
+        reprojected_fast_temporal_variance = 0.0f;
+        reprojected_fast_frames = 15.0f; // the fast counter's max (FAST_HISTORY_FRAMES is capped at 15)
     }
 
     // Fast-history age in FRAMES (not ray samples): +1 per frame, reset to 0 on disocclusion. This is the
@@ -1223,7 +1270,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
 
     const float specular_rays_shot = float(push.attach.specular_ray_count_image.get()[dtid.xy]);
     const RtgiSpecularAccumulation specular_accumulation = rtgi_temporal_accumulate_specular(
-        dtid, specular_rays_shot, disocclusion, reproject_gather_uv, sample_weights, half_res_render_target_size);
+        dtid, specular_rays_shot, geometry_disocclusion, reproject_gather_uv, sample_weights, half_res_render_target_size);
     push.attach.half_res_specular_accumulated.get()[dtid.xy] = specular_accumulation.specular;
     {
         // Convergence statistics: history length relative to the max history, per signal (every geometry pixel
@@ -1296,7 +1343,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     // disocclusion), keep it 100% — write the reprojected history straight through and add nothing.
     // rays_shot_virtual_samples is authored 0 by the blend pass for such pixels; the classic per-pixel trace always
     // shoots >= 1 ray on geometry, so this branch never triggers there.
-    if (rays_shot_virtual_samples == 0.0f && !disocclusion)
+    if (rays_shot_virtual_samples == 0.0f && !geometry_disocclusion)
     {
         // No new sample integrated this frame, so the fast history mean is unchanged — carry the fast
         // frame count as-is (don't advance confidence for a frame that added no fast observation), but
@@ -1341,6 +1388,17 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     // Determine accumulated diffuse
     float4 accumulated_diffuse = disocclusion ? new_diffuse : lerp(reprojected_diffuse, new_diffuse, blend);
     float2 accumulated_diffuse2 = disocclusion ? new_diffuse2 : lerp(reprojected_diffuse2, new_diffuse2, co_cg_blend);
+    // Hash grid revive statistics (decided by the reproject): one atomic pair per wave. The revived count is the
+    // reproject's carry count.
+    {
+        const uint wave_revived_pixels = WaveActiveCountBits(revived);
+        const uint wave_revived_samples = WaveActiveSum(revived ? uint(reproj_carry_sample_count * RTGI_REVIVE_SAMPLE_SCALE + 0.5f) : 0u);
+        if (WaveIsFirstLane() && wave_revived_pixels > 0u)
+        {
+            InterlockedAdd(push.attach.ray_counters->revived_pixels, wave_revived_pixels);
+            InterlockedAdd(push.attach.ray_counters->revived_samples, wave_revived_samples);
+        }
+    }
 
     // Guides ramp on the FAST history first (quick reaction while it fills), then switch to the normal
     // (slow) color blend once the fast-history window is full (accumulated_fast_frames >= FAST_HISTORY_FRAMES).
@@ -1348,7 +1406,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
 
     // Determine accumulated ambient occlusion guide — same blend as color so it converges and stops boiling.
     // (Previously floored at 0.033, which kept injecting 3.3% fresh noisy guide every frame forever.)
-    float accumulated_ao_guide = disocclusion ? new_ao_guide : lerp(reprojected_ao_guide, new_ao_guide, guide_blend);
+    float accumulated_ao_guide = geometry_disocclusion ? new_ao_guide : lerp(reprojected_ao_guide, new_ao_guide, guide_blend);
 
     // write_debug_image(push.attach.debug_image.get(), 0, dtid, float4(Heatmap(accumulated_sample_count * rcp(64)), 2.0f), 2);
 
@@ -1359,10 +1417,10 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     {
         new_perceptual_radiance = 0.0f;
     }
-    const float accumulated_perceptual_radiance = disocclusion ? new_perceptual_radiance : lerp(reprojected_perceptual_radiance, new_perceptual_radiance, invalid_new_perceptual_radiance ? 0.0f : guide_blend);
+    const float accumulated_perceptual_radiance = geometry_disocclusion ? new_perceptual_radiance : lerp(reprojected_perceptual_radiance, new_perceptual_radiance, invalid_new_perceptual_radiance ? 0.0f : guide_blend);
 
     // Write Textures
-    push.attach.half_res_sample_count.get()[dtid.xy] = rtgi_pack_sample_counts(accumulated_sample_count, accumulated_fast_frames); // carry + rays shot, for next frame's reproject
+    push.attach.half_res_sample_count.get()[dtid.xy] = rtgi_pack_sample_counts(accumulated_sample_count, accumulated_fast_frames); // carry (revived or reprojected) + rays shot, for next frame's reproject
     push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = accumulated_diffuse;
     push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = accumulated_diffuse2;
     push.attach.fast_temporal_history_accumulated.get()[dtid] = float2(accumulated_fast_mean, accumulated_fast_relative_variance);

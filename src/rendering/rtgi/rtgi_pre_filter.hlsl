@@ -16,6 +16,15 @@
 // Knee sharpness for the softplus path. Larger -> tighter knee, closer to the hard clamp.
 #define RTGI_FIREFLY_SOFTPLUS_SHARPNESS 8.0f
 
+// Firefly ceiling also counts the pixel's OTHER rays (same signal) as neighbors. With ray redistribution a
+// pixel can shoot many rays in one frame; those siblings are the closest possible neighborhood. The log rgb
+// of all the pixel's rays is summed once into the ceiling reference, and each ray subtracts its own
+// contribution again before it is clamped, so a ray never inflates its own ceiling and no per-ray loop over
+// the siblings is needed. Pixels with <= 1 ray are bit-identical to the ring-only ceiling.
+#define RTGI_FIREFLY_SIBLING_RAYS 1
+// Reference weight of one sibling ray (a fully surface-similar ring cell weighs 1).
+#define RTGI_FIREFLY_SIBLING_RAY_WEIGHT 1.0f
+
 // Hardcoded full-screen debug view of the pre-filtered specular detail normal + gloss
 // (view_cam_half_res_normal_roughness). Overrides any other debug draw.
 // 0 = off, 1 = detail normal (world space, n * 0.5 + 0.5), 2 = gloss (1 - roughness, grayscale).
@@ -74,6 +83,28 @@ func firefly_softplus_clamp_factor(float over, float sharpness) -> float
     const float r = log(max(over, 1e-8f));                          // log over-exposure; > 0 == over ceiling
     const float soft_min0 = -rtgi_softplus(-sharpness * r) / sharpness; // soft min(r, 0)
     return exp(soft_min0 - r);
+}
+
+// Diffuse firefly ceiling reference (log space, tolerance not yet added) from weighted log-rgb sums:
+// geometry-aware mean, tightened with the non-geometry-aware mean when `tighten` (sparse neighborhood).
+// `fallback` stands in for a mean whose weight is 0.
+func firefly_diffuse_ceiling_reference(float3 sum_geo, float weight_geo, float3 sum, float weight, float3 fallback, bool tighten) -> float3
+{
+    const float3 geo    = weight_geo > 0.0f ? sum_geo / weight_geo : fallback;
+    const float3 nongeo = weight     > 0.0f ? sum     / weight     : fallback;
+    const float3 both   = min(geo, nongeo);
+    const float3 ref_geo    = weight_geo > 0.0f ? geo    : both;
+    const float3 ref_nongeo = weight     > 0.0f ? nongeo : both;
+    return tighten ? min(ref_geo, ref_nongeo) : ref_geo;
+}
+
+// Specular twin of firefly_diffuse_ceiling_reference (geo mean falls back to the non-geo mean, then `fallback`).
+func firefly_specular_ceiling_reference(float3 sum_geo, float weight_geo, float3 sum, float weight, float3 fallback, bool tighten) -> float3
+{
+    const float3 geo    = weight_geo > 0.0f ? sum_geo / weight_geo
+                        : weight     > 0.0f ? sum / weight : fallback;
+    const float3 nongeo = weight     > 0.0f ? sum / weight : geo;
+    return tighten ? min(geo, nongeo) : geo;
 }
 
 
@@ -408,11 +439,6 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     }
 
     const float3 mean_perceptual_rgb = geo_weight_acc > 0.0f ? perceptual_rgb_acc / geo_weight_acc : float3(0.0f, 0.0f, 0.0f);
-    const float3 geo_perceptual_rgb    = ff_weight_geo > 0.0f ? ff_perceptual_rgb_sum_geo / ff_weight_geo : mean_perceptual_rgb;
-    const float3 nongeo_perceptual_rgb = ff_weight     > 0.0f ? ff_perceptual_rgb_sum     / ff_weight     : mean_perceptual_rgb;
-    const float3 fallback_perceptual_rgb = min(geo_perceptual_rgb, nongeo_perceptual_rgb);
-    const float3 firefly_perceptual_rgb_mean_geo = ff_weight_geo > 0.0f ? geo_perceptual_rgb    : fallback_perceptual_rgb;
-    const float3 firefly_perceptual_rgb_mean     = ff_weight     > 0.0f ? nongeo_perceptual_rgb : fallback_perceptual_rgb;
 
     const float  ray_shortness_mean = geo_weight_acc > 0.0f ? ray_shortness_acc / geo_weight_acc : 0.0f;
     const bool   pixel_matches_quad = center_surface_weight_acc > 0.0f;
@@ -434,11 +460,9 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
         const float EPSILON = 1e-8f;
         // Firefly ceiling reference: geometry-aware neighborhood mean, tightened with the non-geo-aware mean
         // where the sample fitness is low so a sparse (outlier-dominated) mean can't inflate the ceiling.
-        float3 perceptual_rgb_for_ceiling = firefly_perceptual_rgb_mean_geo;
-        if (neighborhood_sample_fitness_sharp < 1.0f)
-        {
-            perceptual_rgb_for_ceiling = min(perceptual_rgb_for_ceiling, firefly_perceptual_rgb_mean);
-        }
+        const bool tighten_ceiling = neighborhood_sample_fitness_sharp < 1.0f;
+        const float3 perceptual_rgb_for_ceiling = firefly_diffuse_ceiling_reference(
+            ff_perceptual_rgb_sum_geo, ff_weight_geo, ff_perceptual_rgb_sum, ff_weight, mean_perceptual_rgb, tighten_ceiling);
         // Perceptual tolerance: how far (in perceptual / log space) above the neighborhood mean a ray may
         // reach before it is clamped. It is ADDED to the mean's perceptual rgb and converted back to
         // linear. Raised by the neighborhood sample fitness (well-sampled neighborhoods admit more energy),
@@ -447,9 +471,9 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
         // blue are perceived dimmer than green, so this gives their ceilings extra headroom — a channel
         // needs proportionally more linear energy to look as bright.
         const float perceptual_tolerance = rtgi.firefly_perceptual_tolerance * (pixel_matches_quad ? 1.0f : 0.1f);
-        const float3 ceil_rgb = perceptual_to_linear(
+        const float3 base_ceil_rgb = perceptual_to_linear(
             perceptual_rgb_for_ceiling + perceptual_tolerance);
-        const float ceil_merged = dot(ceil_rgb,       RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+        const float base_ceil_merged = dot(base_ceil_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
 
         // Blend the pixel's rays directly from the ray list (directional SH radiance + CoCg averaged over the
         // rays, exactly like the old blend pass), hue-preservingly firefly-clamping EACH ray to the ceiling
@@ -463,6 +487,21 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
         float2 acc_cocg = float2(0.0f, 0.0f);
         float  energy_pre  = 0.0f;
         float  energy_post = 0.0f;
+#if RTGI_FIREFLY_SIBLING_RAYS
+        // All of the pixel's rays merged into the ceiling reference; each ray removes itself again below.
+        const bool use_siblings = do_clamp && ray_count > 1u;
+        float3 sibling_sum = float3(0.0f, 0.0f, 0.0f);
+        if (use_siblings)
+        {
+            for (uint s = 0u; s < ray_count; ++s)
+            {
+                sibling_sum += linear_to_perceptual_rgb(push.attach.ray_result[ray_offset + s].radiance, push.attach.globals.inv_exposure);
+            }
+            sibling_sum *= RTGI_FIREFLY_SIBLING_RAY_WEIGHT;
+        }
+        // Weight of the OTHER rays as seen by each ray (0 for a single ray -> ring-only ceiling).
+        const float sibling_weight = use_siblings ? float(ray_count - 1u) * RTGI_FIREFLY_SIBLING_RAY_WEIGHT : 0.0f;
+#endif
         if (ray_count > 0u)
         {
             const float inv_count = 1.0f / float(ray_count);
@@ -473,6 +512,21 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
                 float3 clamped = ray_rgb;
                 if (do_clamp)
                 {
+                    float3 ceil_rgb    = base_ceil_rgb;
+                    float  ceil_merged = base_ceil_merged;
+#if RTGI_FIREFLY_SIBLING_RAYS
+                    if (use_siblings)
+                    {
+                        const float3 others_sum = sibling_sum
+                            - linear_to_perceptual_rgb(ray_rgb, push.attach.globals.inv_exposure) * RTGI_FIREFLY_SIBLING_RAY_WEIGHT;
+                        const float3 reference = firefly_diffuse_ceiling_reference(
+                            ff_perceptual_rgb_sum_geo + others_sum, ff_weight_geo + sibling_weight,
+                            ff_perceptual_rgb_sum     + others_sum, ff_weight     + sibling_weight,
+                            mean_perceptual_rgb, tighten_ceiling);
+                        ceil_rgb    = perceptual_to_linear(reference + perceptual_tolerance);
+                        ceil_merged = dot(ceil_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+                    }
+#endif
                     const float ray_merged  = dot(ray_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
                     // Both modes scale ALL channels by one over-exposure ratio (hue-preserving); they only
                     // differ in how that ratio is derived from the per-channel ceilings:
@@ -525,18 +579,13 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
     {
         const float3 own_spec_perceptual = push.attach.specular_perceptual_rgb_hit.get()[clamped_index].rgb;
         // Only ring cells WITH specular rays count (own weights); the center pixel's own stats are the last resort.
-        const float3 spec_geo    = ff_spec_weight_geo > 0.0f ? ff_spec_sum_geo / ff_spec_weight_geo
-                                 : ff_spec_weight     > 0.0f ? ff_spec_sum / ff_spec_weight : own_spec_perceptual;
-        const float3 spec_nongeo = ff_spec_weight     > 0.0f ? ff_spec_sum     / ff_spec_weight     : spec_geo;
-        spec_mean_perceptual_rgb = spec_geo;
-        float3 spec_ceiling_perceptual = spec_geo;
-        if (spec_neighborhood_sample_fitness_sharp < 1.0f)
-        {
-            spec_ceiling_perceptual = min(spec_ceiling_perceptual, spec_nongeo);
-        }
+        spec_mean_perceptual_rgb = firefly_specular_ceiling_reference(ff_spec_sum_geo, ff_spec_weight_geo, ff_spec_sum, ff_spec_weight, own_spec_perceptual, false);
+        const bool spec_tighten_ceiling = spec_neighborhood_sample_fitness_sharp < 1.0f;
+        const float3 spec_ceiling_perceptual = firefly_specular_ceiling_reference(
+            ff_spec_sum_geo, ff_spec_weight_geo, ff_spec_sum, ff_spec_weight, own_spec_perceptual, spec_tighten_ceiling);
         const float spec_tolerance = rtgi.specular_firefly_perceptual_tolerance * (pixel_matches_quad ? 1.0f : 0.1f);
-        const float3 spec_ceil_rgb = perceptual_to_linear(spec_ceiling_perceptual + spec_tolerance);
-        const float  spec_ceil_merged = dot(spec_ceil_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+        const float3 base_spec_ceil_rgb = perceptual_to_linear(spec_ceiling_perceptual + spec_tolerance);
+        const float  base_spec_ceil_merged = dot(base_spec_ceil_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
 
         // Specular entries follow the pixel's diffuse entries in the ray list.
         const uint ray_offset = push.attach.pixel_ray_alloc.get()[clamped_index] + push.attach.ray_count_image.get()[clamped_index];
@@ -545,6 +594,20 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
         const bool ff_mono    = rtgi.specular_firefly_clamp_mode == 1;
         float spec_energy_pre = 0.0f;
         float spec_energy_post = 0.0f;
+#if RTGI_FIREFLY_SIBLING_RAYS
+        // Same sibling-ray ceiling as diffuse: merge all specular rays, each ray removes itself again.
+        const bool spec_use_siblings = do_clamp && ray_count > 1u && rtgi.specular_enabled != 0;
+        float3 spec_sibling_sum = float3(0.0f, 0.0f, 0.0f);
+        if (spec_use_siblings)
+        {
+            for (uint s = 0u; s < ray_count; ++s)
+            {
+                spec_sibling_sum += linear_to_perceptual_rgb(push.attach.ray_result[ray_offset + s].radiance, push.attach.globals.inv_exposure);
+            }
+            spec_sibling_sum *= RTGI_FIREFLY_SIBLING_RAY_WEIGHT;
+        }
+        const float spec_sibling_weight = spec_use_siblings ? float(ray_count - 1u) * RTGI_FIREFLY_SIBLING_RAY_WEIGHT : 0.0f;
+#endif
         if (ray_count > 0u && rtgi.specular_enabled != 0)
         {
             const float inv_count = 1.0f / float(ray_count);
@@ -554,6 +617,21 @@ func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_Gro
                 float3 clamped = res.radiance;
                 if (do_clamp)
                 {
+                    float3 spec_ceil_rgb    = base_spec_ceil_rgb;
+                    float  spec_ceil_merged = base_spec_ceil_merged;
+#if RTGI_FIREFLY_SIBLING_RAYS
+                    if (spec_use_siblings)
+                    {
+                        const float3 others_sum = spec_sibling_sum
+                            - linear_to_perceptual_rgb(res.radiance, push.attach.globals.inv_exposure) * RTGI_FIREFLY_SIBLING_RAY_WEIGHT;
+                        const float3 reference = firefly_specular_ceiling_reference(
+                            ff_spec_sum_geo + others_sum, ff_spec_weight_geo + spec_sibling_weight,
+                            ff_spec_sum     + others_sum, ff_spec_weight     + spec_sibling_weight,
+                            own_spec_perceptual, spec_tighten_ceiling);
+                        spec_ceil_rgb    = perceptual_to_linear(reference + spec_tolerance);
+                        spec_ceil_merged = dot(spec_ceil_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+                    }
+#endif
                     float over;
                     if (ff_mono)
                     {

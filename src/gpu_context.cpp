@@ -3,6 +3,10 @@
 #include "shader_shared/geometry.inl"
 #include "shader_shared/scene.inl"
 
+#include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
+
 #if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
 #define GLFW_NATIVE_INCLUDE_NONE
@@ -18,6 +22,22 @@ using HWND = void *;
 #if !defined(DAXA_SHADER_INCLUDE_DIR)
 #define DAXA_SHADER_INCLUDE_DIR "."
 #endif
+
+auto load_gpu_preference() -> std::string
+{
+    std::ifstream file{GPU_PREFERENCE_PATH};
+    if (!file) { return {}; }
+    auto const json = nlohmann::json::parse(file, nullptr, false);
+    if (json.is_discarded() || !json.contains("device_name") || !json["device_name"].is_string()) { return {}; }
+    return json["device_name"].get<std::string>();
+}
+
+void save_gpu_preference(std::string const & device_name)
+{
+    std::filesystem::create_directories(std::filesystem::path{GPU_PREFERENCE_PATH}.parent_path());
+    std::ofstream file{GPU_PREFERENCE_PATH};
+    file << nlohmann::json{{"device_name", device_name}}.dump(4);
+}
 
 template <typename T>
 struct _MAP_Test
@@ -43,11 +63,20 @@ GPUContext::GPUContext(Window const & window)
               device_info.max_allowed_buffers = 1u << 17u;
               device_info.max_allowed_acceleration_structures = 1u << 17u;
               device_info.name = "Timberdoodle";
-              device_info.physical_device_index = 1;
+              auto const devices = this->instance.list_devices_properties();
+              u32 device_index = std::min(DEFAULT_PHYSICAL_DEVICE_INDEX, static_cast<u32>(devices.size()) - 1u);
+              std::string const preferred = load_gpu_preference();
+              for (u32 i = 0; i < devices.size() && !preferred.empty(); ++i)
+              {
+                  if (preferred == reinterpret_cast<char const *>(devices[i].device_name)) { device_index = i; }
+              }
+              device_info.physical_device_index = device_index;
+              this->physical_device_index = device_index;
 
               //device_info = this->instance.choose_device(required_implicit, device_info);
 
-              fmt::println("Choosen GPU: {}", reinterpret_cast<char const * const>(&this->instance.list_devices_properties()[device_info.physical_device_index].device_name));
+              fmt::println("Choosen GPU: {}{}", reinterpret_cast<char const * const>(&devices[device_info.physical_device_index].device_name),
+                  preferred.empty() ? " (default)" : (" (preference: " + preferred + ")"));
 
               return this->instance.create_device_2(device_info);
           }()},

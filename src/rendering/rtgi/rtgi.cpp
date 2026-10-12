@@ -44,6 +44,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .post_blur_max_width                  = 16,
         .post_blur_atrous_iterations          = 4,
         .upscale_enabled                      = 1,
+        .upscale_wide_footprint               = 1,
         .sh_resolve_enabled                   = 1,
         .pre_blur_firefly_energy_compensation_enabled  = 1,
         .animate_noise                        = 1,
@@ -85,6 +86,12 @@ auto rtgi_default_settings() -> RtgiSettings
         .specular_firefly_clamp_mode           = 0,
         .specular_guide_concentration          = 0.92f,
         .specular_max_gloss                    = 0.9f,
+        .hash_grid_enabled                     = 1,
+        .hash_grid_cell_size_px                = 4.0f,
+        .hash_grid_min_cell_size               = 0.05f,
+        .hash_grid_max_untouched_frames        = 64,
+        .hash_grid_disocclusion_fill           = 1,
+        .hash_grid_debug_draw_cells            = 0,
     };
 }
 #include "rtgi_pre_filter.inl"
@@ -92,6 +99,7 @@ auto rtgi_default_settings() -> RtgiSettings
 #include "rtgi_temporal.inl"
 #include "rtgi_post_blur.inl"
 #include "rtgi_upscale.inl"
+#include "rtgi_hash_grid.inl"
 
 ///
 /// === Callbacks ===
@@ -300,6 +308,56 @@ inline void rtgi_guide_resample_vertical_callback(daxa::TaskInterface ti, Render
 {
     auto const & AT = RtgiGuideResampleVerticalH::Info::AT;
     dispatch_image_relative(RtgiGuideResampleVerticalPush(), ti, render_context, AT.pioneer_guide_hit_y, RTGI_GUIDE_RESAMPLE_X, RenderTimes::index<"RTGI", "GUIDE_RESAMPLE_V">(), rtgi_guide_resample_vertical_compile_info().name);
+}
+
+inline void rtgi_hash_grid_query_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiHashGridQueryH::Info::AT;
+    dispatch_image_relative(RtgiHashGridQueryPush(), ti, render_context, AT.pixel_cell, RTGI_HASH_GRID_QUERY_X, RenderTimes::index<"RTGI", "HASH_GRID_QUERY">(), rtgi_hash_grid_query_compile_info().name);
+}
+
+inline void rtgi_hash_grid_scatter_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiHashGridScatterH::Info::AT;
+    dispatch_image_relative(RtgiHashGridScatterPush(), ti, render_context, AT.pixel_cell, RTGI_HASH_GRID_QUERY_X, RenderTimes::index<"RTGI", "HASH_GRID_SCATTER">(), rtgi_hash_grid_scatter_compile_info().name);
+}
+
+// Allocate and blend: one thread per cell slot (blend: per segment, threads past the touched cell count exit).
+template <typename HeadBlob, typename Push>
+inline void rtgi_hash_grid_cell_pass_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 render_time, std::string const & pipeline_name)
+{
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time);
+    ti.recorder.set_pipeline(*(render_context->gpu_context->compute_pipelines.at(pipeline_name)));
+    Push push = {};
+    push.attach = ti.allocator->allocate_fill(HeadBlob{ti.attachment_shader_blob}).value().device_address;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({round_up_div(RTGI_HASH_GRID_CAPACITY, RTGI_HASH_GRID_CELL_PASS_X), 1, 1});
+}
+
+inline void rtgi_hash_grid_allocate_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    rtgi_hash_grid_cell_pass_callback<RtgiHashGridAllocateH::AttachmentShaderBlob, RtgiHashGridAllocatePush>(
+        ti, render_context, RenderTimes::index<"RTGI", "HASH_GRID_ALLOCATE">(), rtgi_hash_grid_allocate_compile_info().name);
+}
+
+inline void rtgi_hash_grid_blend_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    rtgi_hash_grid_cell_pass_callback<RtgiHashGridBlendH::AttachmentShaderBlob, RtgiHashGridBlendPush>(
+        ti, render_context, RenderTimes::index<"RTGI", "HASH_GRID_BLEND">(), rtgi_hash_grid_blend_compile_info().name);
+}
+
+inline void rtgi_hash_grid_debug_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    i32 const mode = render_context->render_data.settings.debug_draw_mode;
+    if (mode != DEBUG_DRAW_MODE_RTGI_HASH_GRID_CELLS &&
+        mode != DEBUG_DRAW_MODE_RTGI_HASH_GRID_RADIANCE &&
+        mode != DEBUG_DRAW_MODE_RTGI_HASH_GRID_SAMPLE_COUNT &&
+        mode != DEBUG_DRAW_MODE_RTGI_HASH_GRID_RADIANCE_JITTERED)
+    {
+        return;
+    }
+    auto const & AT = RtgiHashGridDebugH::Info::AT;
+    dispatch_image_relative(RtgiHashGridDebugPush(), ti, render_context, AT.view_cam_depth, RTGI_HASH_GRID_DEBUG_X, RenderTimes::index<"RTGI", "HASH_GRID_DEBUG">(), rtgi_hash_grid_debug_compile_info().name);
 }
 
 ///
@@ -595,6 +653,41 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 
     }
 
+    // Hash grid (rtgi_hash_grid.inl). Every geometry pixel finds / inserts its world-space cell (query only needs the
+    // half-res geometry, so it runs first; the rest of the grid passes follow the pre-blur).
+    bool const hash_grid_enabled = info.render_context.render_data.rtgi_settings.hash_grid_enabled != 0;
+    daxa::TaskBufferView hash_grid_buffer = daxa::NullTaskBuffer;
+    daxa::TaskImageView hash_grid_pixel_cell_image = daxa::NullTaskImage;
+    if (hash_grid_enabled)
+    {
+        hash_grid_buffer = info.tg.create_task_buffer({
+            .size = sizeof(RtgiHashGridCell) * RTGI_HASH_GRID_CAPACITY,
+            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+            .name = "rtgi_hash_grid_persistent",
+        });
+        hash_grid_pixel_cell_image = info.tg.create_task_image({
+            .format = daxa::Format::R32G32_UINT,
+            .size = half_res_image_size,
+            .name = "rtgi_hash_grid_pixel_cell_image",
+        });
+        info.tg.add_task(daxa::HeadTask<RtgiHashGridQueryH::Info>()
+            .head_views(RtgiHashGridQueryH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
+                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .hash_grid = hash_grid_buffer,
+                .pixel_cell = hash_grid_pixel_cell_image,
+            })
+            .executes(rtgi_hash_grid_query_callback, &info.render_context));
+    }
+
+    // Hash grid revive decision of the reproject (cell index or RTGI_HASH_GRID_INVALID_CELL), read by the accumulate.
+    auto revive_cell_image = info.tg.create_task_image({
+        .format = daxa::Format::R32_UINT,
+        .size = half_res_image_size,
+        .name = "rtgi_revive_cell_image",
+    });
+
     info.tg.add_task(daxa::HeadTask<RtgiTemporalReprojectH::Info>()
         .head_views(RtgiTemporalReprojectH::Info::Views{
             .globals = info.render_context.tgpu_render_data.view(),
@@ -616,6 +709,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .ray_impact = ray_impact_image,
             .half_res_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
             .reproject_occluder_coverage = reproject_occluder_coverage_image,
+            .hash_grid = hash_grid_buffer,
+            .hash_grid_pixel_cell = hash_grid_pixel_cell_image,
+            .revive_cell = revive_cell_image,
         })
         .executes(rtgi_temporal_reproject_callback, &info.render_context));
 
@@ -904,8 +1000,75 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .specular_fast_history_accumulated = specular_fast_history.current(),
             .specular_fast_history_history = specular_fast_history.previous(),
             .reproject_occluder_coverage = reproject_occluder_coverage_image,
+            .hash_grid = hash_grid_buffer,
+            .revive_cell = revive_cell_image,
         })
         .executes(rtgi_temporal_accumulate_callback, &info.render_context));
+
+    // Hash grid update, POST temporal (the query ran before the reproject): allocate -> scatter -> blend. Each touched
+    // cell gets a segment of the per-frame pixel list and is SET to the mean of its pixels' temporally accumulated
+    // diffuse (no accumulation in the grid); untouched cells keep their value for hash_grid_max_untouched_frames.
+    // The accumulate's disocclusion fill reads the cells before this update (last frame's state); the upscale
+    // fallback reads them after.
+    if (hash_grid_enabled)
+    {
+        auto hash_grid_list_header = info.tg.create_task_buffer({
+            .size = sizeof(RtgiHashGridListHeader),
+            .name = "rtgi_hash_grid_list_header",
+        });
+        auto hash_grid_segment_cells = info.tg.create_task_buffer({
+            .size = sizeof(u32) * RTGI_HASH_GRID_CAPACITY,
+            .name = "rtgi_hash_grid_segment_cells",
+        });
+        // At most one entry per half-res pixel: every queried pixel is counted into exactly one cell.
+        auto hash_grid_pixel_list = info.tg.create_task_buffer({
+            .size = sizeof(u32) * half_res_pixels,
+            .name = "rtgi_hash_grid_pixel_list",
+        });
+        info.tg.clear_buffer({.buffer = hash_grid_list_header, .name = "rtgi_hash_grid_list_header_clear"});
+
+        info.tg.add_task(daxa::HeadTask<RtgiHashGridAllocateH::Info>()
+            .head_views(RtgiHashGridAllocateH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .hash_grid = hash_grid_buffer,
+                .list_header = hash_grid_list_header,
+                .segment_cells = hash_grid_segment_cells,
+            })
+            .executes(rtgi_hash_grid_allocate_callback, &info.render_context));
+
+        info.tg.add_task(daxa::HeadTask<RtgiHashGridScatterH::Info>()
+            .head_views(RtgiHashGridScatterH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .pixel_cell = hash_grid_pixel_cell_image,
+                .hash_grid = hash_grid_buffer,
+                .pixel_list = hash_grid_pixel_list,
+            })
+            .executes(rtgi_hash_grid_scatter_callback, &info.render_context));
+
+        info.tg.add_task(daxa::HeadTask<RtgiHashGridBlendH::Info>()
+            .head_views(RtgiHashGridBlendH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .diffuse = half_res_diffuse_history.current(),
+                .diffuse2 = half_res_diffuse2_history.current(),
+                .sample_count = half_res_sample_count_history.current(),
+                .hash_grid = hash_grid_buffer,
+                .list_header = hash_grid_list_header,
+                .segment_cells = hash_grid_segment_cells,
+                .pixel_list = hash_grid_pixel_list,
+            })
+            .executes(rtgi_hash_grid_blend_callback, &info.render_context));
+
+        info.tg.add_task(daxa::HeadTask<RtgiHashGridDebugH::Info>()
+            .head_views(RtgiHashGridDebugH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .debug_image = info.debug_image,
+                .view_cam_depth = info.view_cam_depth,
+                .view_cam_face_normals = info.view_cam_face_normals,
+                .view_camera_detail_normal_image = info.view_camera_detail_normal_image,
+                .hash_grid = hash_grid_buffer,
+            })
+            .executes(rtgi_hash_grid_debug_callback, &info.render_context));
+    }
 
     auto rtgi_post_blur_diffuse_image = half_res_diffuse_history.current();
     auto rtgi_post_blur_diffuse2_image = half_res_diffuse2_history.current();
@@ -1039,6 +1202,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .specular_resolved = resolved_per_pixel_specular,
                 .specular_normal_roughness_half_res = info.view_cam_half_res_normal_roughness.current(),
                 .ray_counters = ray_counters_buffer,
+                .hash_grid = hash_grid_buffer,
             })
             .executes(rtgi_upscale_diffuse_callback, &info.render_context));
 

@@ -6,6 +6,8 @@
 #include "shader_lib/misc.hlsl"
 #include "shader_lib/pack_unpack.hlsl"
 #include "rtgi_shared.hlsl"
+#include "rtgi_hash_grid_shared.hlsl"
+#include "shader_lib/debug.glsl"
 
 [[vk::push_constant]] RtgiUpscaleDiffusePush rtgi_upscale_diffuse_push;
 
@@ -15,6 +17,17 @@
 // Blends in linearly below RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK_WEIGHT (tent weights sum to 1 for a full match).
 #define RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK 1
 #define RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK_WEIGHT 0.1f
+
+// Experimental (settings.upscale_wide_footprint): use the whole 3x3 half-res footprint. The default tent (5/16, 10/16, 1/16 per axis) gives the far
+// side taps almost no weight, so effectively only ~2x2 half-res texels reconstruct a full-res pixel. With this on, the
+// per-axis weights are a Gaussian (sigma RTGI_UPSCALE_WIDE_FOOTPRINT_SIGMA half-res px) of the true distance from the
+// full-res pixel center to each tap center (0.25 / 0.75 / 1.25), normalized to sum 1 -> all 9 taps contribute, more
+// chances to find a matching surface. Still sums to 1, so confidence / fallback thresholds keep their meaning.
+#define RTGI_UPSCALE_WIDE_FOOTPRINT_SIGMA 1.0f
+
+// Diffuse hash grid fallback: below this matched tap weight sum (tent weights sum to 1 for a full match) the diffuse
+// blends linearly towards the pixel's own hash grid cell, fully the cell at no match.
+#define RTGI_UPSCALE_HASH_GRID_FALLBACK_WEIGHT 0.1f
 
 #define GS_PRELOAD_WIDTH (RTGI_UPSCALE_DIFFUSE_X/2+2)
 groupshared float4 gs_half_diffuse_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
@@ -38,6 +51,8 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         push.attach.globals.readback.rtgi_convergence_diffuse_sum = push.attach.ray_counters->convergence_diffuse_sum;
         push.attach.globals.readback.rtgi_convergence_specular_sum = push.attach.ray_counters->convergence_specular_sum;
         push.attach.globals.readback.rtgi_convergence_pixels = push.attach.ray_counters->convergence_pixels;
+        push.attach.globals.readback.rtgi_revived_pixels = push.attach.ray_counters->revived_pixels;
+        push.attach.globals.readback.rtgi_revived_samples = push.attach.ray_counters->revived_samples;
         for (uint b = 0u; b < RTGI_CONVERGENCE_BUCKETS; ++b)
         {
             push.attach.globals.readback.rtgi_convergence_histogram_diffuse[b] = push.attach.ray_counters->convergence_histogram_diffuse[b];
@@ -126,8 +141,16 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // As each pixel is only half the size of a rtgi diffuse pixel, each rtgi diffuse pixel holds exactly 4 screen pixels.
         // We calculate the position of our screen pixel within the rtgi diffuse pixel to get a better sample weighting.
         const uint2 rtgi_subpixel_index = (full_res_pixel_index & 0x1);
-        const float3 tent_weights_x = rtgi_subpixel_index.x == 0 ? TENT_WEIGHTS_LEFT_3 : TENT_WEIGHTS_LEFT_3.zyx;
-        const float3 tent_weights_y = rtgi_subpixel_index.y == 0 ? TENT_WEIGHTS_LEFT_3 : TENT_WEIGHTS_LEFT_3.zyx;
+        float3 weights_left = TENT_WEIGHTS_LEFT_3;
+        if (rtgi_settings.upscale_wide_footprint != 0)
+        {
+            // Distance (half-res px) from a left/top sub-pixel center to the taps at offset -1, 0, +1.
+            static const float3 WIDE_TAP_DISTANCES_LEFT = float3(0.75f, 0.25f, 1.25f);
+            const float3 wide_weights_unnormalized = exp(-square(WIDE_TAP_DISTANCES_LEFT) / (2.0f * square(RTGI_UPSCALE_WIDE_FOOTPRINT_SIGMA)));
+            weights_left = wide_weights_unnormalized / dot(wide_weights_unnormalized, float3(1.0f, 1.0f, 1.0f));
+        }
+        const float3 tent_weights_x = rtgi_subpixel_index.x == 0 ? weights_left : weights_left.zyx;
+        const float3 tent_weights_y = rtgi_subpixel_index.y == 0 ? weights_left : weights_left.zyx;
         float4 acc_diffuse = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 acc_diffuse2 = float2( 0.0f, 0.0f );
         float4 acc_specular = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -215,6 +238,22 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             upscaled_cocg = fallback_acc_diffuse2 * rcp(fallback_acc_weight + 0.0000001f);
             upscaled_specular = fallback_acc_specular * rcp(fallback_acc_weight + 0.0000001f);
         }
+        // Diffuse hash grid fallback: weakly matched pixels (matched weight below RTGI_UPSCALE_HASH_GRID_FALLBACK_WEIGHT)
+        // blend towards the hash grid cell at their own full-res position (same key math as the half-res query, no
+        // insert); unmatched pixels take the cell fully instead of the lenient weights. Specular is not in the grid.
+        const float grid_trust = saturate(acc_weight / RTGI_UPSCALE_HASH_GRID_FALLBACK_WEIGHT);
+        if (grid_trust < 1.0f && rtgi_settings.upscale_enabled && rtgi_settings.hash_grid_enabled != 0 && uint64_t(push.attach.hash_grid) != 0)
+        {
+            const float3 grid_position_ws = linear_depth_to_world_space(*camera, ndc.xy, camera.near_plane / pixel_depth); // infinite reversed-Z
+            const RtgiHashGridKey key = rtgi_hash_grid_make_key(grid_position_ws, pixel_face_normal, camera.position,
+                rtgi_hash_grid_pixel_width_per_distance(inv_half_res_render_target_size.y), rtgi_settings);
+            const uint cell_index = rtgi_hash_grid_find(push.attach.hash_grid, key);
+            if (cell_index != RTGI_HASH_GRID_INVALID_CELL && push.attach.hash_grid[cell_index].sample_count > 0.0f)
+            {
+                upscaled_sh_y = lerp(push.attach.hash_grid[cell_index].sh_y, upscaled_sh_y, grid_trust);
+                upscaled_cocg = lerp(push.attach.hash_grid[cell_index].cocg, upscaled_cocg, grid_trust);
+            }
+        }
 
         if (!rtgi_settings.upscale_enabled)
         {
@@ -230,11 +269,11 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             upscaled_specular = acc_specular_detail * rcp(acc_specular_detail_weight);
         }
         float3 specular_radiance = upscaled_specular.rgb;
+        // Total weight of the taps the specular result was built from (detail weights when they are in use).
+        const float specular_total_weight = rtgi_settings.specular_upscale_detail_weighting != 0 ? acc_specular_detail_weight : acc_weight;
 #if RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK
         if (rtgi_settings.upscale_enabled && lenient_acc_weight > 1e-6f)
         {
-            // Total weight of the taps the specular result was built from (detail weights when they are in use).
-            const float specular_total_weight = rtgi_settings.specular_upscale_detail_weighting != 0 ? acc_specular_detail_weight : acc_weight;
             const float specular_trust = saturate(specular_total_weight / RTGI_UPSCALE_SPECULAR_LENIENT_FALLBACK_WEIGHT);
             if (specular_trust < 1.0f)
             {

@@ -23,7 +23,7 @@ namespace RenderTimes
 {
     static constexpr inline u32 INVALID_RENDER_TIME_INDEX = ~0u;
 
-    static constexpr inline u32 GROUP_SIZE_MAX = 26;
+    static constexpr inline u32 GROUP_SIZE_MAX = 30;
     static constexpr inline u32 GROUP_COUNT_MAX = 16;
     using TimingName = std::string_view;
     struct GroupNames
@@ -102,6 +102,11 @@ namespace RenderTimes
                 "PRE_BLUR1",
                 "PRE_BLUR2",
                 "PRE_BLUR3",
+                "HASH_GRID_QUERY",
+                "HASH_GRID_ALLOCATE",
+                "HASH_GRID_SCATTER",
+                "HASH_GRID_BLEND",
+                "HASH_GRID_DEBUG",
                 "TEMPORAL_ACCUMULATION",
                 "POST_BLUR_VERTICAL",
                 "POST_BLUR_HORIZONTAL",

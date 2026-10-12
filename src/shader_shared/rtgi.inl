@@ -59,6 +59,8 @@ struct RtgiSettings
     daxa_i32 post_blur_max_width;
     daxa_i32 post_blur_atrous_iterations;
     daxa_i32 upscale_enabled;
+    // 1 = upscale weights all 9 half-res taps of the 3x3 footprint (distance Gaussian), 0 = classic tent (~2x2).
+    daxa_i32 upscale_wide_footprint;
     daxa_i32 sh_resolve_enabled;
     daxa_i32 pre_blur_firefly_energy_compensation_enabled;
     daxa_i32 animate_noise;
@@ -170,6 +172,47 @@ struct RtgiSettings
     daxa_f32 specular_guide_concentration;               // pioneer guide lobe sharpness for rough specular rays
     // Max gloss (1 - roughness) of any material, applied in evaluate_material after upward gloss.
     daxa_f32 specular_max_gloss;
+
+    // == Hash grid =========================================================================================
+    // World-space cascaded hash grid of diffuse radiance (SH-Y + CoCg), set from the temporally accumulated diffuse
+    // after the temporal accumulation (rtgi_hash_grid.hlsl). Graph shape setting (rebuild trigger).
+    daxa_i32 hash_grid_enabled;
+    // Target cell edge length in half-res pixels at the cell's distance; the cascade level is this rounded UP to
+    // a power of two multiple of hash_grid_min_cell_size, so cells cover this many to twice this many pixels.
+    daxa_f32 hash_grid_cell_size_px;
+    daxa_f32 hash_grid_min_cell_size; // world units, cell size of cascade 0
+    // A cell no pixel queried for more than this many frames in a row is freed.
+    daxa_i32 hash_grid_max_untouched_frames;
+    // Temporal accumulate revive: every pixel reads its own (unjittered) hash grid cell and re-initializes its temporal
+    // state from it whenever the cell's history is longer than its own. Needs hash_grid_enabled. Not graph shape.
+    daxa_i32 hash_grid_disocclusion_fill;
+    // Debug: the query pass draws the world-space AABB of every cell queried this frame (debug line draws).
+    daxa_i32 hash_grid_debug_draw_cells;
+};
+
+// == Hash grid ==============================================================================================
+// Open addressing, linear probing over RTGI_HASH_GRID_MAX_PROBES slots. Must stay a power of two.
+#define RTGI_HASH_GRID_CAPACITY (1u << 20u)
+#define RTGI_HASH_GRID_MAX_PROBES 16
+#define RTGI_HASH_GRID_MAX_LEVEL 15
+#define RTGI_HASH_GRID_INVALID_CELL 0xFFFFFFFFu
+
+struct RtgiHashGridCell
+{
+    daxa_f32vec4 sh_y;              // accumulated diffuse SH-Y (dir * y in .xyz, y in .w), RTGI_RADIANCE_SCALE scaled
+    daxa_f32vec2 cocg;
+    daxa_f32 sample_count;          // average temporal sample count of the cell's pixels when written; > 0 == holds data
+    daxa_u32 frames_untouched;      // frames in a row without a query; freed past hash_grid_max_untouched_frames
+    daxa_u32 key;                   // checksum of the cell key, 0 == empty slot
+    daxa_u32 pixel_count;           // pixels that queried this cell this frame (atomic in query), reset by the blend pass
+    daxa_u32 list_offset;           // start of this frame's pixel list segment in the pixel list (allocate pass)
+};
+
+// Per-frame pixel list allocation. One fused 64 bit atomic does both 32 bit adds at once (like the prefix sum work
+// expansion): high 32 bits = touched cell (segment) count, low 32 bits = pixel list offset (prefix sum of pixel_count).
+struct RtgiHashGridListHeader
+{
+    daxa_u64 merged_segment_count_pixel_offset;
 };
 
 struct RtgiRayCounters
@@ -191,10 +234,15 @@ struct RtgiRayCounters
     // History length distribution: geometry pixels per bucket of min(history / max history, 1), 16 equal buckets.
     daxa_u32 convergence_histogram_diffuse[16];
     daxa_u32 convergence_histogram_specular[16];
+    // Hash grid revive statistics (accumulate): revived pixels and the sum of their written sample counts in
+    // 1/RTGI_REVIVE_SAMPLE_SCALE fixed point; copied to the general readback by the upscale.
+    daxa_u32 revived_pixels;
+    daxa_u32 revived_samples;
     daxa_u32 pad0;
 };
 #define RTGI_CONVERGENCE_SCALE 1024
 #define RTGI_CONVERGENCE_BUCKETS 16
+#define RTGI_REVIVE_SAMPLE_SCALE 4 // sample counts are stored in 0.25 steps
 
 // One entry in the flat ray list built by the allocate pass.
 struct RtgiRayEntry

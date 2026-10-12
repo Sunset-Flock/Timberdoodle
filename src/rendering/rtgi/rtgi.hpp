@@ -98,6 +98,11 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_compile_info, "./src/rendering/rtgi/rtg
 MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_lds_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur_lds")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_atrous_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_atrous_post_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_query_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_query")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_allocate_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_allocate")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_scatter_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_scatter")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_blend_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_blend")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_debug_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_debug")
 
 struct TasksRtgiInfo
 {

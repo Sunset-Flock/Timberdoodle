@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <future>
 #include <daxa/utils/imgui.hpp>
 #include "../multithreading/thread_pool.hpp"
 
@@ -24,6 +25,11 @@ struct Renderer
 
     void compile_pipelines(ThreadPool & thread_pool);
     void reload_pipelines_parallel();
+    // Shader hot reload, overlapped with the non-shader CPU work of a frame: begin kicks off the source change check
+    // (and any recompile) on a background thread; finish waits for it and applies the result (SBT rebuild). finish
+    // MUST run before anything executes a task graph or touches pipelines; it is a no-op when nothing is in flight.
+    void begin_shader_hotload();
+    void finish_shader_hotload();
     void recreate_framebuffer();
     void clear_select_buffers();
     void window_resized();
@@ -41,6 +47,7 @@ struct Renderer
     void readback_statistics(daxa::TaskGraph & tg);
 
     ThreadPool * thread_pool = nullptr;
+    std::future<daxa::PipelineReloadResult> shader_hotload_future = {};
 
     daxa::ImageId stbn2d = {};
     daxa::ImageId stbnCosDir = {};

@@ -42,6 +42,11 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, half_res_normal_roug
 // Bilinear coverage of OCCLUDER taps in the reprojection footprint (failed taps in front of the expected point),
 // read by the specular accumulate's surface-motion footprint quality (RTGI_REPROJECT_OCCLUDER_AWARE_COUNT).
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, reproject_occluder_coverage)
+// Hash grid revive (null buffer / unused when the grid is off): the pixel's cell from the hash grid query decides the
+// revive BEFORE rays are distributed; revive_cell = that cell index when revived, RTGI_HASH_GRID_INVALID_CELL otherwise.
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiHashGridCell), hash_grid)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec2>, hash_grid_pixel_cell)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, revive_cell)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTemporalReprojectPush
@@ -98,6 +103,9 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RtgiRayCounters), ray
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, specular_fast_history_accumulated)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, specular_fast_history_history)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, reproject_occluder_coverage) // written by reproject
+// Hash grid (null when hash_grid_enabled is off) + the reproject's revive decision (cell index or INVALID).
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiHashGridCell), hash_grid)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, revive_cell)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTemporalAccumulatePush

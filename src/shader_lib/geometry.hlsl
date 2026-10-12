@@ -72,9 +72,27 @@ void geom_compute_uv_tangent(float3 tri_vert_positions[3], float2 tri_vert_uvs[3
     float3 d_p2 = tri_vert_positions[2].xyz - tri_vert_positions[0].xyz;
     float2 d_uv1 = tri_vert_uvs[1] - tri_vert_uvs[0];
     float2 d_uv2 = tri_vert_uvs[2] - tri_vert_uvs[0];
-    float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv1.y * d_uv2.x);
-    ret_tangent = normalize((d_p1 * d_uv2.y - d_p2 * d_uv1.y) * r);
-    ret_bitangent = normalize((d_p2 * d_uv1.x - d_p1 * d_uv2.x) * r);
+    float det = d_uv1.x * d_uv2.y - d_uv1.y * d_uv2.x;
+    // Only the sign of 1/det matters (normalized afterwards); dividing by a zero-area uv triangle gave inf/NaN tangents
+    // -> NaN mapped normals -> black shading.
+    float s = det < 0.0f ? -1.0f : 1.0f;
+    float3 t = (d_p1 * d_uv2.y - d_p2 * d_uv1.y) * s;
+    float3 b = (d_p2 * d_uv1.x - d_p1 * d_uv2.x) * s;
+    float uv_scale = dot(d_uv1, d_uv1) + dot(d_uv2, d_uv2);
+    float3 face_n = cross(d_p1, d_p2);
+    // Degenerate uv triangle (zero area or collinear uvs): fall back to an arbitrary but orthonormal frame.
+    if (abs(det) <= 1e-7f * uv_scale || dot(t, t) < 1e-30f || dot(b, b) < 1e-30f)
+    {
+        t = dot(d_p1, d_p1) > 1e-30f ? d_p1 : d_p2;
+        b = cross(face_n, t);
+        if (dot(b, b) < 1e-30f)
+        {
+            t = float3(1.0f, 0.0f, 0.0f);
+            b = float3(0.0f, 1.0f, 0.0f);
+        }
+    }
+    ret_tangent = normalize(t);
+    ret_bitangent = normalize(b);
 }
 
 float3 geom_compute_arb_tangent(float3 tri_vert_positions[3])

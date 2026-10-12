@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include <array>
+#include <limits>
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
 #include "../shader_shared/gpu_work_expansion.inl"
@@ -80,6 +81,10 @@ namespace
         "RTGI_DIFFUSE_TEMPORAL_REACTIVITY",
         "RTGI_SPECULAR_TEMPORAL_REACTIVITY",
         "RTGI_SPECULAR_VIRTUAL_AMOUNT",
+        "RTGI_HASH_GRID_CELLS",
+        "RTGI_HASH_GRID_RADIANCE",
+        "RTGI_HASH_GRID_SAMPLE_COUNT",
+        "RTGI_HASH_GRID_RADIANCE_JITTERED",
     };
 
     static_assert(DEBUG_DRAW_MODE_NAMES.back() != nullptr, "DEBUG_DRAW_MODE_NAMES is missing entries for DEBUG_DRAW_MODE_COUNT");
@@ -454,6 +459,34 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
             ImGui::Checkbox("enable vsync", r_cast<bool *>(&render_data.settings.enable_vsync));
+            {
+                // GPU selection: saved to GPU_PREFERENCE_PATH, applied on the next start.
+                static std::string pending = load_gpu_preference();
+                auto const devices = gpu_context->instance.list_devices_properties();
+                auto device_name = [&](u32 i) { return std::string(reinterpret_cast<char const *>(devices[i].device_name)); };
+                std::string const current = device_name(gpu_context->physical_device_index);
+                std::string const shown = pending.empty() ? current : pending;
+                if (ImGui::BeginCombo("GPU (next restart)", shown.c_str()))
+                {
+                    for (u32 i = 0; i < devices.size(); ++i)
+                    {
+                        std::string const name = device_name(i);
+                        bool const selected = name == shown;
+                        if (ImGui::Selectable(fmt::format("{}{}##gpu{}", name, i == gpu_context->physical_device_index ? "  (running)" : "", i).c_str(), selected))
+                        {
+                            pending = name;
+                            save_gpu_preference(name);
+                        }
+                        if (selected) { ImGui::SetItemDefaultFocus(); }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SetItemTooltip("Running on: %s. The choice is saved to %s and used when the app starts next.", current.c_str(), GPU_PREFERENCE_PATH);
+                if (!pending.empty() && pending != current)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Restart to switch to %s", pending.c_str());
+                }
+            }
             std::array<char const * const, 2> aa_modes = {
                 "NONE",
                 "SUPER_SAMPLE",
@@ -722,6 +755,10 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     DEBUG_DRAW_MODE_RTGI_DIFFUSE_TEMPORAL_REACTIVITY,
                     DEBUG_DRAW_MODE_RTGI_SPECULAR_TEMPORAL_REACTIVITY,
                     DEBUG_DRAW_MODE_RTGI_SPECULAR_VIRTUAL_AMOUNT,
+                    DEBUG_DRAW_MODE_RTGI_HASH_GRID_CELLS,
+                    DEBUG_DRAW_MODE_RTGI_HASH_GRID_RADIANCE,
+                    DEBUG_DRAW_MODE_RTGI_HASH_GRID_SAMPLE_COUNT,
+                    DEBUG_DRAW_MODE_RTGI_HASH_GRID_RADIANCE_JITTERED,
                     DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
                     DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
                     DEBUG_DRAW_MODE_AO,
@@ -854,6 +891,11 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 if (rtgi_section("Temporal", {
                         RenderTimes::index<"RTGI", "TEMPORAL_REPROJECT">(),
                         RenderTimes::index<"RTGI", "TEMPORAL_ACCUMULATION">(),
+                        RenderTimes::index<"RTGI", "HASH_GRID_QUERY">(),
+                        RenderTimes::index<"RTGI", "HASH_GRID_ALLOCATE">(),
+                        RenderTimes::index<"RTGI", "HASH_GRID_SCATTER">(),
+                        RenderTimes::index<"RTGI", "HASH_GRID_BLEND">(),
+                        RenderTimes::index<"RTGI", "HASH_GRID_DEBUG">(),
                     }))
                 {
                     rtgi_sub_begin("General");
@@ -886,6 +928,22 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SetItemTooltip("Fetch specular history with a 12-tap Catmull-Rom (sharper under motion) where the full footprint is valid; bilinear otherwise.");
                     ImGui::SliderFloat("Reprojection Disagreement Strength", &render_data.rtgi_settings.specular_reprojection_disagreement_strength, 0.0f, 4.0f);
                     ImGui::SetItemTooltip("Shortens the specular history where surface and virtual motion reprojection disagree (in stops).");
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Hash Grid");
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.hash_grid_enabled));
+                    ImGui::SetItemTooltip("World-space cascaded hash grid of diffuse radiance. Fallback only: disocclusion fill and failed upscale taps.");
+                    ImGui::BeginDisabled(render_data.rtgi_settings.hash_grid_enabled == 0);
+                    ImGui::Checkbox("Hash Grid Revive", reinterpret_cast<bool *>(&render_data.rtgi_settings.hash_grid_disocclusion_fill));
+                    ImGui::SetItemTooltip("Temporal accumulate: every pixel reads its hash grid cell and re-initializes its temporal history from it (color, the cell's average sample count, fast history) whenever the cell's history is longer than its own.");
+                    ImGui::EndDisabled();
+                    ImGui::SliderFloat("Cell Size (px)", &render_data.rtgi_settings.hash_grid_cell_size_px, 1.0f, 64.0f);
+                    ImGui::SetItemTooltip("Target cell edge in half-res pixels. Rounded up to the next cascade level (power of two).");
+                    ImGui::SliderFloat("Min Cell Size (m)", &render_data.rtgi_settings.hash_grid_min_cell_size, 0.005f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Cell size of cascade 0. Changing cell sizes orphans all cells (they age out).");
+                    ImGui::SliderInt("Max Untouched Frames", &render_data.rtgi_settings.hash_grid_max_untouched_frames, 1, 256);
+                    ImGui::SetItemTooltip("Cells no pixel queried for this many frames in a row are freed.");
+                    ImGui::Checkbox("Draw Cell AABBs", reinterpret_cast<bool *>(&render_data.rtgi_settings.hash_grid_debug_draw_cells));
+                    ImGui::SetItemTooltip("Draw the world-space box of every cell queried this frame, colored per cell. Cells of different normal buckets share a box. Capped by the debug AABB draw capacity.");
                     rtgi_sub_end();
                     ImGui::TreePop();
                 }
@@ -938,6 +996,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 {
                     rtgi_sub_begin("General");
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
+                    ImGui::Checkbox("Wide 3x3 Footprint", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_wide_footprint));
+                    ImGui::SetItemTooltip("Weight all 9 half-res taps by a Gaussian of their distance to the full-res pixel. Off = classic tent, far-side taps get ~nothing (~2x2 footprint).");
                     rtgi_sub_end();
                     rtgi_sub_begin("Diffuse");
                     ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
@@ -1849,29 +1909,50 @@ void ui_rtgi_statistics(RenderContext & render_context)
                 {
                     constexpr f32 plot_height = 200.0f;
                     ImGui::TableNextColumn();
-                    if (ImPlot::BeginPlot("Rays / half-res px##rtgi_ray_blocks", ImVec2(-1.0f, plot_height), ImPlotFlags_NoMouseText))
+                    if (ImPlot::BeginPlot("Samples / half-res px##rtgi_ray_blocks", ImVec2(-1.0f, plot_height), ImPlotFlags_NoMouseText))
                     {
                         // Series = signal (diffuse blue, specular orange, same colors as the history lines),
-                        // groups = requested / shot. Series-major: [diffuse req, shot][specular req, shot].
-                        std::array<f32, 4> blocks = {
+                        // groups = requested / shot / revived. Series-major: [diffuse req, shot, revived][specular ...].
+                        // Revived = samples the hash grid revive wrote this frame (diffuse only; the grid holds no specular).
+                        f32 const revived_samples = static_cast<f32>(rb.rtgi_revived_samples) / static_cast<f32>(RTGI_REVIVE_SAMPLE_SCALE);
+                        std::array<f32, 6> blocks = {
                             static_cast<f32>(req_d) / half_res_pixels,
                             static_cast<f32>(shot_d) / half_res_pixels,
+                            revived_samples / half_res_pixels,
                             static_cast<f32>(req_s) / half_res_pixels,
                             static_cast<f32>(shot_s) / half_res_pixels,
+                            0.0f,
                         };
                         static char const * const block_series[] = {"diffuse", "specular"};
-                        static constexpr double group_ticks[] = {0.0, 1.0};
-                        static char const * const group_labels[] = {"requested", "shot"};
-                        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
-                        ImPlot::SetupAxisLimits(ImAxis_X1, -0.6, 1.6, ImGuiCond_Always);
-                        ImPlot::SetupAxisTicks(ImAxis_X1, group_ticks, 2, group_labels);
-                        ImPlot::SetupLegend(ImPlotLocation_NorthEast);
-                        ImPlot::PlotBarGroups(block_series, blocks.data(), spec_on ? 2 : 1, 2, 0.7);
+                        static constexpr double group_ticks[] = {0.0, 1.0, 2.0};
+                        static char const * const group_labels[] = {"requested", "shot", "revived"};
                         double const budget_per_px = static_cast<double>(budget) / static_cast<double>(half_res_pixels);
+                        // Left axis: samples per half-res pixel. Right axis: the same range as total samples (left
+                        // value x half-res pixel count). Both get the same explicit limits so their ticks line up.
+                        double y_max = budget_per_px;
+                        for (f32 const v : blocks) { y_max = std::max(y_max, static_cast<double>(v)); }
+                        y_max = y_max > 0.0 ? y_max * 1.15 : 1.0;
+                        static double total_samples_scale = 1.0;
+                        total_samples_scale = static_cast<double>(half_res_pixels);
+                        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_None, ImPlotAxisFlags_None);
+                        ImPlot::SetupAxisLimits(ImAxis_X1, -0.6, 2.6, ImGuiCond_Always);
+                        ImPlot::SetupAxisTicks(ImAxis_X1, group_ticks, 3, group_labels);
+                        ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, y_max, ImGuiCond_Always);
+                        ImPlot::SetupAxis(ImAxis_Y2, nullptr, ImPlotAxisFlags_AuxDefault | ImPlotAxisFlags_NoGridLines);
+                        ImPlot::SetupAxisLimits(ImAxis_Y2, 0.0, y_max, ImGuiCond_Always);
+                        ImPlot::SetupAxisFormat(ImAxis_Y2, [](double value, char * buff, int size, void * user_data) -> int
+                        {
+                            double const total = value * *static_cast<double const *>(user_data);
+                            if (std::abs(total) >= 1e6) { return std::snprintf(buff, size, "%.2fM", total / 1e6); }
+                            if (std::abs(total) >= 1e3) { return std::snprintf(buff, size, "%.0fK", total / 1e3); }
+                            return std::snprintf(buff, size, "%.0f", total);
+                        }, &total_samples_scale);
+                        ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+                        ImPlot::PlotBarGroups(block_series, blocks.data(), spec_on ? 2 : 1, 3, 0.7);
                         ImPlot::PlotInfLines("budget", &budget_per_px, 1, ImPlotInfLinesFlags_Horizontal);
                         ImPlot::EndPlot();
                     }
-                    ImGui::SetItemTooltip("Requested vs shot rays per half-res pixel (blue diffuse, orange specular). Horizontal line = hard ray budget (diffuse + specular).");
+                    ImGui::SetItemTooltip("Samples per half-res pixel this frame (blue diffuse, orange specular; a traced ray is one sample): requested, shot, and revived (history samples the hash grid revive wrote, %u pixels). Horizontal line = hard sample budget (diffuse + specular). Left axis: samples per half-res pixel, right axis: total samples.", rb.rtgi_revived_pixels);
                     ImGui::TableNextColumn();
                     if (ImPlot::BeginPlot("History distribution##rtgi_history_lines", ImVec2(-1.0f, plot_height), ImPlotFlags_NoMouseText))
                     {
@@ -1895,6 +1976,17 @@ void ui_rtgi_statistics(RenderContext & render_context)
                         line_points, diffuse_target / line_points, specular_target / line_points, rb.rtgi_convergence_pixels);
                     ImGui::EndTable();
                 }
+            }
+            if (render_data.rtgi_settings.hash_grid_enabled)
+            {
+                ImGui::SeparatorText("Hash grid");
+                f32 const occupancy = static_cast<f32>(rb.rtgi_hash_grid_live_cells) / static_cast<f32>(RTGI_HASH_GRID_CAPACITY);
+                char grid_overlay[64];
+                std::snprintf(grid_overlay, sizeof(grid_overlay), "%u / %u cells live", rb.rtgi_hash_grid_live_cells, RTGI_HASH_GRID_CAPACITY);
+                ImGui::ProgressBar(occupancy, ImVec2(-FLT_MIN, 0.0f), grid_overlay);
+                ImGui::Text("Touched this frame: %u", rb.rtgi_hash_grid_touched_cells);
+                ImGui::Text("Failed queries:     %u px", rb.rtgi_hash_grid_failed_queries);
+                ImGui::SetItemTooltip("Geometry pixels whose probe window had no free slot.");
             }
             f32 const coverage = static_cast<f32>(budget) / std::max(1.0f, static_cast<f32>(requested));
             char overlay[32];
@@ -1923,10 +2015,103 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
     bool auto_reset_timings = false;
     if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
     {
+        static float history = 20.0f;
+        // Copies the shown part of a scrolling buffer (x >= the interval start) into plain arrays, oldest point first,
+        // reduced to at most MAX_PLOT_POINTS buckets. Each bucket keeps its largest sample so spikes stay visible.
+        // `band` is a second buffer written in lockstep with `buffer` (same size, same frames); it is read at the
+        // indices picked from `buffer`. Copying everything every frame was expensive in Debug with 10000 point buffers.
+        static constexpr i32 MAX_PLOT_POINTS = 1024;
+        f32 const interval_start = show_entire_interval ? -std::numeric_limits<f32>::infinity() : t - history;
+        auto unroll = [&](auto const & buffer, auto const & band, std::vector<f32> & xs, std::vector<f32> & ys, std::vector<f32> & band_ys)
+        {
+            i32 const size = static_cast<i32>(buffer.data.size());
+            i32 const count = buffer.wrapped ? size : buffer.offset;
+            i32 const start = buffer.wrapped ? buffer.offset : 0;
+            auto at = [&](i32 i) { return (start + i) % size; };
+            i32 first = count;
+            while (first > 0 && buffer.data[at(first - 1)].x >= interval_start) { --first; }
+            i32 const shown = count - first;
+            i32 const buckets = std::min(shown, MAX_PLOT_POINTS);
+            xs.resize(buckets);
+            ys.resize(buckets);
+            band_ys.resize(buckets);
+            for (i32 b = 0; b < buckets; ++b)
+            {
+                i32 const begin = first + static_cast<i32>(static_cast<i64>(b) * shown / buckets);
+                i32 const end = first + static_cast<i32>(static_cast<i64>(b + 1) * shown / buckets);
+                i32 best = at(begin);
+                for (i32 i = begin + 1; i < end; ++i)
+                {
+                    if (buffer.data[at(i)].y > buffer.data[best].y) { best = at(i); }
+                }
+                xs[b] = buffer.data[best].x;
+                ys[b] = buffer.data[best].y;
+                band_ys[b] = band.data[best].y;
+            }
+        };
+        // Line + shaded +-1 std dev band in the same color.
+        auto plot_with_band = [&](char const * label, i32 color_index, auto const & line_buffer, auto const & std_dev_buffer)
+        {
+            static std::vector<f32> xs, ys, std_ys, low, high;
+            unroll(line_buffer, std_dev_buffer, xs, ys, std_ys);
+            i32 const count = static_cast<i32>(xs.size());
+            if (count == 0) { return; }
+            low.resize(count);
+            high.resize(count);
+            for (i32 i = 0; i < count; ++i)
+            {
+                low[i] = std::max(0.0f, ys[i] - std_ys[i]);
+                high[i] = ys[i] + std_ys[i];
+            }
+            ImVec4 const color = ImPlot::GetColormapColor(color_index);
+            ImPlot::SetNextFillStyle(color, 0.25f);
+            ImPlot::PlotShaded(label, xs.data(), low.data(), high.data(), count);
+            ImPlot::SetNextLineStyle(color);
+            ImPlot::PlotLine(label, xs.data(), ys.data(), count);
+        };
+        auto setup_time_axes = [&](f32 first_t)
+        {
+            ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
+            if (!show_entire_interval)
+            {
+                ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+            }
+            else
+            {
+                ImPlot::SetupAxisLimits(ImAxis_X1, first_t, t, ImGuiCond_Always);
+            }
+            ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
+            ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
+        };
+
         ImGui::SeparatorText("CPU Group Timings");
         {
-            ImGui::Text("Delta Time:                   %fms", app_state.delta_time * 1000.0f);
-            ImGui::Text("Frames Per Second:            %f", 1.0f / app_state.delta_time);
+            {
+                // Total frame rate: frames counted over a FPS_WINDOW_S window, refreshed once per window (no long smoothing lag).
+                static constexpr f64 FPS_WINDOW_S = 0.25;
+                static f64 window_time = 0.0;
+                static f64 window_time_sq = 0.0;
+                static u32 window_frames = 0;
+                static f64 fps = 0.0;
+                static f64 window_frame_ms = 0.0;
+                static f64 window_frame_std_dev_ms = 0.0;
+                f64 const delta = static_cast<f64>(app_state.delta_time);
+                window_time += delta;
+                window_time_sq += delta * delta;
+                window_frames += 1;
+                if (window_time >= FPS_WINDOW_S)
+                {
+                    f64 const mean = window_time / static_cast<f64>(window_frames);
+                    fps = static_cast<f64>(window_frames) / window_time;
+                    window_frame_ms = mean * 1000.0;
+                    window_frame_std_dev_ms = std::sqrt(std::max(0.0, window_time_sq / static_cast<f64>(window_frames) - mean * mean)) * 1000.0;
+                    window_time = 0.0;
+                    window_time_sq = 0.0;
+                    window_frames = 0;
+                }
+                ImGui::Text("Total FPS:                    %.1f  (frame time %.2f ms, std dev %.2f ms)", fps, window_frame_ms, window_frame_std_dev_ms);
+                ImGui::Text("Last frame:                   %.2f ms (%.1f fps)", app_state.delta_time * 1000.0f, 1.0f / app_state.delta_time);
+            }
             ImGui::Text("CPU Windowing:                %fms", app_state.time_taken_cpu_windowing * 1000.0f);
             ImGui::Text("CPU Application:              %fms", app_state.time_taken_cpu_application * 1000.0f);
             ImGui::Text("CPU Wait For GPU:             %fms", app_state.time_taken_cpu_wait_for_gpu * 1000.0f);
@@ -1957,6 +2142,12 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                     render_times_history.scrolling_ewa.at(i).erase();
                     render_times_history.scrolling_mean.at(i).erase();
                     render_times_history.scrolling_raw.at(i).erase();
+                    render_times_history.scrolling_std_dev.at(i).erase();
+                }
+                for (u32 i = 0; i < RenderTimes::FLAT_TIMINGS_COUNT; i++)
+                {
+                    render_times_history.pass_average.at(i).erase();
+                    render_times_history.pass_std_dev.at(i).erase();
                 }
             }
             ImGui::SameLine();
@@ -1983,6 +2174,17 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
 
                 f32 const new_ewa = render_times_history.scrolling_ewa.at(group_i).back().y * ewa_weight + (1.0f - ewa_weight) * raw;
                 render_times_history.scrolling_ewa.at(group_i).add_point(ImVec2(t, new_ewa));
+
+                // Variance is in ns^2: std dev in us = sqrt(variance) * 0.001.
+                f32 const group_std_dev = static_cast<f32>(std::sqrt(static_cast<f64>(render_context.render_times.get_group_variance(group_i)))) * 0.001f;
+                render_times_history.scrolling_std_dev.at(group_i).add_point(ImVec2(t, group_std_dev));
+                for (u32 time = group_first_idx; time < (group_first_idx + group_size); ++time)
+                {
+                    f32 const average = static_cast<f32>(render_context.render_times.get_average(time)) * 0.001f;
+                    f32 const std_dev = static_cast<f32>(std::sqrt(static_cast<f64>(render_context.render_times.get_variance(time)))) * 0.001f;
+                    render_times_history.pass_average.at(time).add_point(ImVec2(t, average));
+                    render_times_history.pass_std_dev.at(time).add_point(ImVec2(t, std_dev));
+                }
             }
             render_times_history.mean_sample_count += 1;
 
@@ -2017,41 +2219,21 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                 calculate_percentiles = false;
             }
 
-            static float history = 20.0f;
-            #if 0
+            // Groups: selected series with a +-1 std dev band (smoothed variance of the group sum).
             if (ImPlot::BeginPlot("##Scrolling"))
             {
                 decltype(render_times_history.scrolling_ewa) * measurements_scrolling_selected = {};
                 if (selected_item == 0) { measurements_scrolling_selected = &render_times_history.scrolling_ewa; }
                 else if (selected_item == 1) { measurements_scrolling_selected = &render_times_history.scrolling_mean; }
                 else { measurements_scrolling_selected = &render_times_history.scrolling_raw; }
-                ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
-                if (!show_entire_interval)
+                setup_time_axes(measurements_scrolling_selected->at(0).front().x);
+                for (i32 i = 0; i < s_cast<i32>(RenderTimes::GROUP_COUNT); i++)
                 {
-                    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-                }
-                else
-                {
-                    ImPlot::SetupAxisLimits(ImAxis_X1, measurements_scrolling_selected->at(0).front().x, measurements_scrolling_selected->at(0).back().x, ImGuiCond_Always);
-                }
-                ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
-                ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
-                ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
-                for (i32 i = 0; i < measurements_scrolling_selected->size(); i++)
-                {
-                    ImPlot::PlotLine(
-                        std::string(RenderTimes::group_name(i)).c_str(),
-                        &measurements_scrolling_selected->at(i).data[0].x,
-                        &measurements_scrolling_selected->at(i).data[0].y,
-                        s_cast<i32>(measurements_scrolling_selected->at(i).data.size()),
-                        0,
-                        measurements_scrolling_selected->at(i).offset,
-                        2 * sizeof(f32));
+                    plot_with_band(std::string(RenderTimes::group_name(i)).c_str(), i,
+                        measurements_scrolling_selected->at(i), render_times_history.scrolling_std_dev.at(i));
                 }
                 ImPlot::EndPlot();
             }
-
-            #endif
 
             for (i32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; group_i++)
             {
@@ -2085,7 +2267,7 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                             if (skip)
                                 ImGui::Text("-");
                             else
-                                ImGui::Text("%8.1fus", std::sqrt(static_cast<f32>(render_context.render_times.get_variance(timing_index)) * 0.001));
+                                ImGui::Text("%8.1fus", std::sqrt(static_cast<f32>(render_context.render_times.get_variance(timing_index))) * 0.001f);
                             ImGui::TableSetColumnIndex(3);
                             if (skip)
                                 ImGui::Text("-");
@@ -2093,6 +2275,21 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                                 ImGui::Text("%8.1fus", static_cast<f32>(render_context.render_times.get(timing_index)) * 0.001f);
                         }
                         ImGui::EndTable();
+                    }
+                    // Passes of this group: smoothed average with a +-1 std dev band. Passes that did not run are skipped.
+                    if (ImPlot::BeginPlot(fmt::format("##passes{}", group_i).c_str(), ImVec2(-1, 220)))
+                    {
+                        u32 const first = RenderTimes::group_first_flat_index(group_i);
+                        setup_time_axes(render_times_history.pass_average.at(first).front().x);
+                        for (u32 in_group_i = 0; in_group_i < RenderTimes::group_size(group_i); ++in_group_i)
+                        {
+                            u32 const timing_index = first + in_group_i;
+                            if (render_context.render_times.get_average(timing_index) == 0) { continue; }
+                            std::string const name{RenderTimes::group_names(group_i)[in_group_i]};
+                            plot_with_band(name.c_str(), s_cast<i32>(in_group_i),
+                                render_times_history.pass_average.at(timing_index), render_times_history.pass_std_dev.at(timing_index));
+                        }
+                        ImPlot::EndPlot();
                     }
                 }
                 if (calculate_percentiles)

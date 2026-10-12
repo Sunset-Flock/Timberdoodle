@@ -52,6 +52,15 @@ struct ReadbackValues
     daxa_u32 rtgi_convergence_pixels;
     daxa_u32 rtgi_convergence_histogram_diffuse[16];  // pixels per history / max history bucket (16 equal buckets)
     daxa_u32 rtgi_convergence_histogram_specular[16];
+    // Written by the RTGI upscale from the ray counters: hash grid revives this frame (pixels, summed written sample
+    // counts in 1/RTGI_REVIVE_SAMPLE_SCALE fixed point).
+    daxa_u32 rtgi_revived_pixels;
+    daxa_u32 rtgi_revived_samples;
+    // Written by the RTGI hash grid passes (atomics): occupied cells after the update, cells queried this frame,
+    // geometry pixels whose query found no free slot (probe window full).
+    daxa_u32 rtgi_hash_grid_live_cells;
+    daxa_u32 rtgi_hash_grid_touched_cells;
+    daxa_u32 rtgi_hash_grid_failed_queries;
 
     // General debug values
     daxa_f32vec4 debug_value;

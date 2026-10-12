@@ -14,7 +14,7 @@ if (NOT TARGET meshoptimizer)
     FetchContent_Declare(
         meshoptimizer
         GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
-        GIT_TAG        v1.0.1
+        GIT_TAG        v1.3
         EXCLUDE_FROM_ALL
     )
     FetchContent_MakeAvailable(meshoptimizer)

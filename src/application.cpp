@@ -602,6 +602,9 @@ auto Application::run() -> i32
 {
     while (app_state.keep_running)
     {
+        // Shader hot reload check/recompile overlaps windowing, app update and renderer prepare; joined before
+        // the first task graph executes (prepare_frame or below).
+        _renderer->begin_shader_hotload();
         auto new_time_point = std::chrono::steady_clock::now();
         app_state.delta_time = std::chrono::duration_cast<FpMicroSeconds>(new_time_point - app_state.last_time_point).count() / 1'000'000.0f;
         app_state.last_time_point = new_time_point;
@@ -659,6 +662,7 @@ auto Application::run() -> i32
 
             if (execute_frame)
             {
+                _renderer->finish_shader_hotload();
                 auto start_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
                 _renderer->main_task_graph.execute({
                     .debug_ui = &_ui_engine->main_task_graph_debug_ui,
