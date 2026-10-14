@@ -72,20 +72,30 @@ struct ShadeOpaquePush
 #include "../scene_renderer_context.hpp"
 #include "shader_debug_draws.inl"
 
-inline daxa::ComputePipelineCompileInfo2 shade_opaque_pipeline_compile_info()
+// debug = true: the variant with every debug view (SHADE_OPAQUE_DEBUG), the normal one strips them.
+inline daxa::ComputePipelineCompileInfo2 shade_opaque_pipeline_compile_info(bool debug = false)
 {
     return {
         .source = daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.hlsl"},
         .entry_point = "entry_main_cs",
         .language = daxa::ShaderLanguage::SLANG,
+        .defines = {{"SHADE_OPAQUE_DEBUG", debug ? "1" : "0"}},
         .push_constant_size = s_cast<u32>(sizeof(ShadeOpaquePush)),
-        .name = std::string{ShadeOpaqueH::Info::NAME},
+        .name = std::string{ShadeOpaqueH::Info::NAME} + (debug ? " Debug" : ""),
     };
 };
+inline daxa::ComputePipelineCompileInfo2 shade_opaque_debug_pipeline_compile_info()
+{
+    return shade_opaque_pipeline_compile_info(true);
+}
 inline void shade_opaque_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = ShadeOpaqueH::Info::AT;
-    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
+    // Any debug view (or light influence marking) active -> the debug variant.
+    bool const debug =
+        render_context->render_data.settings.debug_draw_mode != DEBUG_DRAW_MODE_NONE ||
+        render_context->render_data.light_settings.debug_mark_influence != 0;
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(shade_opaque_pipeline_compile_info(debug).name));
     auto const color_image_id = ti.id(AT.color_image);
     auto const color_image_info = ti.device.image_info(color_image_id).value();
 

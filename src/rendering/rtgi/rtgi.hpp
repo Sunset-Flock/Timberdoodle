@@ -61,13 +61,11 @@
 
 auto rtgi_default_settings() -> RtgiSettings;
 
-inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompileInfo2
+inline auto rtgi_trace_compile_info() -> daxa::RayTracingPipelineCompileInfo2
 {
-    auto file    = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse.hlsl"};
-    auto shading = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse_shading.hlsl"};
-    // Single raygen entry point; it internally dispatches to the classic per-pixel body or the
-    // ray-list body based on rtgi_settings.use_repacked_ray_dispatch. This avoids daxa's multi-raygen
-    // SBT limitation (raygen region is sized for a single handle).
+    auto file    = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace.hlsl"};
+    auto shading = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_shade.hlsl"};
+    // Classic per-pixel trace, shades in the closest hit (sharp or coarse per ray).
     return daxa::RayTracingPipelineCompileInfo2{
         .ray_gen_infos     = {{.source = file,    .entry_point = "ray_gen",      .language = daxa::ShaderLanguage::SLANG}},
         .any_hit_infos     = {{.source = file,    .entry_point = "any_hit",      .language = daxa::ShaderLanguage::SLANG}},
@@ -79,10 +77,56 @@ inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompile
             daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2},
             daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2, .any_hit_shader_index = 1},
         },
-        .max_ray_recursion_depth = 2,
+        .max_ray_recursion_depth = 1, // shadow rays are inline ray queries
         .name = "Trace RTGI",
     };
 }
+
+// Pioneer trace: diffuse rays only, so the closest hit is the coarse (PGI radiance) one. Own pipeline: NVIDIA allocates
+// registers for the pipeline maximum, the full shading closest hit would set it for the whole pioneer trace.
+inline auto rtgi_trace_pioneer_compile_info() -> daxa::RayTracingPipelineCompileInfo2
+{
+    auto file    = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace.hlsl"};
+    auto shading = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_shade.hlsl"};
+    return daxa::RayTracingPipelineCompileInfo2{
+        .ray_gen_infos     = {{.source = file,    .entry_point = "ray_gen_pioneer",    .language = daxa::ShaderLanguage::SLANG}},
+        .any_hit_infos     = {{.source = file,    .entry_point = "any_hit",            .language = daxa::ShaderLanguage::SLANG}},
+        .closest_hit_infos = {{.source = shading, .entry_point = "closest_hit_coarse", .language = daxa::ShaderLanguage::SLANG}},
+        .miss_hit_infos    = {{.source = shading, .entry_point = "miss",               .language = daxa::ShaderLanguage::SLANG}},
+        .shader_groups_infos = {
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,             .general_shader_index = 0},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,             .general_shader_index = 3},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2, .any_hit_shader_index = 1},
+        },
+        .max_ray_recursion_depth = 1,
+        .name = "Trace RTGI Pioneer",
+    };
+}
+
+// Repacked path trace (split trace / shade): slim trace pipeline, hit shaders only record + classify the hit. The full
+// shading pipeline above (rtgi_trace_compile_info) is still used by the classic per-pixel path.
+inline auto rtgi_trace_split_compile_info() -> daxa::RayTracingPipelineCompileInfo2
+{
+    auto file = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace.hlsl"};
+    return daxa::RayTracingPipelineCompileInfo2{
+        .ray_gen_infos     = {{.source = file, .entry_point = "ray_gen_split",     .language = daxa::ShaderLanguage::SLANG}},
+        .any_hit_infos     = {{.source = file, .entry_point = "any_hit_split",     .language = daxa::ShaderLanguage::SLANG}},
+        .closest_hit_infos = {{.source = file, .entry_point = "closest_hit_split", .language = daxa::ShaderLanguage::SLANG}},
+        .miss_hit_infos    = {{.source = file, .entry_point = "miss_split",        .language = daxa::ShaderLanguage::SLANG}},
+        .shader_groups_infos = {
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,             .general_shader_index = 0},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,             .general_shader_index = 3},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2, .any_hit_shader_index = 1},
+        },
+        .max_ray_recursion_depth = 1,
+        .name = "Trace RTGI Split",
+    };
+}
+MAKE_COMPUTE_COMPILE_INFO(rtgi_shade_sharp_compile_info,  "./src/rendering/rtgi/rtgi_shade.hlsl", "entry_shade_sharp")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_shade_coarse_compile_info, "./src/rendering/rtgi/rtgi_shade.hlsl", "entry_shade_coarse")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_shade_miss_compile_info,   "./src/rendering/rtgi/rtgi_shade.hlsl", "entry_shade_miss")
 
 MAKE_COMPUTE_COMPILE_INFO(rtgi_distribute_rays_compile_info, "./src/rendering/rtgi/rtgi_distribute_rays.hlsl", "entry_distribute_rays")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_blend_rays_compile_info,    "./src/rendering/rtgi/rtgi_blend_rays.hlsl",    "entry_blend_rays")
@@ -97,7 +141,7 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_compile_info, "./src/rendering/rtgi/rtgi
 MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_lds_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur_lds")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_atrous_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_atrous_post_blur")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_query_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_query")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_allocate_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_allocate")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_scatter_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_scatter")

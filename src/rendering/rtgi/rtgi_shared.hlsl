@@ -236,11 +236,28 @@ func rtgi_hard_ray_budget(uint2 half_res_size, RtgiSettings settings) -> uint
     return uint(float(half_res_size.x * half_res_size.y) * max(ray_pct, min_budget));
 }
 
+// Size (entries) of the ray list and the per-ray buffers (ray_result, rtgi_ray_hits).
+func rtgi_ray_list_capacity(uint2 half_res_size) -> uint
+{
+    return half_res_size.x * half_res_size.y * RTGI_RAY_LIST_CAPACITY_MUL;
+}
+
+// rtgi_shade_list slot of entry list_index of shade list shade_class (RTGI_SHADE_*, layout: see RtgiShadeCounters).
+func rtgi_shade_list_slot(uint shade_class, uint list_index, uint list_capacity) -> uint
+{
+    switch (shade_class)
+    {
+        case RTGI_SHADE_SHARP: return list_capacity - 1u - list_index;
+        case RTGI_SHADE_MISS:  return list_capacity + list_index;
+        default:               return list_index;
+    }
+}
+
 // Ray list entries the list trace may read this frame: the allocated count, never past the list capacity and, when
 // redistributing, never past the hard budget.
 func rtgi_ray_list_limit(uint2 half_res_size, RtgiSettings settings) -> uint
 {
-    const uint capacity = half_res_size.x * half_res_size.y * RTGI_RAY_LIST_CAPACITY_MUL;
+    const uint capacity = rtgi_ray_list_capacity(half_res_size);
     return settings.use_ray_redistribution != 0 ? min(capacity, rtgi_hard_ray_budget(half_res_size, settings)) : capacity;
 }
 

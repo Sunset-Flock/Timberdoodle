@@ -477,6 +477,7 @@ SecondaryMarchThroughCloudResult secondary_march_through_cloud(const SecondaryMa
 struct PrimaryMarchThroughCloudInfo
 {
     CloudAABBRelativeRay ray;
+    // Distance (cloud aabb relative, from ray.origin) to the pixel's depth: the march stops there.
     float cloud_aabb_max_distance;
     float cloud_aabb_step_size;
     float world_step_size;
@@ -519,6 +520,10 @@ PrimaryMarchThroughCloudResult primary_march_through_cloud(const PrimaryMarchThr
     bool hit_cloud = false;
     for(uint step = 0; step < 512; ++step)
     {
+        // Early out once the ray is behind the pixel's depth. Conservative: tested at the step START, so the step that
+        // straddles the depth is still integrated in full, nothing in front of the surface is cut.
+        if(result.cloud_aabb_relative_distance_marched >= march_cloud_info.cloud_aabb_max_distance) { break; }
+
         info.cloud_aabb_relative_position = march_cloud_info.ray.origin + march_cloud_info.ray.direction * result.cloud_aabb_relative_distance_marched;
         cloud_data = get_cloud_data(info);
 
@@ -703,6 +708,7 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
                 PrimaryMarchThroughCloudInfo march_through_cloud_info;
                 march_through_cloud_info.ray.direction = cloud_relative_start_ray.direction; 
                 march_through_cloud_info.ray.origin = cloud_relative_start_ray.origin + cloud_relative_start_ray.direction * cloud_aabb_relative_distance_along_ray;
+                march_through_cloud_info.cloud_aabb_max_distance = cloud_aabb_relative_end_distance - cloud_aabb_relative_distance_along_ray;
                 march_through_cloud_info.cloud_aabb_step_size = 0.0035f;
                 march_through_cloud_info.world_step_size = march_through_cloud_info.cloud_aabb_step_size * rcp(primary_ray_world_to_aabb_distance_scaling_factor);
                 march_through_cloud_info.instance = cloud_instance;

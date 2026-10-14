@@ -285,6 +285,29 @@ func rt_get_triangle_geo_point(
     return ret;
 }
 
+// Lean subset of rt_get_triangle_geo_point: world position + face normal only (no vertex normals, uvs, tangents).
+func rt_get_triangle_position_face_normal(
+    TriangleGeometry surf_geo,
+    GPUMesh* meshes,
+    daxa_f32mat4x3* combined_transforms,
+    out float3 world_position,
+    out float3 face_normal)
+{
+    GPUMesh* mesh = meshes + surf_geo.mesh_index;
+    const float3 p0 = deref_i(mesh.vertex_positions, surf_geo.vertex_indices.x);
+    const float3 p1 = deref_i(mesh.vertex_positions, surf_geo.vertex_indices.y);
+    const float3 p2 = deref_i(mesh.vertex_positions, surf_geo.vertex_indices.z);
+    const float3 object_position = interpolate_vec3(surf_geo.barycentrics, p0, p1, p2);
+    const float3 object_edge1 = p1 - p0;
+    const float3 object_edge2 = p2 - p0;
+
+    const daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(combined_transforms[surf_geo.entity_index]);
+    world_position = mul(model_matrix, daxa_f32vec4(object_position, 1)).xyz;
+    face_normal = normalize(cross(
+        mul(model_matrix, daxa_f32vec4(object_edge1, 0)).xyz,
+        mul(model_matrix, daxa_f32vec4(object_edge2, 0)).xyz));
+}
+
 struct RTLightVisibilityTester : LightVisibilityTesterI
 {
     RaytracingAccelerationStructure tlas;

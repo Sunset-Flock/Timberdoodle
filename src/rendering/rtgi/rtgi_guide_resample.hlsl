@@ -11,10 +11,10 @@
 [[vk::push_constant]] RtgiGuideResampleVerticalPush rtgi_guide_resample_vertical_push;
 
 // === RTGI Guide Resample =========================================================================
-// Turns the sparse pioneer trace (pioneer_hit_y, one ray per pioneer cell -- see pioneer_ray_gen in
-// rtgi_trace_diffuse.hlsl) into one RIS-picked (hit position, brightness) per pioneer cell
+// Turns the sparse pioneer trace (pioneer_hit_y, one ray per pioneer cell -- see ray_gen_pioneer in
+// rtgi_trace.hlsl) into one RIS-picked (hit position, brightness) per pioneer cell
 // (pioneer_guide_hit_y), via two passes: horizontal resample, vertical resample. The trace reads those picks per
-// ray (rtgi_fetch_ray_guide in rtgi_trace_diffuse.hlsl) and does the reconnection there.
+// ray (rtgi_fetch_ray_guide in rtgi_trace.hlsl) and does the reconnection there.
 //
 // RECONNECTION, NOT A BAKED DIRECTION
 // Every candidate carried through the horizontal and vertical passes is a (hit position X, brightness
@@ -58,9 +58,9 @@ func entry_guide_resample_horizontal(uint2 dtid : SV_DispatchThreadID)
     const uint2 half_res_size = push.attach.globals.settings.render_target_size >> 1u;
     const float2 inv_half_res_size = rcp(float2(half_res_size));
 
-    // Same rotation formula pioneer_ray_gen (rtgi_trace_diffuse.hlsl) uses -- MUST stay in sync. Gated by
-    // animate_noise like pioneer_ray_gen's own rotation, so a frozen frame maps to the SAME half-res pixel
-    // pioneer_ray_gen actually traced that frame. trunk_flt_frame_index, not raw frame_index -- RTGI
+    // Same rotation formula ray_gen_pioneer (rtgi_trace.hlsl) uses -- MUST stay in sync. Gated by
+    // animate_noise like ray_gen_pioneer's own rotation, so a frozen frame maps to the SAME half-res pixel
+    // ray_gen_pioneer actually traced that frame. trunk_flt_frame_index, not raw frame_index -- RTGI
     // convention (see globals.inl); mod-DIV unaffected since DIV divides the 4096 truncation period.
     const uint rotation_frame = push.attach.globals.rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
     const uint2 rotation = uint2(
@@ -162,7 +162,7 @@ func entry_guide_resample_vertical(uint2 dtid : SV_DispatchThreadID)
     const uint2 half_res_size = push.attach.globals.settings.render_target_size >> 1u;
     const float2 inv_half_res_size = rcp(float2(half_res_size));
 
-    // Same rotation formula pioneer_ray_gen / the horizontal pass use -- MUST stay in sync. Gated by
+    // Same rotation formula ray_gen_pioneer / the horizontal pass use -- MUST stay in sync. Gated by
     // animate_noise, trunk_flt_frame_index not raw frame_index -- see the horizontal pass for why.
     const uint rotation_frame = push.attach.globals.rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
     const uint2 rotation = uint2(

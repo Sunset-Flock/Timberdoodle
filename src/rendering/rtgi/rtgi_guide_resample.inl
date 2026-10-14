@@ -14,7 +14,7 @@
 // grid IN EACH AXIS (so 1/16 the half-res pixel count). Fixed, not a runtime setting -- was a 2-or-4
 // UI toggle at one point, but nothing downstream needs it to vary, so it's a compile-time constant
 // like RTGI_GUIDE_RESAMPLE_WINDOW below. Which half-res pixel each pioneer cell samples rotates every
-// frame (see the `rotation` calc in pioneer_ray_gen / entry_guide_resample_horizontal/vertical -- all
+// frame (see the `rotation` calc in ray_gen_pioneer / entry_guide_resample_horizontal/vertical -- all
 // three MUST stay in sync).
 #define RTGI_GUIDE_PIONEER_GRID_DIV 4
 

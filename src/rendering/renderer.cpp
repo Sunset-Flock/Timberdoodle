@@ -221,7 +221,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_post_blur_compile_info()},
         {rtgi_post_blur_lds_compile_info()},
         {rtgi_atrous_post_blur_compile_info()},
-        {rtgi_upscale_diffuse_compile_info()},
+        {rtgi_upscale_compile_info()},
         {rtgi_hash_grid_query_compile_info()},
         {rtgi_hash_grid_allocate_compile_info()},
         {rtgi_hash_grid_scatter_compile_info()},
@@ -229,6 +229,9 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_hash_grid_debug_compile_info()},
         {rtgi_distribute_rays_compile_info()},
         {rtgi_blend_rays_compile_info()},
+        {rtgi_shade_sharp_compile_info()},
+        {rtgi_shade_coarse_compile_info()},
+        {rtgi_shade_miss_compile_info()},
         {rtgi_guide_resample_horizontal_compile_info()},
         {rtgi_guide_resample_vertical_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
@@ -241,6 +244,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {write_swapchain_pipeline_compile_info2()},
         {write_swapchain_debug_pipeline_compile_info2()},
         {shade_opaque_pipeline_compile_info()},
+        {shade_opaque_debug_pipeline_compile_info()},
         {expand_meshes_pipeline_compile_info()},
         {prefix_sum_command_write_pipeline_compile_info()},
         {prefix_sum_upsweep_pipeline_compile_info()},
@@ -278,7 +282,9 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
     std::vector<daxa::RayTracingPipelineCompileInfo2> ray_tracings = {
         {pgi_trace_probe_lighting_pipeline_compile_info()},
         {reference_path_trace_rt_pipeline_info()},
-        {rtgi_trace_diffuse_compile_info()},
+        {rtgi_trace_compile_info()},
+        {rtgi_trace_pioneer_compile_info()},
+        {rtgi_trace_split_compile_info()},
     };
 
     auto batch = gpu_context->pipeline_manager.compile_pipelines_parallel(

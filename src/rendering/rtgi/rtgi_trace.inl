@@ -11,7 +11,7 @@
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/raytracing.inl"
 
-DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(RtgiTraceDiffuseH)
+DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(RtgiTraceH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, perceptual_rgb_shortness)
@@ -33,7 +33,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_face_normals)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_normal_roughness) // pack_normal_roughness
 // Pioneer guide direction, gated by rtgi_settings.pioneer_guiding_enabled. Written by the pioneer
-// raygen dispatch (is_pioneer_pass == true, sparse grid) and rtgi_guide_resample.hlsl (full half-res,
+// raygen (ray_gen_pioneer, sparse grid) and rtgi_guide_resample.hlsl (full half-res,
 // spatial RIS over the pioneer grid). See rtgi_guide_resample.inl.
 // .xyz = the pioneer ray's actual hit position (world space), .w = direction-independent brightness Y
 // at that hit (Lambertian exitant radiance is the same in every exit direction, so no direction is
@@ -61,14 +61,36 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec2>, ray_impact) // clas
 // Pioneer-resolution guide picks (vertical resample output: hit position + brightness), read by the stochastic
 // guide fetch (rtgi_settings.guide_stochastic_fetch). Unused by the pioneer trace itself.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, pioneer_guide_hit_y)
+// Split trace / shade only (repacked ray-list trace, null for the pioneer / classic trace): per ray hit record, the sharp / coarse
+// shade lists and their counters + indirect dispatches. See RtgiShadeCounters.
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(RtgiRayHit), ray_hits)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(daxa_u32), shade_list)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(RtgiShadeCounters), shade_counters)
 DAXA_DECL_TASK_HEAD_END
 
-struct RtgiTraceDiffusePush
+struct RtgiTracePush
 {
-    daxa_BufferPtr(RtgiTraceDiffuseH::AttachmentShaderBlob) attach;
+    daxa_BufferPtr(RtgiTraceH::AttachmentShaderBlob) attach;
     daxa::b32 debug_primary_trace;
-    // Selects the pioneer raygen body (sparse guide-building pass) instead of the classic/repacked main
-    // trace body. Set by the dedicated pioneer-trace task; false everywhere else. See ray_gen() in
-    // rtgi_trace_diffuse.hlsl.
-    daxa::b32 is_pioneer_pass;
 };
+
+#if DAXA_SHADER
+// Shared by the ray generation / any hit shaders (rtgi_trace.hlsl) and the closest hit / miss shaders of the shading
+// pipelines (rtgi_shade.hlsl).
+
+[[vk::push_constant]] RtgiTracePush rtgi_trace_push;
+
+// TMax of the unbounded RTGI rays, and the t a miss reports (sky, far past any TMax).
+#define RTGI_RAY_T_MAX 100000000000.0f
+#define RTGI_RAY_MISS_T 1000000000000.0f
+
+// Payload of the shading pipelines ("Trace RTGI", "Trace RTGI Pioneer").
+struct RtgiRayPayload
+{
+    float3 color;
+    float t;
+    // Specular rays need sharp, fully shaded hits (mirror reflections), so they skip the PGI radiance-cache
+    // shortcut the diffuse rays take on hit.
+    bool specular;
+};
+#endif // #if DAXA_SHADER

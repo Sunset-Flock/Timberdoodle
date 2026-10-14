@@ -3,7 +3,7 @@
 // === RTGI Pioneer Guided Ray Sampling ============================================================
 // Bends diffuse ray directions toward the guide direction built by the same-frame pioneer trace +
 // spatial RIS resample (rtgi_guide_resample.hlsl), instead of sampling a plain cosine hemisphere.
-// #included by rtgi_trace_diffuse.hlsl.
+// #included by rtgi_trace.hlsl.
 //
 // MALLEY'S METHOD
 // A uniform point (x,y) on the unit disc, lifted to (x,y,sqrt(1-x^2-y^2)), is a cosine-weighted
@@ -30,7 +30,7 @@
 // for free. rtgi_sample_guided_diffuse_dir returns weight = pdf_cosine/pdf_guide alongside the
 // direction; the caller multiplies the traced radiance by it to stay unbiased.
 //
-// Used from rtgi_trace_diffuse.hlsl, gated by rtgi_settings.pioneer_guiding_enabled -- the guide_sh_y
+// Used from rtgi_trace.hlsl, gated by rtgi_settings.pioneer_guiding_enabled -- the guide_sh_y
 // passed in comes from the pioneer trace + spatial RIS resample (rtgi_guide_resample.hlsl).
 
 #include "shader_shared/shared.inl"
@@ -43,7 +43,7 @@
 static const float RTGI_GUIDE_INV_PI = 1.0f / PI;
 
 // Epsilon-biased helper axis keeps the cross product non-degenerate when `axis` is exactly +Z (same
-// trick as the inline TBN build in rtgi_trace_diffuse.hlsl).
+// trick as the inline TBN build in rtgi_trace.hlsl).
 func rtgi_build_basis(float3 axis) -> float3x3
 {
     const float3 tangent = normalize(cross(axis, float3(0, 0, 1) + 0.0001f));
@@ -53,7 +53,7 @@ func rtgi_build_basis(float3 axis) -> float3x3
 }
 
 // sh_y is a single RIS-picked (hit_direction * Y, Y) pair (see rtgi_fetch_ray_guide in
-// rtgi_trace_diffuse.hlsl), never averaged -- dividing back out Y recovers that pick's direction.
+// rtgi_trace.hlsl), never averaged -- dividing back out Y recovers that pick's direction.
 // Falls back to the surface normal when no candidate was found this frame (sh_y.xyz ~= 0, e.g. sky or
 // no matching-surface pioneer cell nearby) -- harmless to bend toward, just not yet useful.
 func rtgi_sh_dominant_direction(float4 sh_y, float3 normal_fallback) -> float3

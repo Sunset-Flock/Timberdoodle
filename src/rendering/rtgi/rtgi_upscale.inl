@@ -7,10 +7,10 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/rtgi.inl"
 
-#define RTGI_UPSCALE_DIFFUSE_X 8
-#define RTGI_UPSCALE_DIFFUSE_Y 8
+#define RTGI_UPSCALE_X 8
+#define RTGI_UPSCALE_Y 8
 
-DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiUpscaleDiffuseH)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiUpscaleH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 
@@ -33,8 +33,8 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayCounters), ray_counters) // conve
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiHashGridCell), hash_grid)
 DAXA_DECL_TASK_HEAD_END
 
-struct RtgiUpscaleDiffusePush
+struct RtgiUpscalePush
 {
-    daxa_BufferPtr(RtgiUpscaleDiffuseH::AttachmentShaderBlob) attach;
+    daxa_BufferPtr(RtgiUpscaleH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
 };

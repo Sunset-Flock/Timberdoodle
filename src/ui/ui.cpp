@@ -807,12 +807,18 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 if (rtgi_section("Trace", {
                         RenderTimes::index<"RTGI", "DISTRIBUTE_RAYS">(),
                         RenderTimes::index<"RTGI", "TRACE">(),
+                        RenderTimes::index<"RTGI", "SHADE_HITS">(),
                         RenderTimes::index<"RTGI", "BLEND_RAYS">(),
                     }))
                 {
                     rtgi_sub_begin("General");
                     ImGui::SliderFloat("Shading AO Range", &render_data.rtgi_settings.shading_ao_range, 0.0f, 4.0f);
                     ImGui::Checkbox("Use Repacked Ray Dispatch", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_repacked_ray_dispatch));
+                    ImGui::SetItemTooltip("Repacked: slim trace that only records hits, then specialized shade passes (sharp hits: full material + light shading, coarse hits: PGI radiance, misses: sky). Off: classic per-pixel trace that shades in the closest hit.");
+                    ImGui::BeginDisabled(render_data.rtgi_settings.use_repacked_ray_dispatch == 0);
+                    ImGui::Checkbox("Coarse Shade Wide Specular", reinterpret_cast<bool *>(&render_data.rtgi_settings.split_coarse_wide_specular));
+                    ImGui::SetItemTooltip("Specular hits whose GGX cone at the hit is at least as wide as the PGI probe spacing there use coarse (PGI radiance) shading instead of full shading. Repacked ray dispatch only.");
+                    ImGui::EndDisabled();
                     ImGui::SliderFloat("Ray Budget (rays/pixel)", &render_data.rtgi_settings.ray_percentage, 0.0f, 4.0f);
                     ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);
                     ImGui::SliderInt("Max Rays Per Pixel", &render_data.rtgi_settings.max_rays_per_pixel, 1, 32);
@@ -1871,6 +1877,15 @@ void ui_rtgi_statistics(RenderContext & render_context)
                 ImGui::EndTable();
             }
             ImGui::Text("Requested base %u + extra %u, budget %u", base_rays, extra_rays, budget);
+            if (render_data.rtgi_settings.use_repacked_ray_dispatch != 0)
+            {
+                u32 const shade_sharp = rb.rtgi_shade_sharp_rays;
+                u32 const shade_coarse = rb.rtgi_shade_coarse_rays;
+                u32 const shade_miss = rb.rtgi_shade_miss_rays;
+                u32 const shade_total = shade_sharp + shade_coarse + shade_miss;
+                ImGui::Text("Hit shading: sharp %u (%.0f%%), coarse %u (%.0f%%), miss %u (%.0f%%)", shade_sharp, pct(shade_sharp, shade_total), shade_coarse, pct(shade_coarse, shade_total), shade_miss, pct(shade_miss, shade_total));
+                ImGui::SetItemTooltip("Rays shaded with full material + light shading (sharp) vs PGI radiance (coarse) vs sky (miss) this frame.");
+            }
             if (shot > 0)
             {
                 ImGui::Text("%s gets more rays (%.0f%% of shot)", shot_d >= shot_s ? "Diffuse" : "Specular", std::max(pct(shot_d, shot), pct(shot_s, shot)));

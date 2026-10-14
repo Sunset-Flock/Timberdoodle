@@ -9,7 +9,7 @@
 #include "rtgi_hash_grid_shared.hlsl"
 #include "shader_lib/debug.glsl"
 
-[[vk::push_constant]] RtgiUpscaleDiffusePush rtgi_upscale_diffuse_push;
+[[vk::push_constant]] RtgiUpscalePush rtgi_upscale_push;
 
 // Hack: where the specular upscale finds almost no matching half-res taps (total weight -> 0), the reflection
 // falls back to a LENIENT blend of the same 9 taps: tent x view-space distance falloff x a very soft detail
@@ -29,7 +29,7 @@
 // blends linearly towards the pixel's own hash grid cell, fully the cell at no match.
 #define RTGI_UPSCALE_HASH_GRID_FALLBACK_WEIGHT 0.1f
 
-#define GS_PRELOAD_WIDTH (RTGI_UPSCALE_DIFFUSE_X/2+2)
+#define GS_PRELOAD_WIDTH (RTGI_UPSCALE_X/2+2)
 groupshared float4 gs_half_diffuse_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float2 gs_half_diffuse2_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
@@ -39,10 +39,10 @@ groupshared float4 gs_half_specular_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_specular_normal_roughness[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH]; // .xyz specular normal, .w roughness
 
 [shader("compute")]
-[numthreads(RTGI_UPSCALE_DIFFUSE_X,RTGI_UPSCALE_DIFFUSE_Y,1)]
-func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)
+[numthreads(RTGI_UPSCALE_X,RTGI_UPSCALE_Y,1)]
+func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)
 {
-    let push = rtgi_upscale_diffuse_push;
+    let push = rtgi_upscale_push;
     let rtgi_settings = push.attach.globals.rtgi_settings;
 
     // Convergence statistics: the accumulate pass (before this one) summed them.
@@ -96,7 +96,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             Texture2D<float> half_res_depth_tex = push.attach.view_cam_half_res_depth.get();
             Texture2D<uint> half_res_face_normal_tex = push.attach.view_cam_half_res_face_normals.get();
 
-            const int2 group_base_half_index = (group_id * int(RTGI_UPSCALE_DIFFUSE_X/2)) - 1;
+            const int2 group_base_half_index = (group_id * int(RTGI_UPSCALE_X/2)) - 1;
             const int2 preload_index = in_group_id;
             if (all(preload_index < GS_PRELOAD_WIDTH))
             {

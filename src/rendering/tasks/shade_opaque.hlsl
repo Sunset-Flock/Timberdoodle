@@ -16,6 +16,13 @@
 #include "shader_lib/lights.hlsl"
 #include "../path_trace/kajiya/math_const.hlsl"
 
+// Two variants of this shader: the normal one strips every debug view, SHADE_OPAQUE_DEBUG 1
+// (shade_opaque_debug_pipeline_compile_info) has all of them. shade_opaque_callback picks the debug variant whenever a
+// debug view (or light influence marking) is active.
+#ifndef SHADE_OPAQUE_DEBUG
+#define SHADE_OPAQUE_DEBUG 0
+#endif
+
 static int debug_mark_light_influence_counter = 0;
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
@@ -54,6 +61,7 @@ float map(float value, float min1, float max1, float min2, float max2)
     return value;
 }
 
+#if SHADE_OPAQUE_DEBUG
 float3 get_vsm_spot_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     const uint spot_light_index = max(AT.globals.vsm_settings.force_spot_light_idx, 0);
@@ -195,6 +203,7 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
     }
     return color;
 }
+#endif // SHADE_OPAQUE_DEBUG
 
 float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position, float3 page_camera_position, float sun_norm_dot, float2 screen_uv, float3 normal)
 {
@@ -402,7 +411,8 @@ float3 point_lights_contribution(
                 pixel_footprint,
                 point_norm_dot);
 #endif
-                
+
+#if SHADE_OPAQUE_DEBUG
             if (light_settings.debug_mark_influence && 
                 light_settings.debug_draw_point_influence && 
                 (light_settings.selected_debug_point_light == -1 || 
@@ -411,6 +421,7 @@ float3 point_lights_contribution(
             {
                 debug_mark_light_influence_counter += 1;
             }
+#endif
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -482,7 +493,8 @@ float3 spot_lights_contribution(
                 light_index, 
                 pixel_footprint);
 #endif
-                
+
+#if SHADE_OPAQUE_DEBUG
             if (light_settings.debug_mark_influence && 
                 light_settings.debug_draw_spot_influence && 
                 (light_settings.selected_debug_spot_light == -1 || 
@@ -491,6 +503,7 @@ float3 spot_lights_contribution(
             {
                 debug_mark_light_influence_counter += 1;
             }
+#endif
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -660,7 +673,9 @@ void entry_main_cs(
         index = index - in_group_id + resorted_in_group_id;
     }
 
+#if SHADE_OPAQUE_DEBUG
     let clk_start = clockARB();
+#endif
 
     uint triangle_id = INVALID_TRIANGLE_ID;
     if(all(lessThan(index, AT.globals->settings.render_target_size)))
@@ -917,9 +932,10 @@ void entry_main_cs(
         let shaded_color = diffuse_color * M_FRAC_1_PI * lighting + sun_specular + indirect_specular + material.emissive_color;
 
 
-        uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
         output_value.rgb = shaded_color;
+#if SHADE_OPAQUE_DEBUG
         {
+            uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
             RWTexture2D<float4> dbg = RWTexture2D<float4>::get(AT.debug_image);
             const int dbg_slot = AT.globals->settings.debug_visualization_tile;
             switch(AT.globals->settings.debug_draw_mode)
@@ -1240,6 +1256,7 @@ void entry_main_cs(
                     break;
             }
         }
+#endif // SHADE_OPAQUE_DEBUG
         
         // pgi based reflections
         if (false)
@@ -1258,11 +1275,13 @@ void entry_main_cs(
             );
         }
         
+#if SHADE_OPAQUE_DEBUG
         if (debug_mark_light_influence_counter && AT.globals.light_settings.debug_mark_influence)
         {
             float3 color = Heatmap(float(debug_mark_light_influence_counter) * rcp(31.0f));
             output_value.rgb = lerp(color, output_value.rgb * color, 0.75f);
         }
+#endif
     }
     else 
     {
@@ -1289,12 +1308,14 @@ void entry_main_cs(
         debug_value.xyz = atmosphere_direct_illuminnace;
     }
         
+#if SHADE_OPAQUE_DEBUG
     if (push.attachments.attachments.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS)
     {
         let clk_end = clockARB();
         const uint clocks = uint(clk_end) - uint(clk_start);
         write_debug_image(RWTexture2D<float4>::get(AT.debug_image), AT.globals->settings.debug_visualization_tile, index, float4(Heatmap(clocks * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f), debug_alpha));
     }
+#endif
 
     const float exposure = deref(AT.globals).exposure;
     float3 exposed_color = output_value.rgb * exposure;

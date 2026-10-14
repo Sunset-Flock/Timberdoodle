@@ -10,7 +10,7 @@
 // The estimated quantity is the VNDF-weighted mean incoming radiance (the pre-filtered radiance of the split
 // sum). Fresnel / visibility are applied at composite time via brdf_env_approx, so plain VNDF samples carry
 // weight 1.
-// #included by rtgi_trace_diffuse.hlsl.
+// #included by rtgi_trace.hlsl.
 
 #include "shader_lib/brdf.hlsl"
 #include "rtgi_guided_sampling.hlsl"

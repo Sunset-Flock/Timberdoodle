@@ -45,6 +45,11 @@ struct ReadbackValues
     daxa_u32 rtgi_requested_specular_rays;
     daxa_u32 rtgi_shot_diffuse_rays;
     daxa_u32 rtgi_shot_specular_rays;
+    // Written by the RTGI split trace / shade passes (group 0 of each): rays shaded by the sharp (full shading) and
+    // coarse (PGI radiance / sky) pass this frame. 0 when split trace / shade is off.
+    daxa_u32 rtgi_shade_sharp_rays;
+    daxa_u32 rtgi_shade_coarse_rays;
+    daxa_u32 rtgi_shade_miss_rays;
     // Written by the RTGI upscale from the ray counters: summed per-pixel convergence (fixed point, RTGI_CONVERGENCE_SCALE)
     // and the number of geometry pixels it was summed over.
     daxa_u32 rtgi_convergence_diffuse_sum;

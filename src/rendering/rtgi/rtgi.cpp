@@ -1,8 +1,9 @@
 #include "rtgi.hpp"
 
-#include "rtgi_trace_diffuse.inl"
+#include "rtgi_trace.inl"
 #include "rtgi_distribute_rays.inl"
 #include "rtgi_blend_rays.inl"
+#include "rtgi_shade.inl"
 #include "rtgi_guide_resample.inl"
 
 auto rtgi_default_settings() -> RtgiSettings
@@ -52,6 +53,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .min_ray_budget                       = 0.125f,
         .max_rays_per_pixel                   = 12,
         .use_repacked_ray_dispatch            = 1,
+        .split_coarse_wide_specular           = 1,
         .use_ray_redistribution               = 1,
         .trace_use_stbn                       = 0,
         .pioneer_guiding_enabled               = 1,
@@ -105,20 +107,20 @@ auto rtgi_default_settings() -> RtgiSettings
 /// === Callbacks ===
 ///
 
-struct RtgiTraceDiffuseCallbackInfo
+struct RtgiTraceCallbackInfo
 {
     bool debug_primary_trace = false;
 };
-inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, RtgiTraceDiffuseCallbackInfo const & info)
+inline void rtgi_trace_callback(daxa::TaskInterface ti, RenderContext * render_context, RtgiTraceCallbackInfo const & info)
 {
-    auto const & AT = RtgiTraceDiffuseH::Info::AT;
+    auto const & AT = RtgiTraceH::Info::AT;
     auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"RTGI", "TRACE">());
-    RtgiTraceDiffusePush push = {
+    RtgiTracePush push = {
         .debug_primary_trace = static_cast<daxa::b32>(info.debug_primary_trace),
     };
-    push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+    push.attach = ti.allocator->allocate_fill(RtgiTraceH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
     auto const & trace_target = ti.info(AT.perceptual_rgb_shortness).value();
-    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
+    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_compile_info().name);
     ti.recorder.set_pipeline(*rt_pipeline.pipeline);
     ti.recorder.push_constant(push);
     ti.recorder.trace_rays({
@@ -129,19 +131,16 @@ inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * 
     });
 }
 
-// Pioneer trace, gated by rtgi_settings.pioneer_guiding_enabled -- see pioneer_ray_gen in rtgi_trace_diffuse.hlsl.
-// Dispatched at the sparse pioneer grid size (pioneer_hit_y's extent), sharing the SAME ray tracing
-// pipeline as the classic/repacked trace (is_pioneer_pass selects the raygen body).
+// Pioneer trace, gated by rtgi_settings.pioneer_guiding_enabled -- see ray_gen_pioneer in rtgi_trace.hlsl.
+// Dispatched at the sparse pioneer grid size (pioneer_hit_y's extent).
 inline void rtgi_trace_pioneer_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = RtgiTraceDiffuseH::Info::AT;
+    auto const & AT = RtgiTraceH::Info::AT;
     auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"RTGI", "GUIDE_PIONEER_TRACE">());
-    RtgiTraceDiffusePush push = {
-        .is_pioneer_pass = true,
-    };
-    push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+    RtgiTracePush push = {};
+    push.attach = ti.allocator->allocate_fill(RtgiTraceH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
     auto const & pioneer_target = ti.info(AT.pioneer_hit_y).value();
-    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
+    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_pioneer_compile_info().name);
     ti.recorder.set_pipeline(*rt_pipeline.pipeline);
     ti.recorder.push_constant(push);
     ti.recorder.trace_rays({
@@ -195,7 +194,7 @@ inline void rtgi_pre_filter_prepare_callback(daxa::TaskInterface ti, RenderConte
     dispatch_image_relative(RtgiPreFilterPush(), ti, render_context, AT.perceptual_rgb_shortness, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_FILTER">(), rtgi_pre_filter_prepare_compile_info().name);
 }
 
-inline void rtgi_pre_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
+inline void rtgi_pre_blur_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
 {
     auto const & AT = RtgiPreBlurH::Info::AT;
     u32 const render_time = [&]() -> u32 {
@@ -210,7 +209,7 @@ inline void rtgi_pre_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext
     dispatch_image_relative(RtgiPreBlurPush{.iteration = pass}, ti, render_context, AT.view_cam_half_res_depth, RTGI_PRE_BLUR_X, render_time, rtgi_pre_blur_compile_info().name);
 }
 
-inline void rtgi_post_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
+inline void rtgi_post_blur_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
 {
     auto const & AT = RtgiPostBlurH::Info::AT;
     u32 const render_time = pass == 0 ? RenderTimes::index<"RTGI", "POST_BLUR_HORIZONTAL">() : RenderTimes::index<"RTGI", "POST_BLUR_VERTICAL">();
@@ -256,10 +255,10 @@ inline void rtgi_atrous_post_blur_callback(daxa::TaskInterface ti, RenderContext
     dispatch_image_relative(RtgiAtrousPostBlurPush{.step_size = step_size}, ti, render_context, AT.view_cam_half_res_depth, RTGI_POST_BLUR_X, render_time, rtgi_atrous_post_blur_compile_info().name);
 }
 
-inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)
+inline void rtgi_upscale_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = RtgiUpscaleDiffuseH::Info::AT;
-    dispatch_image_relative(RtgiUpscaleDiffusePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE">(), rtgi_upscale_diffuse_compile_info().name);
+    auto const & AT = RtgiUpscaleH::Info::AT;
+    dispatch_image_relative(RtgiUpscalePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_X, RenderTimes::index<"RTGI", "UPSCALE">(), rtgi_upscale_compile_info().name);
 }
 
 inline void rtgi_distribute_rays_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -268,28 +267,48 @@ inline void rtgi_distribute_rays_callback(daxa::TaskInterface ti, RenderContext 
     dispatch_image_relative(RtgiDistributeRaysPush(), ti, render_context, AT.pixel_ray_alloc, RTGI_DISTRIBUTE_RAYS_X, RenderTimes::index<"RTGI", "DISTRIBUTE_RAYS">(), rtgi_distribute_rays_compile_info().name);
 }
 
-inline void rtgi_trace_from_list_callback(daxa::TaskInterface ti, RenderContext * render_context)
+// Repacked path trace (split trace / shade): flat ray list, slim pipeline that only records + bins the hits. Dispatched
+// as (128, 1, ceil(capacity / 128)), the shader computes ray_index = z * 128 + x and guards on the ray list count.
+inline void rtgi_trace_split_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = RtgiTraceDiffuseH::Info::AT;
-    // Report under the shared "TRACE" slot so the trace render time is populated in both the classic
-    // and repacked paths (allocate/blend are timed separately under their own slots).
+    auto const & AT = RtgiTraceH::Info::AT;
     auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"RTGI", "TRACE">());
-    RtgiTraceDiffusePush push = {};
-    push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
-    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
+    RtgiTracePush push = {};
+    push.attach = ti.allocator->allocate_fill(RtgiTraceH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_split_compile_info().name);
     ti.recorder.set_pipeline(*rt_pipeline.pipeline);
     ti.recorder.push_constant(push);
     auto const & trace_target = ti.info(AT.perceptual_rgb_shortness).value();
-    // Must cover the whole oversized ray list capacity (base + extras), not just the pixel count.
     const u32 ray_list_capacity = trace_target.size.x * trace_target.size.y * RTGI_RAY_LIST_CAPACITY_MUL;
-    // Dispatch as (128, 1, ceil(capacity/128)): shader computes ray_index = z*128 + x.
-    // Over-dispatch is fine; the shader guards on ray_index >= ray_list_count.
     ti.recorder.trace_rays({
         .width  = 128,
         .height = 1,
         .depth  = round_up_div(ray_list_capacity, 128u),
         .shader_binding_table = rt_pipeline.sbt,
     });
+}
+
+// Split trace / shade: one specialized compute shade pipeline per shade list, dispatched indirectly (sizes written by
+// the trace). All in one task with no barrier between them (they write disjoint ray_result entries), so they overlap;
+// a single timer spans them (separate timers would need a barrier to measure anything meaningful).
+inline void rtgi_shade_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiShadeH::Info::AT;
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"RTGI", "SHADE_HITS">());
+    RtgiShadePush push = {};
+    push.attach = ti.allocator->allocate_fill(RtgiShadeH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+    auto shade = [&](auto const & pipeline_name, u64 dispatch_offset)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pipeline_name));
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({
+            .indirect_buffer = ti.id(AT.shade_counters),
+            .offset = dispatch_offset,
+        });
+    };
+    shade(rtgi_shade_sharp_compile_info().name, offsetof(RtgiShadeCounters, sharp_dispatch));
+    shade(rtgi_shade_coarse_compile_info().name, offsetof(RtgiShadeCounters, coarse_dispatch));
+    shade(rtgi_shade_miss_compile_info().name, offsetof(RtgiShadeCounters, miss_dispatch));
 }
 
 inline void rtgi_blend_rays_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -588,10 +607,32 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 
     info.tg.clear_buffer({.buffer = ray_counters_buffer, .name = "rtgi_ray_counters_clear"});
 
+    // Split trace / shade resources (repacked path only), null otherwise.
+    bool const use_repacked_ray_dispatch = info.render_context.render_data.rtgi_settings.use_repacked_ray_dispatch != 0;
+    daxa::TaskBufferView ray_hits_buffer = daxa::NullTaskBuffer;
+    daxa::TaskBufferView shade_list_buffer = daxa::NullTaskBuffer;
+    daxa::TaskBufferView shade_counters_buffer = daxa::NullTaskBuffer;
+    if (use_repacked_ray_dispatch)
+    {
+        ray_hits_buffer = info.tg.create_task_buffer({
+            .size = sizeof(RtgiRayHit) * ray_list_capacity,
+            .name = "rtgi_ray_hits",
+        });
+        shade_list_buffer = info.tg.create_task_buffer({
+            .size = sizeof(u32) * ray_list_capacity * 2, // [coarse -> ... <- sharp][miss -> ...]
+            .name = "rtgi_shade_list",
+        });
+        shade_counters_buffer = info.tg.create_task_buffer({
+            .size = sizeof(RtgiShadeCounters),
+            .name = "rtgi_shade_counters",
+        });
+        info.tg.clear_buffer({.buffer = shade_counters_buffer, .name = "rtgi_shade_counters_clear"});
+    }
+
     if (pioneer_guiding_enabled)
     {
-        info.tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>("RtgiGuidePioneerTrace")
-            .head_views(RtgiTraceDiffuseH::Info::Views{
+        info.tg.add_task(daxa::HeadTask<RtgiTraceH::Info>("RtgiGuidePioneerTrace")
+            .head_views(RtgiTraceH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
@@ -625,6 +666,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
                 .ray_impact = ray_impact_image,
                 .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
+                .ray_hits = daxa::NullTaskBuffer,
+                .shade_list = daxa::NullTaskBuffer,
+                .shade_counters = daxa::NullTaskBuffer,
             })
             .executes(rtgi_trace_pioneer_callback, &info.render_context));
 
@@ -715,13 +759,11 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         })
         .executes(rtgi_temporal_reproject_callback, &info.render_context));
 
-    bool const use_repacked_ray_dispatch = info.render_context.render_data.rtgi_settings.use_repacked_ray_dispatch != 0;
-
     if (!use_repacked_ray_dispatch)
     {
         // Classic path: one trace dispatch per pixel writes all trace outputs directly.
-        info.tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>()
-                .head_views(RtgiTraceDiffuseH::Info::Views{
+        info.tg.add_task(daxa::HeadTask<RtgiTraceH::Info>()
+                .head_views(RtgiTraceH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
                     .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
@@ -755,8 +797,11 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
                     .ray_impact = ray_impact_image,
                     .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
+                    .ray_hits = daxa::NullTaskBuffer,
+                    .shade_list = daxa::NullTaskBuffer,
+                    .shade_counters = daxa::NullTaskBuffer,
                 })
-                .executes(rtgi_trace_diffuse_callback, &info.render_context, RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = false}));
+                .executes(rtgi_trace_callback, &info.render_context, RtgiTraceCallbackInfo{.debug_primary_trace = false}));
     }
     else
     {
@@ -780,8 +825,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .executes(rtgi_distribute_rays_callback, &info.render_context));
 
         // == Trace from ray list ===============================================
-        info.tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>("RtgiTraceFromList")
-            .head_views(RtgiTraceDiffuseH::Info::Views{
+        info.tg.add_task(daxa::HeadTask<RtgiTraceH::Info>("RtgiTraceFromList")
+            .head_views(RtgiTraceH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
@@ -815,8 +860,36 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
                 .ray_impact = ray_impact_image,
                 .pioneer_guide_hit_y = pioneer_guide_hit_y_image,
+                .ray_hits = ray_hits_buffer,
+                .shade_list = shade_list_buffer,
+                .shade_counters = shade_counters_buffer,
             })
-            .executes(rtgi_trace_from_list_callback, &info.render_context));
+            .executes(rtgi_trace_split_callback, &info.render_context));
+
+        // == Shade the recorded rays (sharp / coarse / miss lists) ===============
+        info.tg.add_task(daxa::HeadTask<RtgiShadeH::Info>("RtgiShade")
+            .head_views(RtgiShadeH::Info::Views{
+                .globals = info.render_context.tgpu_render_data.view(),
+                .shade_counters = shade_counters_buffer,
+                .shade_list = shade_list_buffer,
+                .ray_hits = ray_hits_buffer,
+                .ray_result = ray_result_buffer,
+                .mesh_instances = info.mesh_instances,
+                .sky = info.sky,
+                .sky_transmittance = info.sky_transmittance,
+                .light_mask_volume = info.light_mask_volume,
+                .pgi_color = info.pgi_color,
+                .pgi_visibility = info.pgi_visibility,
+                .pgi_info = info.pgi_info,
+                .pgi_requests = info.pgi_requests,
+                .tlas = info.tlas,
+                .vsm_globals = info.vsm_globals,
+                .vsm_point_lights = info.vsm_point_lights,
+                .vsm_spot_lights = info.vsm_spot_lights,
+                .vsm_memory_block = info.vsm_memory_block,
+                .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+            })
+            .executes(rtgi_shade_callback, &info.render_context));
 
         // == Blend rays into trace outputs =====================================
         info.tg.add_task(daxa::HeadTask<RtgiBlendRaysH::Info>()
@@ -947,7 +1020,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .specular_firefly_factor_image = specular_firefly_factor_image,
                         .specular_ray_count_image = specular_ray_count_image,
                     })
-                    .executes(rtgi_pre_blur_diffuse_callback, &info.render_context, i));
+                    .executes(rtgi_pre_blur_callback, &info.render_context, i));
             src_diffuse = dst_diffuse;
             src_diffuse2 = dst_diffuse2;
             src_specular = dst_specular;
@@ -1100,7 +1173,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_specular_blurred = rtgi_post_blur_pass0_specular_image,
                         .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                     })
-                    .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
+                    .executes(rtgi_post_blur_callback, &info.render_context, 0u));
 
             rtgi_post_blur_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse_image");
             rtgi_post_blur_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse2_image");
@@ -1123,7 +1196,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_specular_blurred = rtgi_post_blur_specular_image,
                         .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                     })
-                    .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
+                    .executes(rtgi_post_blur_callback, &info.render_context, 1u));
         }
         else
         {
@@ -1183,8 +1256,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     auto resolved_per_pixel_diffuse = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "resolved_per_pixel_diffuse");
     auto resolved_per_pixel_specular = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "resolved_per_pixel_specular");
 
-    info.tg.add_task(daxa::HeadTask<RtgiUpscaleDiffuseH::Info>()
-            .head_views(RtgiUpscaleDiffuseH::Info::Views{
+    info.tg.add_task(daxa::HeadTask<RtgiUpscaleH::Info>()
+            .head_views(RtgiUpscaleH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
     
@@ -1204,7 +1277,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .ray_counters = ray_counters_buffer,
                 .hash_grid = hash_grid_buffer,
             })
-            .executes(rtgi_upscale_diffuse_callback, &info.render_context));
+            .executes(rtgi_upscale_callback, &info.render_context));
 
     return TasksRtgiMainResult{
         .opaque_diffuse = resolved_per_pixel_diffuse,

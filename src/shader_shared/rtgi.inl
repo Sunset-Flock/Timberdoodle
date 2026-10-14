@@ -79,6 +79,13 @@ struct RtgiSettings
     // (reproject demand -> allocate -> trace-from-list -> blend). Only one path runs per frame.
     daxa_i32 use_repacked_ray_dispatch;
 
+    // The repacked path always traces split: a slim trace pipeline (no shading code, minimal payload) only records the
+    // hit (rtgi_ray_hits) and bins it into a SHARP list (specular hits: full material + light shading), a COARSE list
+    // (diffuse hits: PGI radiance only) or the MISS list (sky); one specialized compute shade pass per list,
+    // dispatched indirectly. split_coarse_wide_specular: specular hits whose GGX cone footprint at the hit is at least
+    // the PGI probe spacing there are shaded coarse (PGI radiance) instead of sharp. See rtgi_split_hit_is_sharp.
+    daxa_i32 split_coarse_wide_specular;
+
     // 1 = each tile's ray budget is proportional to its demand (disoccluded tiles get more rays).
     // 0 = every tile gets the same fixed budget regardless of demand (uniform ray rate per tile).
     daxa_i32 use_ray_redistribution;
@@ -100,7 +107,7 @@ struct RtgiSettings
     daxa_f32 guide_concentration;
 
 
-    // Max ray length (in meters/world units) for the spatial-pretrace pioneer rays (pioneer_ray_gen). The
+    // Max ray length (in meters/world units) for the spatial-pretrace pioneer rays (ray_gen_pioneer). The
     // pioneer trace only needs to find NEARBY bounce lighting to build a useful direction guide -- unlike
     // the main trace's effectively-unbounded rays, letting a pioneer ray travel arbitrarily far just
     // spends its budget on a direction irrelevant to the guided pixel's local neighborhood. A plain value
@@ -256,6 +263,37 @@ struct RtgiRayResult
     daxa_f32vec3 radiance;
     daxa_f32 t;             // raw ray hit distance; the blend pass converts it to shortness [0,1] per ray
     daxa_u32 packed_dir;    // octahedral-packed sample direction (for directional SH in the blend pass)
+};
+
+// Split trace / shade (repacked ray-list path): the slim trace records the hit of ray-list entry i in
+// rtgi_ray_hits[i]; the shade passes reconstruct the hit point from it. ray_result[i] meanwhile holds .t, .packed_dir
+// and the ray's sampling weight in .radiance.x; the shade pass overwrites .radiance with the final value.
+#define RTGI_RAY_HIT_MISS 0xFFFFFFFFu // instance_id of a ray that hit nothing (shaded as sky)
+struct RtgiRayHit
+{
+    daxa_u32 instance_id; // TLAS custom instance index (= mesh instance index), RTGI_RAY_HIT_MISS on miss
+    daxa_u32 primitive_index; // no geometry index: one geometry per BLAS (rt_get_triangle_geo ignores it)
+    daxa_f32vec2 barycentrics;
+};
+
+// Shade work lists of the split trace / shade mode. The trace appends ray-list indices. rtgi_shade_list is two ray
+// lists long: in the first half coarse hits grow from the FRONT and sharp hits from the BACK (index capacity - 1 - k),
+// the second half holds the misses. See rtgi_shade_list_slot (rtgi_shared.hlsl).
+// The dispatches are (min(groups, RTGI_SHADE_DISPATCH_X_MAX), ceil(groups / RTGI_SHADE_DISPATCH_X_MAX), 1),
+// grown with atomic max by the trace (z is set to 1 by ray 0).
+#define RTGI_SHADE_HITS_X 64
+#define RTGI_SHADE_DISPATCH_X_MAX 4096
+#define RTGI_SHADE_COARSE 0u
+#define RTGI_SHADE_SHARP 1u
+#define RTGI_SHADE_MISS 2u
+struct RtgiShadeCounters
+{
+    DispatchIndirectStruct sharp_dispatch;
+    DispatchIndirectStruct coarse_dispatch;
+    DispatchIndirectStruct miss_dispatch;
+    daxa_u32 sharp_count;
+    daxa_u32 coarse_count;
+    daxa_u32 miss_count;
 };
 
 // Per-pixel ray-list offset written by the allocate pass, read by the blend pass. The ray count is

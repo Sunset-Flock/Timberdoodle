@@ -96,6 +96,7 @@ namespace RenderTimes
                 "TEMPORAL_REPROJECT",
                 "DISTRIBUTE_RAYS",
                 "TRACE",
+                "SHADE_HITS",
                 "BLEND_RAYS",
                 "PRE_FILTER",
                 "PRE_BLUR0",
