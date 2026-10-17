@@ -5,6 +5,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_internal.h>
 #include <imgui.h>
+#include <implot.h>
 
 #include "../window.hpp"
 #include "../scene/scene.hpp"
@@ -81,6 +82,41 @@ struct RenderTimesHistory
     i32 mean_sample_count = {};
 };
 
+// RT Lab convergence measurement analytics UI state (ui.cpp rt_lab_measure_analytics).
+struct RtLabMeasureUi
+{
+    i32 metric = 0; // RT_LAB_MEASURE_METRIC_*
+    f32 threshold_percent = 2.0f;
+    i32 slice_frame = 0; // 0 = last shown frame
+    i32 view_max_frames = 0; // viewer only shows the first N frames, 0 = all
+    std::array<char, 128> save_name = {};
+    bool save_failed = false;
+    i32 delete_index = -1; // result the delete popup asks about
+    bool delete_requested = false;
+    bool delete_failed = false;
+    i32 rename_index = -1; // result the rename popup edits
+    bool rename_requested = false;
+    std::array<char, 128> rename_name = {};
+    bool rename_failed = false;
+    // Heatmap options.
+    std::array<f32, 2> overlay_above_percent = {10.0f, 0.0f}; // "> X % of tiles" lines, 0 = off
+    i32 heatmap_color_mode = 0; // 0 = log10(1 + tiles), 1 = % of tiles per frame
+    i32 heatmap_colormap = ImPlotColormap_Viridis;
+    bool show_thresholds = false;
+    bool show_overlay_lines = true;
+    bool fit_y_to_data = true;
+    f32 heatmap_height = 400.0f;
+    // Heatmap cache, rebuilt when the measurement, the metric or the color mode changes.
+    u32 heatmap_generation = 0;
+    i32 heatmap_metric = -1;
+    i32 heatmap_built_color_mode = -1;
+    i32 heatmap_frames = -1;
+    f32 heatmap_max = 0.0f;
+    i32 heatmap_lowest_row = 0;  // value rows (0 = lowest values) holding any tile
+    i32 heatmap_highest_row = 0;
+    std::vector<f32> heatmap = {};
+};
+
 struct UIEngine
 {
     public:
@@ -92,6 +128,7 @@ struct UIEngine
         } vsm_windows;
         bool convert_vdb_window = false;
         bool renderer_settings = true;
+        bool widget_rt_lab = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_camera_path_editor = false;
@@ -114,6 +151,9 @@ struct UIEngine
         bool lights_mark_volume = false;
         i32 pgi_debug_visualization = {};
         i32 rtgi_debug_visualization = {};
+        i32 rt_lab_debug_visualization = {};
+        bool rt_lab_histogram_log_scale = false;
+        RtLabMeasureUi rt_lab_measure_ui = {};
         i32 lights_debug_visualization = {};
         i32 visbuffer_debug_visualization = {};
         i32 vsm_debug_visualization = {};
@@ -155,6 +195,7 @@ struct UIEngine
         std::vector<daxa::ImageId> icons = {};
         void ui_scene_graph(Scene const & scene);
         void ui_renderer_settings(RenderContext & render_context, ApplicationState & app_state);
+        void ui_rt_lab(RenderContext & render_context, ApplicationState & app_state);
         void ui_vsm_textures(RenderContext & render_context);
         void ui_convert_vdb_windw(ApplicationState & app_state, ThreadPool * _threadpool);
 

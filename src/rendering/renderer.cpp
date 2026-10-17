@@ -14,6 +14,7 @@
 #include "path_trace/path_trace.inl"
 #include "path_trace/kajiya/brdf_fg.inl"
 #include "rtgi/rtgi.hpp"
+#include "rtgi/rt_lab/rt_lab.hpp"
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
@@ -69,6 +70,7 @@ Renderer::Renderer(
     : render_context{std::make_unique<RenderContext>(gpu_context)}, window{window}, gpu_context{gpu_context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
 {
     render_context->render_data.rtgi_settings = rtgi_default_settings();
+    rt_lab_init(*render_context);
     meshlet_instances = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     general_readback_buffer = gpu_context->device.create_buffer({
@@ -120,6 +122,7 @@ Renderer::Renderer(
 Renderer::~Renderer()
 {
     finish_shader_hotload();
+    rt_lab_destroy(*render_context);
     for (auto & tbuffer : buffers)
     {
         if (!tbuffer.id().is_empty())
@@ -234,6 +237,25 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_shade_miss_compile_info()},
         {rtgi_guide_resample_horizontal_compile_info()},
         {rtgi_guide_resample_vertical_compile_info()},
+        {rt_lab_gradient_trace_compile_info()},
+        {rt_lab_gradient_blur_compile_info()},
+        {rt_lab_demand_compile_info()},
+        {rt_lab_distribute_compile_info()},
+        {rt_lab_gather_compile_info()},
+        {rt_lab_ray_filter_compile_info()},
+        {rt_lab_trace_compile_info()},
+        {rt_lab_anti_lag_downsample_compile_info()},
+        {rt_lab_anti_lag_blur_compile_info()},
+        {rt_lab_temporal_compile_info()},
+        {rt_lab_blur_compile_info()},
+        {rt_lab_atrous_compile_info()},
+        {rt_lab_coarse_compile_info()},
+        {rt_lab_resolve_compile_info()},
+        {rt_lab_convergence_capture_compile_info()},
+        {rt_lab_convergence_analyze_compile_info()},
+        {rt_lab_measure_accumulate_compile_info()},
+        {rt_lab_measure_store_compile_info()},
+        {rt_lab_measure_lag_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
@@ -557,6 +579,9 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
 auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 {
     using namespace daxa;
+    // Every graph build records the post stabilization state, also when the RT Lab is not part of the graph: otherwise
+    // rt_lab_frame_update sees enabled != built forever and forces a rebuild every frame.
+    render_context->rt_lab.post_stabilization_built = render_context->rt_lab.post_stabilization_enabled;
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
@@ -1038,7 +1063,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.vsm_memory_block = vsm_state.memory_block.view();
         info.vsm_point_spot_page_table = vsm_point_spot_page_table_view;
 
-        auto rtgi_result = tasks_rtgi_main(info);
+        // Master switch: the experimental RT Lab path replaces the RTGI denoiser.
+        auto rtgi_result = render_context->render_data.rt_lab_settings.enabled ? tasks_rt_lab_main(info) : tasks_rtgi_main(info);
         rtgi_per_pixel_diffuse = rtgi_result.opaque_diffuse;
         rtgi_per_pixel_specular = rtgi_result.opaque_specular;
     }
@@ -1381,6 +1407,8 @@ auto Renderer::prepare_frame(
         s.enable_reference_path_trace    != ps.enable_reference_path_trace    ||
         s.enable_separate_compute_meshlet_culling != ps.enable_separate_compute_meshlet_culling ||
         s.enable_prefix_sum_work_expansion        != ps.enable_prefix_sum_work_expansion;
+    // Applies the active RT Lab preset + convergence estimate state to render_data BEFORE the change checks below.
+    bool const rt_lab_force_rebuild = rt_lab_frame_update(*render_context);
     bool const rtgi_settings_changed =
         render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled ||
         render_context->render_data.rtgi_settings.pre_blur_enabled != render_context->prev_rtgi_settings.pre_blur_enabled ||
@@ -1390,7 +1418,9 @@ auto Renderer::prepare_frame(
         render_context->render_data.rtgi_settings.post_blur_atrous_iterations != render_context->prev_rtgi_settings.post_blur_atrous_iterations ||
         render_context->render_data.rtgi_settings.use_repacked_ray_dispatch != render_context->prev_rtgi_settings.use_repacked_ray_dispatch ||
         render_context->render_data.rtgi_settings.pioneer_guiding_enabled != render_context->prev_rtgi_settings.pioneer_guiding_enabled ||
-        render_context->render_data.rtgi_settings.hash_grid_enabled != render_context->prev_rtgi_settings.hash_grid_enabled;
+        render_context->render_data.rtgi_settings.hash_grid_enabled != render_context->prev_rtgi_settings.hash_grid_enabled ||
+        rt_lab_settings_changed(render_context->render_data.rt_lab_settings, render_context->prev_rt_lab_settings) ||
+        rt_lab_force_rebuild;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
@@ -1545,6 +1575,7 @@ auto Renderer::prepare_frame(
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
     render_context->prev_light_settings = render_context->render_data.light_settings;
     render_context->prev_rtgi_settings = render_context->render_data.rtgi_settings;
+    render_context->prev_rt_lab_settings = render_context->render_data.rt_lab_settings;
     render_context->prev_volumetric_settings = render_context->render_data.volumetric_settings;
 
     // Write GPUScene

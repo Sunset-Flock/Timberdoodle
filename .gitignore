@@ -14,5 +14,9 @@ screenshots/
 src/rendering/rtgi/showcase_images/*
 CLAUDE.md
 perf_tests/
+# RT Lab convergence measurement results (saved from the RT Lab UI)
+rt_lab_results/
 # Per-machine GPU choice (written by the UI)
 settings/gpu.json
+# Programmed camera / sun moves (saved from the move panels)
+programmed_moves/

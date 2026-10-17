@@ -12,6 +12,7 @@
 #include "scene.inl"
 #include "lights.inl"
 #include "rtgi.inl"
+#include "../rendering/rtgi/rt_lab/rt_lab_settings.inl"
 
 struct GPUScene
 {
@@ -84,6 +85,7 @@ struct RenderGlobalData
     PostprocessSettings postprocess_settings;
     PGISettings pgi_settings;
     RtgiSettings rtgi_settings;
+    RtLabSettings rt_lab_settings;
     GlobalSamplers samplers;
 
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;

@@ -5,8 +5,28 @@
 #include "geometry_pipeline.inl"
 #include "shared.inl"
 
+// RT Lab convergence error estimate (rt_lab_convergence.hlsl): signed luminance difference histogram bins and the
+// fixed point scale of the error sums.
+#define RT_LAB_CONVERGENCE_HISTOGRAM_BINS 64
+#define RT_LAB_CONVERGENCE_FIXED_SCALE 16777216.0f // 2^24
+#define RT_LAB_CONVERGENCE_PREDICTION_CLAMP 10.0f // keeps the squared / product sums inside u64
+
 struct ReadbackValues
 {
+    // Written by the RT Lab convergence analysis every frame while a result exists. Fixed point
+    // (RT_LAB_CONVERGENCE_FIXED_SCALE) sums over geometry pixels of the squared error and of the positive / negative
+    // signed luminance difference (custom - progressive, exposed irradiance). FIRST in the struct: u64 alignment is
+    // then the same in C++ and in the shaders.
+    daxa_u64 rt_lab_convergence_squared_error_sum;
+    daxa_u64 rt_lab_convergence_positive_error_sum;
+    daxa_u64 rt_lab_convergence_negative_error_sum;
+    // Split history error prediction check: fixed point sums over pixels with a prediction p (Custom |A - B| / 2) and
+    // the actual error a (|Custom - Progressive| luminance), both clamped to RT_LAB_CONVERGENCE_PREDICTION_CLAMP.
+    daxa_u64 rt_lab_convergence_predicted_sum;
+    daxa_u64 rt_lab_convergence_predicted_squared_sum;
+    daxa_u64 rt_lab_convergence_actual_sum;
+    daxa_u64 rt_lab_convergence_actual_squared_sum;
+    daxa_u64 rt_lab_convergence_predicted_actual_sum;
     // Written by task/compute meshlet cull shader
     daxa_u32 first_pass_meshlet_count_pre_cull[PREPASS_DRAW_LIST_TYPE_COUNT];
     daxa_u32 first_pass_mesh_count_post_cull[PREPASS_DRAW_LIST_TYPE_COUNT];    
@@ -66,6 +86,14 @@ struct ReadbackValues
     daxa_u32 rtgi_hash_grid_live_cells;
     daxa_u32 rtgi_hash_grid_touched_cells;
     daxa_u32 rtgi_hash_grid_failed_queries;
+    // Written by the RT Lab convergence analysis: geometry pixels compared, signed luminance difference histogram.
+    daxa_u32 rt_lab_convergence_pixels;
+    daxa_u32 rt_lab_convergence_histogram[RT_LAB_CONVERGENCE_HISTOGRAM_BINS];
+    daxa_u32 rt_lab_convergence_below_range; // pixels with signed difference < -range (not in the histogram)
+    daxa_u32 rt_lab_convergence_above_range; // pixels with signed difference > range (not in the histogram)
+    daxa_f32 rt_lab_convergence_histogram_range; // the range the histogram was binned with
+    daxa_u32 rt_lab_convergence_predicted_pixels; // pixels with a split history error prediction
+    daxa_u32 rt_lab_convergence_step; // move estimate step the analysis compared (~0u = static estimate)
 
     // General debug values
     daxa_f32vec4 debug_value;

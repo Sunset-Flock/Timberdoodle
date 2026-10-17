@@ -399,6 +399,7 @@ float3 point_lights_contribution(
 #if RT
             shadowing = get_rt_point_shadow(light, pixel_footprint.center, world_normal, view_dir, screen_uv);
 #else
+            rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * AT.globals.frame_index); // VSM PCF rotation
             shadowing = get_vsm_point_shadow(
                 AT.globals,
                 AT.vsm_globals,
@@ -482,6 +483,7 @@ float3 spot_lights_contribution(
 #if RT
             shadowing = get_rt_spot_shadow(light, pixel_footprint.center, world_normal, view_dir, screen_uv);
 #else
+            rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * AT.globals.frame_index); // VSM PCF rotation
             shadowing = get_vsm_spot_shadow(
                 AT.globals,
                 AT.vsm_globals,

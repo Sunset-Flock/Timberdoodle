@@ -191,16 +191,17 @@ func rtgi_shade_sharp_hit(RtgiShadeContext ctx, TriangleGeometry tri_geo, Triang
     ).rgb;
 }
 
-// Coarse hit: PGI radiance with short range AO.
-func rtgi_shade_coarse_hit(RtgiShadeContext ctx, float3 position, float3 face_normal, float t) -> float3
+// Short range AO of a coarse hit: PGI can not be trusted at short hit ranges as its very leaky for fine details.
+func rtgi_coarse_hit_ao(float t, float ao_range) -> float
+{
+    const float relative_ao_t = min(ao_range, t) / ao_range;
+    return square(relative_ao_t);
+}
+
+// Coarse hit: PGI radiance without AO.
+func rtgi_shade_coarse_hit_pgi(RtgiShadeContext ctx, float3 position, float3 face_normal) -> float3
 {
     const float pgi_enabled = ctx.globals.pgi_settings.enabled ? 1.0f : 0.0f;
-    // PGI can not be trusted at short hit ranges as its very leaky for fine details.
-    // Apply strong range based AO to the PGI radiance.
-    const float indirect_ao_range = ctx.globals.rtgi_settings.shading_ao_range;
-    const float relative_ao_t = min(indirect_ao_range, t) / indirect_ao_range;
-    const float ambient_occlusion = square(relative_ao_t) * pgi_enabled;
-
     PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
     return pgi_sample_probe_volume(
         ctx.globals, &ctx.globals.pgi_settings, info,
@@ -209,7 +210,13 @@ func rtgi_shade_coarse_hit(RtgiShadeContext ctx, float3 position, float3 face_no
         ctx.pgi_visibility.get(),
         ctx.pgi_info.get(),
         ctx.pgi_requests.get()
-    ) * ambient_occlusion;
+    ) * pgi_enabled;
+}
+
+// Coarse hit: PGI radiance with strong range based AO.
+func rtgi_shade_coarse_hit(RtgiShadeContext ctx, float3 position, float3 face_normal, float t) -> float3
+{
+    return rtgi_shade_coarse_hit_pgi(ctx, position, face_normal) * rtgi_coarse_hit_ao(t, ctx.globals.rtgi_settings.shading_ao_range);
 }
 
 func rtgi_shade_miss(RtgiShadeContext ctx, float3 ray_direction) -> float3
@@ -233,7 +240,7 @@ func rtgi_closest_hit_coarse(RtgiShadeContext ctx, float2 barycentrics) -> float
 void closest_hit(inout RtgiRayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     let ctx = RTGI_SHADE_CONTEXT(rtgi_trace_push.attach);
-    if (payload.specular)
+    if (payload.specular || rtgi_trace_push.attach.globals.rtgi_settings.force_fine_hit_shading != 0)
     {
         TriangleGeometry tri_geo;
         TriangleGeometryPoint tri_point;

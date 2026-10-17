@@ -266,7 +266,31 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RTGI_HASH_GRID_RADIANCE 67
 #define DEBUG_DRAW_MODE_RTGI_HASH_GRID_SAMPLE_COUNT 68
 #define DEBUG_DRAW_MODE_RTGI_HASH_GRID_RADIANCE_JITTERED 69
-#define DEBUG_DRAW_MODE_COUNT 70
+// RT Lab convergence error estimate (full res, rt_lab_convergence.hlsl entry_rt_lab_convergence_analyze)
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_PROGRESSIVE 70
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_CUSTOM 71
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_DIFFERENCE 72
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_DIFFERENCE_SQUARED 73
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_RELATIVE_DIFFERENCE 74
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_PREDICTED_ERROR 75
+#define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_PREDICTION_RATIO 76
+// RT Lab temporal history length (rt_lab_temporal.hlsl) + split (A/B) history error estimate (rt_lab_resolve.hlsl)
+#define DEBUG_DRAW_MODE_RT_LAB_HISTORY_LENGTH 77
+#define DEBUG_DRAW_MODE_RT_LAB_VARIANCE 78
+#define DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT 79
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_BLEND 80
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_SAMPLE_COUNT 81
+#define DEBUG_DRAW_MODE_RT_LAB_SPLIT_ERROR 82
+#define DEBUG_DRAW_MODE_RT_LAB_SPLIT_RELATIVE_ERROR 83
+#define DEBUG_DRAW_MODE_RT_LAB_TEMPORAL_GRADIENT 84
+// RT Lab coarse temporal anti-lag: history length removed + coarse temporal mean, per pixel (rt_lab_temporal.hlsl);
+// frame mean + temporal / frame relative std at cell res (rt_lab_anti_lag.hlsl, vertical blur pass)
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG 85
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_MEAN 86
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_MEAN 87
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_RELATIVE_STD 88
+#define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_RELATIVE_STD 89
+#define DEBUG_DRAW_MODE_COUNT 90
 
 struct Settings
 {
@@ -367,9 +391,12 @@ struct PostprocessSettings
     daxa_f32 inv_luminance_log2_range;
     daxa_f32 auto_exposure_histogram_clip_lo;
     daxa_f32 auto_exposure_histogram_clip_hi;
+    // Darkest adaptation: dark scenes are brightened 1:1 up to ~this EV (soft knee at 3/4 of the way from the curve
+    // center), beyond it the applied EV saturates here (eval_exposure_compensation_curve_ev).
+    daxa_f32 auto_exposure_dark_limit_ev;
 #if defined(__cplusplus)
     PostprocessSettings()
-        : min_luminance_log2{std::log2(1.0f / 4096.0f)},
+        : min_luminance_log2{std::log2(1.0f / 65536.0f)},
           max_luminance_log2{std::log2(4096.0f)},
           luminance_adaption_tau{1.0f},
           exposure_bias{0.25f},
@@ -378,7 +405,8 @@ struct PostprocessSettings
           luminance_log2_range{max_luminance_log2 - min_luminance_log2},
           inv_luminance_log2_range{1.0f / (max_luminance_log2 - min_luminance_log2)},
           auto_exposure_histogram_clip_lo{0.6f},
-          auto_exposure_histogram_clip_hi{0.95f}
+          auto_exposure_histogram_clip_hi{0.95f},
+          auto_exposure_dark_limit_ev{10.0f}
     {
     }
 #endif

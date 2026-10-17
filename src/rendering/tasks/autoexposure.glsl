@@ -79,7 +79,7 @@ void auto_exposure_update(daxa_RWBufferPtr(AutoExposureHistogram) self, float ev
 	ev = clamp(ev, -16.0, 16.0);
 
 	deref(self).desired_ev = ev;
-	ev = eval_exposure_compensation_curve_ev(ev);
+	ev = eval_exposure_compensation_curve_ev(ev, deref(push.globals).postprocess_settings.auto_exposure_dark_limit_ev);
 
 	float dt = deref(push.globals).delta_time * deref(push.globals).postprocess_settings.luminance_adaption_tau;
 

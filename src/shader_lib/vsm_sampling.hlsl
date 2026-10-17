@@ -70,7 +70,8 @@ float get_vsm_point_shadow(
     const float filter_radius = 0.2;
     float sum = 0.0;
 
-    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * globals.frame_index);
+    // PCF filter rotation: rand() must be seeded by the CALLER (no seeding here, so callers that must reproduce the
+    // result, like the RT Lab temporal gradient re-trace, can).
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
@@ -243,7 +244,8 @@ float get_vsm_spot_shadow(
     const float filter_radius = 0.2;
     float sum = 0.0;
 
-    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * globals.frame_index);
+    // PCF filter rotation: rand() must be seeded by the CALLER (no seeding here, so callers that must reproduce the
+    // result, like the RT Lab temporal gradient re-trace, can).
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
@@ -295,6 +297,7 @@ float get_vsm_spot_shadow(
 }
 
 
+// PCF filter offset from rand(): seeded by the CALLER.
 float get_vsm_spot_shadow_coarse(
     RenderGlobalData* globals,
     VSMGlobals* vsm_globals,

@@ -11,6 +11,7 @@
 #include "../shader_shared/readback.inl"
 
 #include "../gpu_context.hpp"
+#include "rtgi/rt_lab/rt_lab_state.hpp"
 
 struct DynamicMesh
 {
@@ -23,7 +24,7 @@ namespace RenderTimes
 {
     static constexpr inline u32 INVALID_RENDER_TIME_INDEX = ~0u;
 
-    static constexpr inline u32 GROUP_SIZE_MAX = 30;
+    static constexpr inline u32 GROUP_SIZE_MAX = 40;
     static constexpr inline u32 GROUP_COUNT_MAX = 16;
     using TimingName = std::string_view;
     struct GroupNames
@@ -120,6 +121,45 @@ namespace RenderTimes
                 "POST_BLUR_ATROUS6",
                 "POST_BLUR_ATROUS7",
                 "UPSCALE",
+            },
+        },
+        GroupNames{
+            "RT_LAB",
+            {
+                "GRADIENT_TRACE",
+                "GRADIENT_BLUR_H",
+                "GRADIENT_BLUR_V",
+                "RAY_DEMAND",
+                "RAY_DISTRIBUTE",
+                "TRACE",
+                "RAY_GATHER",
+                "TEMPORAL",
+                "BLUR_HORIZONTAL",
+                "BLUR_VERTICAL",
+                "ATROUS0",
+                "ATROUS1",
+                "ATROUS2",
+                "ATROUS3",
+                "ATROUS4",
+                "ATROUS5",
+                "ATROUS6",
+                "ATROUS7",
+                "COARSE0",
+                "COARSE1",
+                "COARSE2",
+                "COARSE3",
+                "COARSE4",
+                "COARSE5",
+                "COARSE6",
+                "COARSE7",
+                "RESOLVE",
+                "CONVERGENCE_CAPTURE",
+                "CONVERGENCE_ANALYZE",
+                "MEASURE",
+                "ANTI_LAG_DOWNSAMPLE",
+                "ANTI_LAG_BLUR_H",
+                "ANTI_LAG_BLUR_V",
+                "RAY_FILTER",
             },
         },
         GroupNames{
@@ -657,6 +697,9 @@ struct RenderContext
     // Data
     ReadbackValues general_readback;
 
+    // RT Lab presets + convergence error estimate (rt_lab_state.hpp).
+    RtLabState rt_lab = {};
+
     // Auto lod bias state, driven by the visbuffer buffer usage readback (see update_auto_lod_bias in renderer.cpp).
     enum struct LodBiasState
     {
@@ -678,6 +721,7 @@ struct RenderContext
     PGISettings prev_pgi_settings = {};
     LightSettings prev_light_settings = {};
     RtgiSettings prev_rtgi_settings = {};
+    RtLabSettings prev_rt_lab_settings = {};
     VolumetricSettings prev_volumetric_settings = {};
 
     // Settings

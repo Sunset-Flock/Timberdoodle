@@ -85,6 +85,9 @@ struct RtgiSettings
     // dispatched indirectly. split_coarse_wide_specular: specular hits whose GGX cone footprint at the hit is at least
     // the PGI probe spacing there are shaded coarse (PGI radiance) instead of sharp. See rtgi_split_hit_is_sharp.
     daxa_i32 split_coarse_wide_specular;
+    // 1 = every hit (diffuse rays too) gets the sharp shading (full material + lights + shadow rays) instead of the PGI
+    // radiance shortcut. Both trace paths (split: rtgi_split_hit_is_sharp input, classic: closest_hit). Not the pioneer trace.
+    daxa_i32 force_fine_hit_shading;
 
     // 1 = each tile's ray budget is proportional to its demand (disoccluded tiles get more rays).
     // 0 = every tile gets the same fixed budget regardless of demand (uniform ray rate per tile).

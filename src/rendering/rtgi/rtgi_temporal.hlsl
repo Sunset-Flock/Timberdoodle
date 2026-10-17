@@ -161,6 +161,9 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     const float4 ndc_prev_frame_pre_div = mul(previous_camera.view_proj, float4(expected_world_position_prev_frame, 1.0f));
     const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
     const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;
+    // The surface point was inside the previous frame's view (in front of the camera, uv inside the screen). Outside =
+    // newly revealed by camera motion (e.g. rotation), not by geometry: no hash grid revive there (below).
+    const bool was_on_screen = ndc_prev_frame_pre_div.w > 0.0f && all(uv_prev_frame > 0.0f && uv_prev_frame < 1.0f);
 
     // Load previous frame half res depth
     const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), half_res_render_target_size );
@@ -309,8 +312,10 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     // that history (clamped to half the fast convergence target, so a revived pixel still takes extra rays and a wrong
     // revive corrects itself) is longer than the pixel's own by more than one count quantization step (0.25), the
     // pixel's history becomes the cell's: count here, color + fast history in the accumulate (revive_cell).
+    // Only for pixels that were on screen last frame (disoccluded by geometry): pixels revealed by camera motion start
+    // fresh even when a cell exists there.
     uint revive_cell = RTGI_HASH_GRID_INVALID_CELL;
-    if (rtgi_settings.hash_grid_enabled != 0 && rtgi_settings.hash_grid_disocclusion_fill != 0 && uint64_t(push.attach.hash_grid) != 0)
+    if (rtgi_settings.hash_grid_enabled != 0 && rtgi_settings.hash_grid_disocclusion_fill != 0 && uint64_t(push.attach.hash_grid) != 0 && was_on_screen)
     {
         const uint cell_index = push.attach.hash_grid_pixel_cell.get()[halfres_pixel_index].x;
         if (cell_index != RTGI_HASH_GRID_INVALID_CELL && push.attach.hash_grid[cell_index].sample_count > 0.0f)
@@ -744,7 +749,6 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
     }
 
     const bool pre_blurred_present = !push.attach.specular_pre_blurred.index.is_empty();
-    const float4 new_spec = pre_blurred_present ? push.attach.specular_pre_blurred.get()[dtid] : push.attach.pre_filtered_specular_new.get()[dtid];
     const uint center_normal_roughness = push.attach.half_res_normal_roughness.get()[dtid];
     const float roughness = unpack_normal_roughness_roughness(center_normal_roughness);
     const float2 inv_size = rcp(half_res_size);
@@ -776,6 +780,9 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
 
     // == Surface motion ==
     const float4 smb_clip = mul(previous_camera.view_proj, float4(pixel.position_ws, 1.0f));
+    // Virtual positions are pixel.position_ws - V * h * dominant_factor: projection is linear, so every virtual clip
+    // position is smb_clip - h * dominant_factor * view_dir_clip. Keeps the 16 float matrix out of the register peak.
+    const float4 view_dir_clip = mul(previous_camera.view_proj, float4(V, 0.0f));
     const float2 smb_uv = (smb_clip.xy / smb_clip.w) * 0.5f + 0.5f;
     const float2 pixel_uv = (float2(dtid) + 0.5f) * inv_size;
     const float mv_length_in_pixels = length((smb_uv - pixel_uv) * half_res_size);
@@ -788,6 +795,7 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
     float smb_frames = 0.0f;
     bool smb_allow_catrom = false;
     bool surface_valid = !surface_disocclusion;
+    float4 surface_tested_weights = float4(0, 0, 0, 0);
     if (surface_valid)
     {
         // Gloss + shading normal test of the surface footprint (on top of the diffuse geometry weights).
@@ -800,28 +808,22 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
             const float w = rtgi_spec_lobe_overlap(N, roughness, unpack_normal_roughness_normal(prev_normal_roughness[i]), unpack_normal_roughness_roughness(prev_normal_roughness[i]));
             lobe_weights[i] = lerp(1.0f, w, jitter_ramp);
         }
-        const float4 tested_weights = surface_weights * lobe_weights;
-        surface_valid = dot(tested_weights, 1.0f) > 0.025f;
+        surface_tested_weights = surface_weights * lobe_weights;
+        surface_valid = dot(surface_tested_weights, 1.0f) > 0.025f;
         if (surface_valid)
         {
             // CatRom needs the full 12-tap footprint on this surface and the inner 2x2 lobes overlapping.
             smb_allow_catrom = catrom_enabled && all(lobe_weights > 0.5f) &&
                 rtgi_spec_catrom_footprint_valid(smb_sample_pos, inv_size, previous_camera, pixel.position_ws, N_face, pixel_width_ws_rcp);
-            rtgi_gather_specular_history(surface_gather_uv, tested_weights, smb_allow_catrom, smb_sample_pos, inv_size, surface_history, smb_frames, surface_fast);
-            // Footprint quality from the GEOMETRIC footprint only (NRD: occlusion, not lobes). The lobe weights only
-            // pick which taps contribute; folding them in here would shrink the history every moving frame.
-#if RTGI_REPROJECT_OCCLUDER_AWARE_COUNT
-            smb_frames = rtgi_spec_apply_occluder_footprint_quality(smb_frames, push.attach.reproject_occluder_coverage.get()[dtid]);
-#else
-            smb_frames = rtgi_spec_apply_footprint_quality(smb_frames, surface_weights);
-#endif
         }
     }
+    // The surface history itself is gathered AFTER the virtual motion (gather + confidence) below: the register peak of
+    // the pass is the virtual confidence, it must not overlap with the gathered surface history.
 
     // == Virtual motion ==
     const float dominant_factor = rtgi_spec_dominant_factor(NoV, roughness);
     const float3 virtual_position = pixel.position_ws - V * hit_for_tracking * dominant_factor;
-    const float4 vmb_clip = mul(previous_camera.view_proj, float4(virtual_position, 1.0f));
+    const float4 vmb_clip = smb_clip - (hit_for_tracking * dominant_factor) * view_dir_clip;
     const float2 vmb_uv = (vmb_clip.xy / vmb_clip.w) * 0.5f + 0.5f;
     const float vmb_pixels_traveled = length((vmb_uv - smb_uv) * half_res_size);
 
@@ -878,15 +880,6 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
         }
     }
 
-    if (!surface_valid && !virtual_valid)
-    {
-        // Disoccluded in both motions: restart from the new sample (fast history too, 0 fast frames like diffuse).
-        ret.specular = new_spec;
-        ret.fast = float4(dot(new_spec.rgb, float3(0.25f, 0.5f, 0.25f)), 0.0f, 0.0f, 0.0f);
-        ret.frames = rays_shot;
-        return ret;
-    }
-
     // == Virtual motion confidence ==
     float virtual_confidence = 0.0f;
     if (virtual_valid)
@@ -897,8 +890,7 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
         // Parallax: the virtual footprint computed with last frame's hit distance must land within the lobe spread
         // (in pixels) of the one computed with this frame's hit distance.
         const float hit_prev = virtual_history.a > 0.0f ? virtual_history.a : hit_for_tracking;
-        const float3 virtual_position_prev = pixel.position_ws - V * hit_prev * dominant_factor;
-        const float4 vmb_clip_prev = mul(previous_camera.view_proj, float4(virtual_position_prev, 1.0f));
+        const float4 vmb_clip_prev = smb_clip - (hit_prev * dominant_factor) * view_dir_clip;
         const float2 vmb_uv_prev = (vmb_clip_prev.xy / vmb_clip_prev.w) * 0.5f + 0.5f;
         const float virtual_distance = length(virtual_position - camera.position);
         const float pixel_radius_at_virtual = 0.5f * rtgi_half_res_pixel_width_ws(inv_size, camera.near_plane, virtual_distance);
@@ -929,6 +921,31 @@ func rtgi_temporal_accumulate_specular(uint2 dtid, float rays_shot, bool surface
         }
 
         virtual_confidence *= parallax_weight;
+    }
+
+    // This frame's specular sample, loaded only now (not live through the virtual motion above).
+    const float4 new_spec = pre_blurred_present ? push.attach.specular_pre_blurred.get()[dtid] : push.attach.pre_filtered_specular_new.get()[dtid];
+
+    // == Surface motion history ==
+    if (surface_valid)
+    {
+        rtgi_gather_specular_history(surface_gather_uv, surface_tested_weights, smb_allow_catrom, smb_sample_pos, inv_size, surface_history, smb_frames, surface_fast);
+        // Footprint quality from the GEOMETRIC footprint only (NRD: occlusion, not lobes). The lobe weights only
+        // pick which taps contribute; folding them in here would shrink the history every moving frame.
+#if RTGI_REPROJECT_OCCLUDER_AWARE_COUNT
+        smb_frames = rtgi_spec_apply_occluder_footprint_quality(smb_frames, push.attach.reproject_occluder_coverage.get()[dtid]);
+#else
+        smb_frames = rtgi_spec_apply_footprint_quality(smb_frames, surface_weights);
+#endif
+    }
+
+    if (!surface_valid && !virtual_valid)
+    {
+        // Disoccluded in both motions: restart from the new sample (fast history too, 0 fast frames like diffuse).
+        ret.specular = new_spec;
+        ret.fast = float4(dot(new_spec.rgb, float3(0.25f, 0.5f, 0.25f)), 0.0f, 0.0f, 0.0f);
+        ret.frames = rays_shot;
+        return ret;
     }
 
     // == Surface motion confidence ==
@@ -1092,6 +1109,44 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     // pass), since the sample count no longer drops to zero on disocclusion.
     const float disocclusion_threshold = 0.025f;
     const bool geometry_disocclusion = dot(sample_weights, 1.0f) < disocclusion_threshold;
+    // Specular first: its accumulation is the register peak of this pass (surface + virtual motion), so it runs before
+    // the diffuse reprojection, whose reprojected values would otherwise stay live across it (128 -> fewer registers).
+    const float specular_rays_shot = float(push.attach.specular_ray_count_image.get()[dtid.xy]);
+    const RtgiSpecularAccumulation specular_accumulation = rtgi_temporal_accumulate_specular(
+        dtid, specular_rays_shot, geometry_disocclusion, reproject_gather_uv, sample_weights, half_res_render_target_size);
+    push.attach.half_res_specular_accumulated.get()[dtid.xy] = specular_accumulation.specular;
+    push.attach.specular_frames_accumulated.get()[dtid.xy] = specular_accumulation.frames;
+    push.attach.specular_fast_history_accumulated.get()[dtid.xy] = specular_accumulation.fast;
+    {
+        let debug_mode = push.attach.globals.settings.debug_draw_mode;
+        const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
+        if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_HISTORY_LENGTH)
+        {
+            // Relative to the specular fast convergence target (ray demand target, capped by the max frames).
+            const float t = saturate(specular_accumulation.frames * rcp(max(min(rtgi_settings.specular_fast_convergence_samples, rtgi_settings.specular_max_temporal_frames), 1.0f)));
+            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(t), debug_alpha), 2);
+        }
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_TEMPORAL_REACTIVITY)
+        {
+            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(specular_accumulation.blend), debug_alpha), 2);
+        }
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL)
+        {
+            const float hit = specular_accumulation.specular.a;
+            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(rtgi_hit_distance_debug_color(hit), debug_alpha), 2);
+        }
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL)
+        {
+            const float3 rgb = specular_accumulation.specular.rgb;
+            const float perceptual = linear_to_perceptual(dot(rgb, float3(0.25f, 0.5f, 0.25f)), push.attach.globals.inv_exposure);
+            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(perceptual_radiance_colormap(perceptual, push.attach.globals.exposure), debug_alpha + 1.0f), 2);
+        }
+        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_VIRTUAL_AMOUNT)
+        {
+            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(specular_accumulation.virtual_amount), debug_alpha), 2);
+        }
+    }
+
     // Hash grid revive (decided by the reproject, which also wrote the revived count as the carry count): the diffuse
     // history (color, fast history) comes from the cell instead of the screen-space history. A revived pixel is NOT a
     // disocclusion for the diffuse color: this frame's rays blend into the revived history normally. AO guide,
@@ -1268,10 +1323,6 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
         0);
     }
 
-    const float specular_rays_shot = float(push.attach.specular_ray_count_image.get()[dtid.xy]);
-    const RtgiSpecularAccumulation specular_accumulation = rtgi_temporal_accumulate_specular(
-        dtid, specular_rays_shot, geometry_disocclusion, reproject_gather_uv, sample_weights, half_res_render_target_size);
-    push.attach.half_res_specular_accumulated.get()[dtid.xy] = specular_accumulation.specular;
     {
         // Convergence statistics: history length relative to the max history, per signal (every geometry pixel
         // passes here, including the no-ray path below). One atomic triple per wave.
@@ -1304,37 +1355,6 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
                 if (count_diffuse > 0u) { InterlockedAdd(push.attach.ray_counters->convergence_histogram_diffuse[b], count_diffuse); }
                 if (count_specular > 0u) { InterlockedAdd(push.attach.ray_counters->convergence_histogram_specular[b], count_specular); }
             }
-        }
-    }
-    push.attach.specular_frames_accumulated.get()[dtid.xy] = specular_accumulation.frames;
-    push.attach.specular_fast_history_accumulated.get()[dtid.xy] = specular_accumulation.fast;
-    {
-        let debug_mode = push.attach.globals.settings.debug_draw_mode;
-        const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
-        if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_HISTORY_LENGTH)
-        {
-            // Relative to the specular fast convergence target (ray demand target, capped by the max frames).
-            const float t = saturate(specular_accumulation.frames * rcp(max(min(rtgi_settings.specular_fast_convergence_samples, rtgi_settings.specular_max_temporal_frames), 1.0f)));
-            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(t), debug_alpha), 2);
-        }
-        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_TEMPORAL_REACTIVITY)
-        {
-            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(specular_accumulation.blend), debug_alpha), 2);
-        }
-        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL)
-        {
-            const float hit = specular_accumulation.specular.a;
-            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(rtgi_hit_distance_debug_color(hit), debug_alpha), 2);
-        }
-        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL)
-        {
-            const float3 rgb = specular_accumulation.specular.rgb;
-            const float perceptual = linear_to_perceptual(dot(rgb, float3(0.25f, 0.5f, 0.25f)), push.attach.globals.inv_exposure);
-            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(perceptual_radiance_colormap(perceptual, push.attach.globals.exposure), debug_alpha + 1.0f), 2);
-        }
-        else if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_VIRTUAL_AMOUNT)
-        {
-            write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(specular_accumulation.virtual_amount), debug_alpha), 2);
         }
     }
 

@@ -737,6 +737,10 @@ void ray_gen_split()
     payload.instance_id = RTGI_RAY_HIT_MISS;
     const bool coarse_wide_specular = push.attach.globals.rtgi_settings.split_coarse_wide_specular != 0 && push.attach.globals.pgi_settings.enabled;
     payload.sharp = !list_ray.specular ? RTGI_SPLIT_DIFFUSE_RAY : (coarse_wide_specular ? 2.0f * rtgi_specular_lobe_tan(list_ray.roughness) : 0.0f);
+    if (push.attach.globals.rtgi_settings.force_fine_hit_shading != 0)
+    {
+        payload.sharp = 0.0f; // cone 0 = always sharp (rtgi_split_hit_is_sharp)
+    }
     TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), 0, ~0, 0, 0, 0, list_ray.ray, payload);
 
     push.attach.ray_result[ray_index].t = payload.t;

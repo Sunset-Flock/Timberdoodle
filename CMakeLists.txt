@@ -26,7 +26,9 @@ add_executable(${PROJECT_NAME}
     "src/main.cpp"
     "src/window.cpp"
     "src/camera.cpp"
+    "src/programmed_move.cpp"
     "src/application.cpp"
+    "src/application_test_plan.cpp"
     "src/gpu_context.cpp"
     "src/json_handler.cpp"
     "src/ui/ui.cpp"
@@ -45,6 +47,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/tex_compression/test.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
     "src/rendering/rtgi/rtgi.cpp"
+    "src/rendering/rtgi/rt_lab/rt_lab.cpp"
 )
 
 if(TIDO_ENABLE_UTILS_VDB_LOADER)

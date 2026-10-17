@@ -71,7 +71,7 @@ namespace tido
             {
                 ImGui::BeginChild("Sun settings", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
                 {
-                    auto sun_settings_content = [&render_context]()
+                    auto sun_settings_content = [&render_context, &app_state]()
                     {
                         if (ImGui::CollapsingHeader("Sun Settings"))
                         {
@@ -95,15 +95,33 @@ namespace tido
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 4;
                             better_drag_float({"Angle X", &angle_x_deg, 0.5f, 0.1f, 360.0f, "%.1f°", horizontal_max_width, -10, true});
                             better_drag_float({"Angle Y", &angle_y_deg, 0.5f, 0.1f, 180.0f, "%.1f°", horizontal_max_width, -10, true});
-                            static float sun_speed = 0.0f;
-                            ImGui::DragFloat("sun speed", &sun_speed);
-                            angle_y_deg += sun_speed;
                             render_context.render_data.sky_settings.sun_direction =
                                 {
                                     daxa_f32(glm::cos(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
                                     daxa_f32(glm::sin(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
                                     daxa_f32(glm::cos(glm::radians(angle_y_deg))),
                                 };
+
+                            // Rotation only programmed move (stepped by Application::update, like the camera move).
+                            ImGui::SeparatorText("Programmed Move");
+                            auto & sun_move = app_state.sun_move;
+                            programmed_move_ui("sun_move", sun_move, ProgrammedMovePose{.yaw = angle_x_deg, .pitch = angle_y_deg}, true);
+                            if (!sun_move.active && !sun_move.return_pending)
+                            {
+                                if (ImGui::Button("Programmed Move Once##sun"))
+                                {
+                                    programmed_move_begin(sun_move, ProgrammedMovePose{.yaw = angle_x_deg, .pitch = angle_y_deg});
+                                }
+                            }
+                            else
+                            {
+                                if (ImGui::Button("Stop##sun_move"))
+                                {
+                                    programmed_move_cancel(sun_move);
+                                }
+                                ImGui::SameLine();
+                                ImGui::Text("moving... %.2fs left", sun_move.time_remaining);
+                            }
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);
                         }
@@ -251,6 +269,7 @@ namespace tido
                             better_drag_float({"sensor sensitivity", &post.sensor_sensitivity, 100.0f, 100.0f, 7000.0f, "%.0f", horizontal_max_width, -20});
                             better_drag_float({"calibration", &post.calibration, 0.1f, 1.0f, 30.0f, "%.1f", horizontal_max_width, -20});
                             better_drag_float({"adaption speed", &post.luminance_adaption_tau, 0.05f, 0.1f, 10.0f, "%.2f", horizontal_max_width, -20});
+                            better_drag_float({"dark limit ev", &post.auto_exposure_dark_limit_ev, 0.1f, 2.0f, 16.0f, "%.1f", horizontal_max_width, -20});
 
                             ImGui::SeparatorText("View Camera");
                             ImGui::InputFloat3("position", &camera.position.x);
@@ -287,31 +306,27 @@ namespace tido
                                 }
                             }
 
+                            // Programmed move (stepped by Application::update; collapsing this header does not stop it).
                             ImGui::SeparatorText("Programmed Move");
-                            ImGui::InputFloat3("move velocity (cam rel)", &auto_move_velocity.x);
-                            ImGui::InputFloat("yaw speed (deg/s)", &auto_move_yaw_speed);
-                            ImGui::InputFloat("pitch speed (deg/s)", &auto_move_pitch_speed);
-                            ImGui::InputFloat("move duration (s)", &auto_move_duration);
-                            ImGui::Checkbox("screenshot at end of move", &auto_move_screenshot);
-                            ImGui::Checkbox("return to start after move", &auto_move_return_to_start);
-                            ImGui::BeginDisabled(auto_move_time_remaining > 0.0f);
-                            if (ImGui::Button("Programmed Move Once"))
+                            auto & camera_move = app_state.camera_move;
+                            ProgrammedMovePose const camera_pose = {.position = camera.position, .yaw = camera.yaw, .pitch = camera.pitch};
+                            programmed_move_ui("camera_move", camera_move, camera_pose, true);
+                            ImGui::Checkbox("screenshot at end of move", &app_state.camera_move_screenshot);
+                            if (!camera_move.active && !camera_move.return_pending)
                             {
-                                // Capture the start pose so it can be restored after the move.
-                                auto_move_start_position = camera.position;
-                                auto_move_start_yaw = camera.yaw;
-                                auto_move_start_pitch = camera.pitch;
-                                auto_move_return_pending = false;
-                                auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
+                                if (ImGui::Button("Programmed Move Once"))
+                                {
+                                    programmed_move_begin(camera_move, camera_pose);
+                                }
                             }
-                            ImGui::EndDisabled();
-                            ImGui::SameLine();
-                            ImGui::Checkbox("repeat##auto_move", &auto_move_repeat);
-                            ImGui::SetItemTooltip("Restart the move whenever it ends (from the start pose when returning to start, else from where it ended). Uncheck to stop after the current run.");
-                            if (auto_move_time_remaining > 0.0f)
+                            else
                             {
+                                if (ImGui::Button("Stop##camera_move"))
+                                {
+                                    programmed_move_cancel(camera_move);
+                                }
                                 ImGui::SameLine();
-                                ImGui::Text("moving... %.2fs left", auto_move_time_remaining);
+                                ImGui::Text("moving... %.2fs left", camera_move.time_remaining);
                             }
 
                             ImGui::SeparatorText("Observer Camera");
@@ -362,13 +377,16 @@ namespace tido
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
                             auto & post = render_context.render_data.postprocess_settings;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
-                            better_drag_float({"min lum log2", &post.min_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"max lum log2", &post.max_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"min lum log2", &post.min_luminance_log2, 0.1f, -20.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"max lum log2", &post.max_luminance_log2, 0.1f, -12.0f, 20.0f, "%.1f", horizontal_max_width, -20});
                             better_drag_float({"clip low", &post.auto_exposure_histogram_clip_lo, 0.1f, 0.0f, 1.0f, "%.2f", horizontal_max_width, -20});
                             better_drag_float({"clip high", &post.auto_exposure_histogram_clip_hi, 0.1f, 0.0f, 1.0f, "%.2f", horizontal_max_width, -20});
                             post.auto_exposure_histogram_clip_lo = glm::min(post.auto_exposure_histogram_clip_lo, post.auto_exposure_histogram_clip_hi);
                             post.auto_exposure_histogram_clip_hi = glm::max(post.auto_exposure_histogram_clip_lo, post.auto_exposure_histogram_clip_hi);
                             post.max_luminance_log2 = glm::max(post.max_luminance_log2, post.min_luminance_log2 + 0.1f);
+                            // The shader bins with the derived range: recompute it, else min / max edits did nothing.
+                            post.luminance_log2_range = post.max_luminance_log2 - post.min_luminance_log2;
+                            post.inv_luminance_log2_range = 1.0f / post.luminance_log2_range;
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);
                         }
@@ -388,55 +406,6 @@ namespace tido
                     draw_with_bg_rect(histogram_settings, 8, bg_3);
 
                     ImGui::PopStyleColor(3);
-
-                    // Auto-move stepping: run every frame while active (kept outside the
-                    // "Camera" collapsing header so collapsing it does not stop a move).
-                    if (auto_move_time_remaining > 0.0f)
-                    {
-                        auto & camera = app_state.camera_controller;
-                        f32 const dt = app_state.delta_time;
-                        // Camera-relative basis: input x = right, y = up, z = forward.
-                        f32vec3 const fwd = glm::normalize(camera.forward);
-                        f32vec3 const right = glm::normalize(glm::cross(fwd, camera.up));
-                        f32vec3 const cam_up = glm::normalize(glm::cross(right, fwd));
-                        f32vec3 const world_vel =
-                            auto_move_velocity.x * right +
-                            auto_move_velocity.y * cam_up +
-                            auto_move_velocity.z * fwd;
-                        camera.position += world_vel * dt;
-                        // Optional rotation over the animation (process_input rebuilds
-                        // forward from yaw/pitch after the UI, so this takes effect).
-                        camera.yaw += auto_move_yaw_speed * dt;
-                        camera.pitch += auto_move_pitch_speed * dt;
-                        auto_move_time_remaining -= dt;
-                        if (auto_move_time_remaining <= 0.0f)
-                        {
-                            // This was the last frame the camera moves -> capture it.
-                            auto_move_time_remaining = 0.0f;
-                            if (auto_move_screenshot) { app_state.request_screenshot = true; }
-                            // Defer the reset one frame so the screenshot captures the
-                            // end pose before the camera snaps back to the start.
-                            auto_move_return_pending = auto_move_return_to_start;
-                            // Repeat without returning: continue straight from the end pose.
-                            if (auto_move_repeat && !auto_move_return_to_start)
-                            {
-                                auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
-                            }
-                        }
-                    }
-                    else if (auto_move_return_pending)
-                    {
-                        auto & camera = app_state.camera_controller;
-                        camera.position = auto_move_start_position;
-                        camera.yaw = auto_move_start_yaw;
-                        camera.pitch = auto_move_start_pitch;
-                        auto_move_return_pending = false;
-                        // Repeat with returning: run again from the restored start pose.
-                        if (auto_move_repeat)
-                        {
-                            auto_move_time_remaining = glm::max(auto_move_duration, 0.0f);
-                        }
-                    }
                 }
                 ImGui::EndChild();
             }

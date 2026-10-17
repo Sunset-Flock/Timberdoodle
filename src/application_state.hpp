@@ -1,6 +1,7 @@
 #pragma once
 
 #include "camera.hpp"
+#include "programmed_move.hpp"
 #include "scene/scene.hpp"
 #include "scene/asset_processor.hpp"
 #include "scene/openvdb_loader.hpp"
@@ -25,6 +26,10 @@ struct ApplicationState
     // When set, the next screenshot is written to this path instead of the default timestamped one.
     std::filesystem::path screenshot_path_override = {};
     bool screenshot_writing = false;
+    // Programmed moves of the camera / sun panel (property viewer), stepped by Application::update with the frame time.
+    ProgrammedMove camera_move = {.velocity = {0.1f, 0.0f, 0.0f}};
+    bool camera_move_screenshot = true; // screenshot on the last moving frame of the camera move
+    ProgrammedMove sun_move = {.translation = false, .return_to_start = false};
     u32 frame_index = 0;
     f32 delta_time = 0.016666f;
     u64 total_elapsed_us = 0;

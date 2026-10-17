@@ -49,11 +49,12 @@ auto rtgi_default_settings() -> RtgiSettings
         .sh_resolve_enabled                   = 1,
         .pre_blur_firefly_energy_compensation_enabled  = 1,
         .animate_noise                        = 1,
-        .ray_percentage                       = 0.6f, // diffuse + specular rays share this HARD budget (min_ray_budget base floor is paid from it)
+        .ray_percentage                       = 1.0f, // diffuse + specular rays share this HARD budget (min_ray_budget base floor is paid from it)
         .min_ray_budget                       = 0.125f,
         .max_rays_per_pixel                   = 12,
         .use_repacked_ray_dispatch            = 1,
         .split_coarse_wide_specular           = 1,
+        .force_fine_hit_shading               = 0,
         .use_ray_redistribution               = 1,
         .trace_use_stbn                       = 0,
         .pioneer_guiding_enabled               = 1,
