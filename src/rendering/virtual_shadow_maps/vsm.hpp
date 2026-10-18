@@ -11,6 +11,7 @@
 
 MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_directional_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "directional_main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_free_moved_light_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_moved_light_pages.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_force_always_resident_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/force_always_resident_pages.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main")
@@ -153,6 +154,30 @@ inline void free_wrapped_pages_callback(daxa::TaskInterface ti, RenderContext * 
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_WRAPPED_PAGES">());
     ti.recorder.dispatch({1, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_WRAPPED_PAGES">());
+}
+
+inline void free_moved_light_pages_callback(daxa::TaskInterface ti, RenderContext * render_context, VSMState const * vsm_state)
+{
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_MOVED_LIGHT_PAGES">());
+    if (!vsm_state->moved_light_layers.empty())
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_free_moved_light_pages_pipeline_compile_info().name));
+        auto attachment_alloc = ti.allocator->allocate(sizeof(FreeMovedLightPagesH::AttachmentShaderBlob)).value();
+        *reinterpret_cast<FreeMovedLightPagesH::AttachmentShaderBlob *>(attachment_alloc.host_address) = ti.attachment_shader_blob;
+        auto const dispatch_x = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, FREE_MOVED_LIGHT_PAGES_X_DISPATCH);
+        auto const dispatch_y = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, FREE_MOVED_LIGHT_PAGES_Y_DISPATCH);
+        // Each dispatch touches only its own light's array layers, no barriers needed in between.
+        for (auto const & [first_array_layer, array_layer_count] : vsm_state->moved_light_layers)
+        {
+            ti.recorder.push_constant(FreeMovedLightPagesPush{
+                .attachments = attachment_alloc.device_address,
+                .first_array_layer = first_array_layer,
+                .mip_count = s_cast<u32>(std::log2(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION)) + 1,
+            });
+            ti.recorder.dispatch({dispatch_x, dispatch_y, array_layer_count});
+        }
+    }
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_MOVED_LIGHT_PAGES">());
 }
 
 inline void force_always_resident_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -537,6 +562,13 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         info.vsm_state->point_spot_page_tables.view()
             .mips(VSM_FORCED_MIP_LEVEL, 1)
             .layers(0, (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS);
+
+    info.tg->add_task(daxa::HeadTask<FreeMovedLightPagesH::Info>()
+            .head_views({
+                .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
+                .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
+            })
+            .executes(free_moved_light_pages_callback, info.render_context, info.vsm_state));
 
     info.tg->add_task(daxa::HeadTask<ForceAlwaysResidentPagesH::Info>()
             .head_views({

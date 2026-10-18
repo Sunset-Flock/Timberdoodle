@@ -278,6 +278,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
         {vsm_free_wrapped_pages_pipeline_compile_info()},
+        {vsm_free_moved_light_pages_pipeline_compile_info()},
         {vsm_invalidate_directional_pages_pipeline_compile_info()},
         {vsm_force_always_resident_pages_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
@@ -657,6 +658,17 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     allocate_fill_copy(ti, render_context->render_data, ti.get(render_context->tgpu_render_data));
                     gpu_context->shader_debug_context.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
                     render_context->render_times.reset_timestamps_for_current_frame(ti.recorder);
+                }));
+
+    tg.add_task(daxa::InlineTask::Transfer("upload flashlight")
+            .writes(scene->_gpu_spot_lights)
+            .executes(
+                [=](daxa::TaskInterface ti)
+                {
+                    if (render_context->flashlight_spot_index.has_value())
+                    {
+                        allocate_fill_copy(ti, render_context->flashlight_gpu, ti.get(scene->_gpu_spot_lights), render_context->flashlight_spot_index.value() * sizeof(GPUSpotLight));
+                    }
                 }));
 
     // After the full render_data upload, overwrite the GPU-only exposure fields with last frame's auto
@@ -1311,8 +1323,46 @@ auto Renderer::prepare_frame(
         return false;
     }
 
+    // Flashlight: appended after the scene's spot lights, following the player camera (not the debug frustum or observer camera).
+    active_spot_lights.assign(scene->_spot_lights.begin(), scene->_spot_lights.end());
+    render_context->flashlight_spot_index = std::nullopt;
+    if (render_context->flashlight.enabled && active_spot_lights.size() < MAX_SPOT_LIGHTS)
+    {
+        auto const & flashlight = render_context->flashlight;
+        u32 const flashlight_index = s_cast<u32>(active_spot_lights.size());
+        // Spot lights shine down their local -z, same as the camera looks down its view space -z.
+        glm::mat4 const transform = glm::translate(glm::mat4(camera_info.inv_view), flashlight.offset);
+        f32vec3 const direction = -f32vec3(transform[2]);
+        // Same candela conversion as gltf spot lights (add_light_from_gltf).
+        constexpr f32 LUMENS_PER_WATT = 683.0f;
+
+        SpotLight const spot_light = {
+            .transform = glm::mat4x3(transform),
+            .color = flashlight.color,
+            .intensity = (flashlight.intensity * glm::pi<f32>()) / LUMENS_PER_WATT,
+            .cutoff = flashlight.range,
+            .inner_cone_angle = std::min(flashlight.inner_cone_angle, flashlight.outer_cone_angle),
+            .outer_cone_angle = flashlight.outer_cone_angle,
+            .spot_light_ptr = gpu_context->device.device_address(scene->_gpu_spot_lights.id()).value() + flashlight_index * sizeof(GPUSpotLight),
+        };
+        active_spot_lights.push_back(spot_light);
+
+        // Uploaded by the "upload flashlight" task instead of a host write, as it changes every frame while older frames may still be in flight.
+        render_context->flashlight_gpu = GPUSpotLight{
+            .transform = std::bit_cast<daxa_f32mat4x3>(spot_light.transform),
+            .position = std::bit_cast<daxa_f32vec3>(spot_light.transform[3]),
+            .direction = std::bit_cast<daxa_f32vec3>(direction),
+            .color = std::bit_cast<daxa_f32vec3>(spot_light.color),
+            .intensity = spot_light.intensity,
+            .cutoff = spot_light.cutoff,
+            .inner_cone_angle = spot_light.inner_cone_angle,
+            .outer_cone_angle = spot_light.outer_cone_angle,
+        };
+        render_context->flashlight_spot_index = flashlight_index;
+    }
+
     render_context->render_data.vsm_settings.point_light_count = s_cast<u32>(scene->_point_lights.size());
-    render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(scene->_spot_lights.size());
+    render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(active_spot_lights.size());
 
     // Calculate frame relevant values.
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
@@ -1615,9 +1665,9 @@ auto Renderer::prepare_frame(
         vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
-    vsm_state.update_vsm_lights(scene->_point_lights, scene->_spot_lights);
+    vsm_state.update_vsm_lights(scene->_point_lights, active_spot_lights);
 
-    lights_resolve_settings(render_context->render_data);
+    lights_resolve_settings(render_context->render_data, render_context->flashlight_spot_index);
 
     if (render_context->visualize_point_frustum)
     {
@@ -1714,7 +1764,7 @@ auto Renderer::prepare_frame(
         }
         for (u32 i = range[0]; i < range[1]; ++i)
         {
-            SpotLight const & light = scene->_spot_lights.at(i);
+            SpotLight const & light = active_spot_lights.at(i);
 
             glm::mat4 transform4 = glm::mat4(
                 glm::vec4(light.transform[0], 0.0f),

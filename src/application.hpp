@@ -99,6 +99,7 @@ public:
     // Selects a DEBUG_DRAW_MODE_* (shader_shared/shared.inl) as if picked in the main debug dropdown.
     void set_debug_draw_mode(i32 mode);
     void set_rtgi_specular_enabled(bool enabled);
+    void set_flashlight_enabled(bool enabled);
     void set_upward_gloss(f32 gloss);
     // Selects the RT Lab denoiser instead of the RTGI denoiser.
     void set_rt_lab(bool half_res, bool progressive, bool no_spatial, bool atrous);

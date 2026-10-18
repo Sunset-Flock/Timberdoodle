@@ -494,6 +494,11 @@ void Application::set_rt_lab(bool half_res, bool progressive, bool no_spatial, b
     }
 }
 
+void Application::set_flashlight_enabled(bool enabled)
+{
+    _renderer->render_context->flashlight.enabled = enabled;
+}
+
 void Application::start_perf_test(PerfTestInfo const & info)
 {
     _perf_test = info;
@@ -1123,6 +1128,7 @@ void Application::update()
         if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
         if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
         if (_window->key_just_pressed(GLFW_KEY_F1)) { app_state.request_screenshot = true; }
+        if (_window->key_just_pressed(GLFW_KEY_F)) { _renderer->render_context->flashlight.enabled = !_renderer->render_context->flashlight.enabled; }
     }
 
     if (app_state.reset_observer)

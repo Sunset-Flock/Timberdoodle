@@ -45,10 +45,15 @@ struct VSMState
     std::array<i32vec2, VSM_CLIP_LEVELS> last_frame_offsets = {};
     std::array<VSMPointLight, MAX_POINT_LIGHTS> point_lights_cpu = {};
     std::array<VSMSpotLight, MAX_SPOT_LIGHTS> spot_lights_cpu = {};
+    // Array layer ranges (first layer, layer count) of point / spot lights whose shadow cameras changed this frame.
+    // Their cached pages are stale and get freed before marking.
+    std::vector<std::pair<u32, u32>> moved_light_layers = {};
 
     VSMGlobals globals_cpu = {};
     void update_vsm_lights(std::vector<PointLight> const & active_point_lights, std::vector<SpotLight> const & active_spot_lights)
     {
+        moved_light_layers.clear();
+
         constexpr std::array<f32vec3, 6> cubemap_dirs = {
             f32vec3{1.0f, 0.0f, 0.0f},
             f32vec3{-1.0f, 0.0f, 0.0f},
@@ -73,6 +78,7 @@ struct VSMState
             auto & vsm_point_light = point_lights_cpu.at(point_light_idx);
             auto & active_light = active_point_lights.at(point_light_idx);
             vsm_point_light.light = active_light.point_light_ptr;
+            glm::mat4 const prev_view_proj = vsm_point_light.face_cameras[0].view_proj;
 
             for (i32 i = 0; i < 6; ++i)
             {
@@ -120,6 +126,10 @@ struct VSMState
                 };
                 current_camera.near_plane = VSM_POINT_LIGHT_NEAR;
             }
+            if (prev_view_proj != vsm_point_light.face_cameras[0].view_proj)
+            {
+                moved_light_layers.push_back({s_cast<u32>(point_light_idx) * 6u, 6u});
+            }
         }
 
         // ================ SPOT LIGHTS ==========================================================
@@ -131,6 +141,7 @@ struct VSMState
             vsm_spot_light.light = active_light.spot_light_ptr;
 
             auto & current_camera = vsm_spot_light.camera;
+            glm::mat4 const prev_view_proj = current_camera.view_proj;
 
             auto inf_depth_reverse_z_perspective = [](auto fov_rads, auto aspect, auto zNear)
             {
@@ -196,6 +207,10 @@ struct VSMState
                 1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
             };
             current_camera.near_plane = VSM_SPOT_LIGHT_NEAR;
+            if (prev_view_proj != current_camera.view_proj)
+            {
+                moved_light_layers.push_back({VSM_SPOT_LIGHT_OFFSET + s_cast<u32>(spot_light_idx), 1u});
+            }
         }
     }
 

@@ -65,6 +65,7 @@ namespace RenderTimes
             {
                 "INVALIDATE_PAGES",
                 "FREE_WRAPPED_PAGES",
+                "FREE_MOVED_LIGHT_PAGES",
                 "MARK_REQUIRED_PAGES",
                 "FIND_FREE_PAGES",
                 "ALLOCATE_PAGES",
@@ -589,6 +590,22 @@ namespace RenderTimes
     };
 }; // namespace RenderTimes
 
+// Renderer owned spot light that follows the main camera.
+// Appended after the scene's spot lights, so it reuses the whole spot light path (light mask, VSM, shading, RTGI).
+struct FlashlightSettings
+{
+    bool enabled = false;
+    f32vec3 color = {1.0f, 0.93f, 0.82f};
+    // Candela, converted to the renderer's spot light units the same way gltf spot lights are.
+    f32 intensity = 20000.0f;
+    f32 range = 60.0f;
+    // Half angles (from the light direction), like the gltf spot light cone angles.
+    f32 inner_cone_angle = glm::radians(12.0f);
+    f32 outer_cone_angle = glm::radians(24.0f);
+    // Camera space offset (x right, y up, z backwards). Without an offset the shadows hide exactly behind their casters.
+    f32vec3 offset = {0.2f, -0.2f, 0.0f};
+};
+
 // Used to store all information used only by the renderer.
 // Shared with task callbacks.
 // Global for a frame within the renderer.
@@ -731,6 +748,11 @@ struct RenderContext
     i32 debug_frustum = {-1};
     bool visualize_point_frustum = {};
     bool visualize_spot_frustum = {};
+
+    FlashlightSettings flashlight = {};
+    // Resolved in prepare_frame. Index into the spot lights this frame, nullopt when off or when all spot light slots are taken.
+    std::optional<u32> flashlight_spot_index = {};
+    GPUSpotLight flashlight_gpu = {};
     bool visualize_clouds_bounds = {};
 
     // TimingName code:

@@ -793,6 +793,23 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             if (ImGui::CollapsingHeader("Lights Settings"))
             {
                 {
+                    auto & flashlight = render_context.flashlight;
+                    ImGui::SeparatorText("Flashlight");
+                    ImGui::Checkbox("Flashlight (F)", &flashlight.enabled);
+                    if (flashlight.enabled && !render_context.flashlight_spot_index.has_value())
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "No free spot light slot (max %i)", MAX_SPOT_LIGHTS);
+                    }
+                    ImGui::ColorEdit3("Flashlight Color", &flashlight.color.x);
+                    ImGui::DragFloat("Flashlight Intensity (cd)", &flashlight.intensity, 10.0f, 0.0f, 1'000'000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::DragFloat("Flashlight Range", &flashlight.range, 0.5f, 0.1f, 1000.0f);
+                    ImGui::SliderAngle("Flashlight Inner Angle", &flashlight.inner_cone_angle, 0.0f, 89.0f);
+                    ImGui::SliderAngle("Flashlight Outer Angle", &flashlight.outer_cone_angle, 0.5f, 89.0f);
+                    ImGui::DragFloat3("Flashlight Offset", &flashlight.offset.x, 0.01f, -2.0f, 2.0f);
+                    ImGui::SetItemTooltip("Camera space: x right, y up, z backwards");
+                    ImGui::Separator();
+                }
+                {
                     debug_mode_sub_selector("lights debug visualization", &lights_debug_visualization, {
                         DEBUG_DRAW_MODE_DIRECT_DIFFUSE,
                         DEBUG_DRAW_MODE_DIRECT_SPECULAR,

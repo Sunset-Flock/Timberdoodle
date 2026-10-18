@@ -51,7 +51,8 @@ static void print_usage()
         "  --rt-lab-gradient <0|1>              RT Lab custom preset temporal gradient on / off.\n"
         "  --rt-lab-coarse-anti-lag <0|1>          RT Lab custom preset coarse temporal anti-lag on / off.\n"
         "  --rt-lab-move-frames <w n>           Move estimate: w custom warmup frames, n progressive frames per step\n"
-        "                                       (default 256 128). Frames needed: w + steps x (n + 1) + a few.\n");
+        "                                       (default 256 128). Frames needed: w + steps x (n + 1) + a few.\n"
+        "  --flashlight                         Start with the camera flashlight on (toggle in app with F).\n");
 }
 
 int main(int argc, char const * const * argv)
@@ -69,6 +70,7 @@ int main(int argc, char const * const * argv)
     std::optional<i32> rt_lab_gradient_ris = {};
     std::optional<i32> rt_lab_gradient = {};
     std::optional<i32> rt_lab_coarse_anti_lag = {};
+    bool flashlight = false;
     std::optional<f32> upward_gloss = {};
     bool perf_test = false;
     std::optional<std::filesystem::path> test_plan_path = {};
@@ -185,6 +187,7 @@ int main(int argc, char const * const * argv)
             rt_lab = true;
             rt_lab_atrous = true;
         }
+        else if (arg == "--flashlight") { flashlight = true; }
         else if (arg == "--upward-gloss" && has_values(1)) { upward_gloss = std::strtof(argv[++i], nullptr); }
         else if (arg == "--debug-draw" && has_values(1)) { debug_draw_mode = static_cast<i32>(std::strtol(argv[++i], nullptr, 10)); }
         else if (arg == "--frames" && has_values(1)) { perf_test_info.wait_frames = static_cast<u32>(std::strtoul(argv[++i], nullptr, 10)); }
@@ -230,6 +233,7 @@ int main(int argc, char const * const * argv)
     Application app = Application(resolution);
     app.set_debug_draw_mode(debug_draw_mode);
     if (no_specular) { app.set_rtgi_specular_enabled(false); }
+    if (flashlight) { app.set_flashlight_enabled(true); }
     if (upward_gloss.has_value()) { app.set_upward_gloss(upward_gloss.value()); }
     if (rt_lab)
     {
