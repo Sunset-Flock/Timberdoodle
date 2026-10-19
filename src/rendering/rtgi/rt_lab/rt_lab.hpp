@@ -19,7 +19,7 @@
 ///     -> temporal accumulation (reprojection + geometric disocclusion, "smart" fp16 or "progressive" fp32 history)
 ///     -> separable bilateral blur (horizontal, vertical; geometric edge stopping only)
 ///     -> resolve (full res output, bilateral upsample at half res)
-///     -> convergence error estimate capture + analysis (only once an estimate was started, rt_lab_convergence.hlsl)
+///     -> test passes: measurement (rt_lab_measure.hlsl), reference capture + analysis (rt_lab_convergence.hlsl)
 /// Settings: two presets (progressive reference, custom) in RenderContext::rt_lab (rt_lab_state.hpp).
 /// No specular, no firefly filter, no guides.
 ///
@@ -31,13 +31,15 @@ auto rt_lab_settings_apply_json(RtLabSettings const & base, nlohmann::json const
 
 // Fills the presets with their defaults (renderer construction).
 void rt_lab_init(RenderContext & render_context);
-// Destroys the convergence estimate capture images (renderer destruction).
+// Destroys the test capture images / buffers (renderer destruction).
 void rt_lab_destroy(RenderContext & render_context);
-// Every frame in the application update, before the camera is updated: runs the test state machines (convergence error
-// estimate, convergence measurement) and decides this frame's programmed move pose (RtLabState::test_move / _step).
+// Every frame in the application update, before the camera is updated: runs the test state machine (RtLabTestSetup,
+// started / cancelled with RtLabState::test_start_requested / test_cancel_requested) and decides this frame's
+// programmed move pose (RtLabState::test_move / _step).
 void rt_lab_tests_begin_frame(RenderContext & render_context);
-// Start of every frame in the renderer, before the graph rebuild check: copies the active (or test) preset into
-// render_data.rt_lab_settings and collects the estimate readback. Returns true when the task graph must be rebuilt.
+// Start of every frame in the renderer, before the graph rebuild check: copies the active (or test phase) preset into
+// render_data.rt_lab_settings and collects the reference analysis readback. Returns true when the task graph must be
+// rebuilt.
 auto rt_lab_frame_update(RenderContext & render_context) -> bool;
 // Steps of a test's programmed move: the longer of the camera and the sun move, in fixed_dt steps.
 auto rt_lab_test_move_steps(RtLabTestMove const & move) -> i32;
@@ -49,6 +51,7 @@ MAKE_COMPUTE_COMPILE_INFO(rt_lab_distribute_compile_info, "./src/rendering/rtgi/
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_ray_filter_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_ray_filter")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gather_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gather")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_blur_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gradient_blur")
+MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_dilate_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gradient_dilate")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_gradient_trace")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_trace")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_anti_lag_downsample_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_anti_lag.hlsl", "entry_rt_lab_anti_lag_downsample")
@@ -79,7 +82,15 @@ auto rt_lab_measure_lag(RtLabMeasurement const & m, f64 tolerance) -> RtLabLagSu
 // -1 = not reached.
 auto rt_lab_measure_frames_to_reach(RtLabMeasurement const & m, i32 metric, f64 value, f64 fraction) -> i32;
 
-// == Measurement results (RtLabState::results) ==
+// Test metrics by name ("convergence", "instability", "lag", "reference"; "all" = every one, "none" = 0) from a comma
+// separated list. false = an unknown name (written into `unknown`).
+auto rt_lab_test_metrics_from_names(std::string_view list, u32 & metrics, std::string & unknown) -> bool;
+
+// Reference comparison JSON (result files, perf test / test plan output).
+auto rt_lab_convergence_result_to_json(RtLabConvergenceResult const & result) -> nlohmann::json;
+auto rt_lab_convergence_steps_to_json(std::vector<RtLabConvergenceStep> const & steps) -> nlohmann::json;
+
+// == Test results (RtLabState::results) ==
 // Adds every saved result in RT_LAB_RESULTS_DIRECTORY not in the list yet (metadata only).
 void rt_lab_results_scan(RtLabState & lab);
 // Saves results[index] as RT_LAB_RESULTS_DIRECTORY/<name>.rtlab (overwrites), renames the entry. false = failed.
@@ -103,6 +114,10 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
     return a.enabled != b.enabled ||
            rt_lab_ray_capacity_per_pixel(a) != rt_lab_ray_capacity_per_pixel(b) ||
            a.temporal_gradient_enabled != b.temporal_gradient_enabled ||
+           a.variance_guide_gradient != b.variance_guide_gradient ||
+           a.temporal_gradient_all_base_rays != b.temporal_gradient_all_base_rays ||
+           (a.temporal_gradient_all_base_rays != 0 && a.min_ray_budget != b.min_ray_budget) || // dense record size
+           (a.temporal_gradient_dilation_radius > 0) != (b.temporal_gradient_dilation_radius > 0) ||
            a.half_res != b.half_res ||
            a.temporal_enabled != b.temporal_enabled ||
            a.temporal_progressive != b.temporal_progressive ||
@@ -113,7 +128,8 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
            a.coarse_enabled != b.coarse_enabled ||
            a.coarse_atrous_passes != b.coarse_atrous_passes ||
            ((a.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MODE_MASK) != RT_LAB_ANTI_LAG_OFF) != ((b.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MODE_MASK) != RT_LAB_ANTI_LAG_OFF) ||
-           (a.ray_filter_mode != RT_LAB_RAY_FILTER_OFF) != (b.ray_filter_mode != RT_LAB_RAY_FILTER_OFF);
+           (a.ray_filter_mode != RT_LAB_RAY_FILTER_OFF) != (b.ray_filter_mode != RT_LAB_RAY_FILTER_OFF) ||
+           (a.ray_length_guide_mode != 0) != (b.ray_length_guide_mode != 0);
 }
 
 // Opaque specular is null: the opaque shading then falls back to its diffuse based specular approximation.

@@ -129,6 +129,8 @@ namespace RenderTimes
                 "GRADIENT_TRACE",
                 "GRADIENT_BLUR_H",
                 "GRADIENT_BLUR_V",
+                "GRADIENT_DILATE_H",
+                "GRADIENT_DILATE_V",
                 "RAY_DEMAND",
                 "RAY_DISTRIBUTE",
                 "TRACE",

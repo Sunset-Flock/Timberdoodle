@@ -528,7 +528,7 @@ void rtgi_temporal_accumulate_debug_draw(uint2 dtid, float sample_count, float b
     RWTexture2D<float4> dbg = push.attach.debug_image.get();
     let debug_mode = push.attach.globals.settings.debug_draw_mode;
     const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
-    if (debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_HISTORY_LENGTH)
+    if (debug_mode == DEBUG_DRAW_MODE_RTGI_DIFFUSE_SAMPLE_COUNT)
     {
         // Relative to the fast convergence target (ray demand target): 1 = no extra rays requested any more.
         const float t = saturate(sample_count * rcp(max(rtgi_settings.fast_convergence_samples, 1.0f)));
@@ -1120,7 +1120,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     {
         let debug_mode = push.attach.globals.settings.debug_draw_mode;
         const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
-        if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_HISTORY_LENGTH)
+        if (debug_mode == DEBUG_DRAW_MODE_RTGI_SPECULAR_SAMPLE_COUNT)
         {
             // Relative to the specular fast convergence target (ray demand target, capped by the max frames).
             const float t = saturate(specular_accumulation.frames * rcp(max(min(rtgi_settings.specular_fast_convergence_samples, rtgi_settings.specular_max_temporal_frames), 1.0f)));

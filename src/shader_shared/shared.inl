@@ -256,8 +256,8 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL 58
 #define DEBUG_DRAW_MODE_RTGI_DIFFUSE_PERCEPTUAL_MEAN_TEMPORAL 59
 #define DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL 60
-#define DEBUG_DRAW_MODE_RTGI_DIFFUSE_HISTORY_LENGTH 61
-#define DEBUG_DRAW_MODE_RTGI_SPECULAR_HISTORY_LENGTH 62
+#define DEBUG_DRAW_MODE_RTGI_DIFFUSE_SAMPLE_COUNT 61
+#define DEBUG_DRAW_MODE_RTGI_SPECULAR_SAMPLE_COUNT 62
 #define DEBUG_DRAW_MODE_RTGI_DIFFUSE_TEMPORAL_REACTIVITY 63
 #define DEBUG_DRAW_MODE_RTGI_SPECULAR_TEMPORAL_REACTIVITY 64
 #define DEBUG_DRAW_MODE_RTGI_SPECULAR_VIRTUAL_AMOUNT 65
@@ -275,7 +275,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_PREDICTED_ERROR 75
 #define DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_PREDICTION_RATIO 76
 // RT Lab temporal history length (rt_lab_temporal.hlsl) + split (A/B) history error estimate (rt_lab_resolve.hlsl)
-#define DEBUG_DRAW_MODE_RT_LAB_HISTORY_LENGTH 77
+#define DEBUG_DRAW_MODE_RT_LAB_SAMPLE_COUNT 77
 #define DEBUG_DRAW_MODE_RT_LAB_VARIANCE 78
 #define DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT 79
 #define DEBUG_DRAW_MODE_RT_LAB_COARSE_BLEND 80
@@ -290,7 +290,14 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_MEAN 87
 #define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_RELATIVE_STD 88
 #define DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_RELATIVE_STD 89
-#define DEBUG_DRAW_MODE_COUNT 90
+// RT Lab history length cuts (rt_lab_temporal.hlsl): R = stored history length / max, G = fraction the temporal gradient
+// cut, B = fraction the coarse temporal anti-lag cut (blend only: this frame's blend)
+#define DEBUG_DRAW_MODE_RT_LAB_HISTORY_CUTS 90
+// RT Lab gradient aware variance guide (rt_lab_blur.hlsl, last fine pass): relative color gradient |grad L| / L per pixel
+#define DEBUG_DRAW_MODE_RT_LAB_COLOR_GRADIENT 91
+// RT Lab ray length guide (rt_lab_temporal.hlsl): accumulated guide radius / R (RtLabSettings::ray_length_guide_*)
+#define DEBUG_DRAW_MODE_RT_LAB_RAY_LENGTH_GUIDE 92
+#define DEBUG_DRAW_MODE_COUNT 93
 
 struct Settings
 {

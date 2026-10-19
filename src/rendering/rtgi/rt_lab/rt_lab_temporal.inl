@@ -51,6 +51,14 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, cocg_accumulate
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, temporal_gradient)
 // Coarse temporal anti-lag statistics per cell (rt_lab_anti_lag.inl), null when off: caps the reprojected lengths.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, coarse_anti_lag)
+// Firefly energy weighting (null without the ray filter): this frame's raw mean luminance (gather), accumulated into the
+// variance image's .a with the color's blend factor.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_raw_luminance)
+// Ray length guide (null when off): per ray hit distance (trace) -> RTGI style AO guide accumulated like the color
+// (.x 1 - sqrt(mean shortness), .y mean shortness, < 0 .x = no estimate, RtLabSettings::ray_length_guide_*).
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), ray_lengths)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, ray_length_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, ray_length_accumulated)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLabTemporalPush
@@ -61,4 +69,6 @@ struct RtLabTemporalPush
     daxa_u32 sh_enabled;    // the SH-Y + CoCg images are bound (graph built with the coarse fallback)
     daxa_u32 gradient_bound; // temporal_gradient is bound
     daxa_u32 anti_lag_bound;    // coarse_anti_lag is bound
+    daxa_u32 raw_luminance_bound; // lab_raw_luminance is bound
+    daxa_u32 ray_length_bound;    // ray_lengths / ray_length_history / ray_length_accumulated are bound
 };

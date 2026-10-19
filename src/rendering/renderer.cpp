@@ -239,6 +239,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_guide_resample_vertical_compile_info()},
         {rt_lab_gradient_trace_compile_info()},
         {rt_lab_gradient_blur_compile_info()},
+        {rt_lab_gradient_dilate_compile_info()},
         {rt_lab_demand_compile_info()},
         {rt_lab_distribute_compile_info()},
         {rt_lab_gather_compile_info()},

@@ -9,6 +9,10 @@
 //   metric 1, temporal instability: relative temporal std of the output luma, sqrt(var) / mean, with a running
 //                                   mean / variance per pixel (average until measure_window frames, then an EMA),
 //                                   reprojected with the camera (follows the surface point, restarts on disocclusion)
+//   metric 2, temporal jitter:      frame to frame noise of the output luma without the trend: second temporal
+//                                   difference |x_t - 2 x_t-1 + x_t-2| / (sqrt(6) x mean of the 3) (a linear change = 0,
+//                                   white noise = std / mean), instantaneous (no window: short bursts show per frame),
+//                                   reprojected like the instability
 // Per tile (RT_LAB_MEASURE_TILE^2 pixels) the RMS of the metric is binned, much less noisy than single pixels.
 #define RT_LAB_MEASURE_TILE 4
 #define RT_LAB_MEASURE_X 8
@@ -23,9 +27,10 @@
 #define RT_LAB_MEASURE_OVER (RT_LAB_MEASURE_BINS + 1)
 #define RT_LAB_MEASURE_TILES (RT_LAB_MEASURE_BINS + 2)
 #define RT_LAB_MEASURE_METRIC_STRIDE (RT_LAB_MEASURE_BINS + 4)
-#define RT_LAB_MEASURE_METRICS 2
+#define RT_LAB_MEASURE_METRICS 3
 #define RT_LAB_MEASURE_METRIC_ERROR 0
 #define RT_LAB_MEASURE_METRIC_INSTABILITY 1
+#define RT_LAB_MEASURE_METRIC_JITTER 2
 #define RT_LAB_MEASURE_ROW_SIZE (RT_LAB_MEASURE_METRIC_STRIDE * RT_LAB_MEASURE_METRICS)
 
 // Temporal lag (step response): every measured frame the mean UNEXPOSED output luminance of every

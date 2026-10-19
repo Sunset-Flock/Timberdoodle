@@ -112,6 +112,8 @@ func entry_rt_lab_measure_accumulate(uint2 dtid : SV_DispatchThreadID, uint grou
         uint error_pixels = 0u;
         float error_squared_sum = 0.0f;
         float instability_squared_sum = 0.0f;
+        uint jitter_pixels = 0u;
+        float jitter_squared_sum = 0.0f;
         for (uint y = 0u; y < RT_LAB_MEASURE_TILE; ++y)
         {
             for (uint x = 0u; x < RT_LAB_MEASURE_TILE; ++x)
@@ -125,6 +127,7 @@ func entry_rt_lab_measure_accumulate(uint2 dtid : SV_DispatchThreadID, uint grou
                 if (ndc_depth == 0.0f)
                 {
                     push.attach.luma_statistics.get()[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f); // sky: no tap may match it next frame
+                    push.attach.jitter_state.get()[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
                     continue;
                 }
                 geometry_pixels += 1u;
@@ -165,6 +168,29 @@ func entry_rt_lab_measure_accumulate(uint2 dtid : SV_DispatchThreadID, uint grou
                 statistics.w = linear_depth;
                 push.attach.luma_statistics.get()[pixel] = statistics;
                 instability_squared_sum += square(sqrt(max(statistics.y, 0.0f)) / max(statistics.x, RT_LAB_RELATIVE_DIFFERENCE_FLOOR / exposure_scale));
+
+                // Temporal jitter: second temporal difference (removes a linear trend = a real, smooth change), relative
+                // to the mean of the 3 frames. Needs 2 previous frames of the same surface point.
+                float4 jitter = push.frame == 0u
+                    ? float4(0.0f, 0.0f, 0.0f, 0.0f)
+                    : rt_lab_measure_reproject_statistics(push.attach.jitter_history.get(), camera, prev_camera, image_size, pixel, linear_depth, normal);
+                if (jitter.z < 0.5f)
+                {
+                    jitter.xyz = float3(raw_luminance, 0.0f, 1.0f);
+                }
+                else
+                {
+                    if (jitter.z >= 1.5f)
+                    {
+                        const float second_difference = raw_luminance - 2.0f * jitter.x + jitter.y;
+                        const float mean = (raw_luminance + jitter.x + jitter.y) / 3.0f;
+                        jitter_squared_sum += square(second_difference / (sqrt(6.0f) * max(mean, RT_LAB_RELATIVE_DIFFERENCE_FLOOR / exposure_scale)));
+                        jitter_pixels += 1u;
+                    }
+                    jitter.xyz = float3(raw_luminance, jitter.x, min(jitter.z + 1.0f, 65536.0f));
+                }
+                jitter.w = linear_depth;
+                push.attach.jitter_state.get()[pixel] = jitter;
             }
         }
         if (geometry_pixels > 0u)
@@ -177,6 +203,11 @@ func entry_rt_lab_measure_accumulate(uint2 dtid : SV_DispatchThreadID, uint grou
             InterlockedAdd(gs_measure_row[error_base + RT_LAB_MEASURE_TILES], 1u);
             InterlockedAdd(gs_measure_row[instability_base + instability_slot], 1u);
             InterlockedAdd(gs_measure_row[instability_base + RT_LAB_MEASURE_TILES], 1u);
+            // No pixel with 2 previous frames yet: above range (like the error without split samples).
+            const uint jitter_slot = jitter_pixels > 0u ? rt_lab_measure_slot(sqrt(jitter_squared_sum / float(jitter_pixels))) : RT_LAB_MEASURE_OVER;
+            const uint jitter_base = RT_LAB_MEASURE_METRIC_JITTER * RT_LAB_MEASURE_METRIC_STRIDE;
+            InterlockedAdd(gs_measure_row[jitter_base + jitter_slot], 1u);
+            InterlockedAdd(gs_measure_row[jitter_base + RT_LAB_MEASURE_TILES], 1u);
         }
     }
 

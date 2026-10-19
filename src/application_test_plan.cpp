@@ -16,24 +16,31 @@
 //   "tests": [
 //     {
 //       "name": "g1c1",                                     default test<index>
-//       "test": "measure" | "estimate" | "perf",            default measure
-//       "frames": 200,                                      measure: frames; estimate: frames per preset (static);
-//                                                           perf: frames rendered before the timings are taken
+//       "test": "lab" | "measure" | "estimate" | "perf",    default measure. lab / measure / estimate = RT Lab test
+//                                                           (RtLabTestSetup), they only differ in the default metrics:
+//                                                           lab / measure = convergence + instability + lag,
+//                                                           estimate = reference only
+//       "metrics": ["convergence", "instability", "lag", "reference"],   RT Lab test metrics (overrides the default)
+//       "frames": 200,                                      RT Lab: tested frames; perf: frames before the timings
+//       "reference_frames": 200,                            static reference: progressive frames (default = frames)
 //       "settle_frames": 16,                                frames rendered after the setup, before the test starts
 //       "camera": "px py pz fx fy fz" | [x, y, z, yaw, pitch],   View Camera "Copy to clipboard" format or yaw / pitch
 //       "sun": "angle_x angle_y" | [angle_x, angle_y],      sun panel angles (degrees)
 //       "debug_draw": 0,                                    DEBUG_DRAW_MODE_* (int)
-//       "preset": "custom" | "progressive",                 active RT Lab preset (measure / perf), default custom
+//       "preset": "custom" | "progressive",                 active (tested) RT Lab preset, default custom
 //       "force_full_pgi_update": false,                     RT Lab "Force Full PGI Update" for this test
-//       "post_stabilization": { "enabled": true, "alpha": 0.1, "gamma": 1.0, "radius": 1, "clamp": true, "temporal_variance": true },   RT Lab post stabilization (default on)
+//       "lag_tolerance": 0.02,                              temporal lag metric tolerance (relative), default 0.02
+//       "post_stabilization": { "enabled": true, "alpha": 0.1, "gamma": 1.0, "radius": 1, "clamp": true, "temporal_variance": true },   RT Lab post stabilization (default off)
 //       "custom": { "coarse_anti_lag_enabled": 1, ... },       RT Lab preset overrides, keys = saved result settings keys,
 //       "progressive": { ... },                             applied to the app's presets as they were at plan start
-//       "move": {                                           programmed move of the test (both test types)
+//       "move": {                                           programmed move of the RT Lab test
 //         "dt": 0.0166667,                                  time per step
 //         "camera": { "velocity": [vx, vy, vz], "yaw_speed": 0, "pitch_speed": 0, "duration": 1, "start": "px py pz fx fy fz" },
 //         "sun": { "yaw_speed": -25, "pitch_speed": -35, "duration": 2, "start": "250 90" }
 //       },                                                  a missing camera / sun move = none (duration 0)
-//       "move_frames": [256, 128],                          move estimate: custom warmup, progressive frames per step
+//       "move_frames": [256, 128],                          move reference: tested warmup, progressive frames per step
+//       "light_shock": [start, frames],                     temporal shock: point light culling flipped for run frames
+//                                                           [start, start + frames), lag metric from its end
 //       "screenshot": false                                 <out>/<name>_<test>_screenshot.png after the test
 //     }
 //   ]
@@ -41,21 +48,20 @@
 // Per test result: the perf test blocks (camera, rt_lab_measure / rt_lab_convergence (+ move_steps), groups = GPU
 // timings) + "name", "spec" (the merged entry), "wall_seconds", "error" when the test failed.
 
-static auto test_plan_type(std::string const & type, TestPlanTestType & out) -> bool
+// Test type + the RT Lab test's default metrics.
+static auto test_plan_type(std::string const & type, TestPlanTestType & out, u32 & metrics) -> bool
 {
+    out = TestPlanTestType::RT_LAB;
+    metrics = RT_LAB_TEST_METRIC_DEFAULT;
     if (type == "perf")
     {
         out = TestPlanTestType::PERF;
     }
-    else if (type == "measure")
-    {
-        out = TestPlanTestType::MEASURE;
-    }
     else if (type == "estimate")
     {
-        out = TestPlanTestType::ESTIMATE;
+        metrics = RT_LAB_TEST_METRIC_REFERENCE;
     }
-    else
+    else if (type != "lab" && type != "measure")
     {
         return false;
     }
@@ -114,11 +120,30 @@ auto Application::start_test_plan(std::filesystem::path const & path) -> bool
             fmt::print("[TestPlan] ERROR in test {} \"{}\": {}\n", i, entry.name, message);
             return false;
         };
-        if (!test_plan_type(spec.value("test", std::string("measure")), entry.type))
+        if (!test_plan_type(spec.value("test", std::string("measure")), entry.type, entry.test.metrics))
         {
-            return fail("\"test\" must be measure, estimate or perf");
+            return fail("\"test\" must be lab, measure, estimate or perf");
+        }
+        if (spec.contains("metrics"))
+        {
+            if (!spec["metrics"].is_array())
+            {
+                return fail("\"metrics\" must be an array of names");
+            }
+            std::string names = {};
+            for (nlohmann::json const & name : spec["metrics"])
+            {
+                names += name.get<std::string>() + ",";
+            }
+            std::string unknown = {};
+            if (!rt_lab_test_metrics_from_names(names, entry.test.metrics, unknown))
+            {
+                return fail(fmt::format("unknown metric \"{}\"", unknown));
+            }
         }
         entry.frames = spec.value("frames", entry.frames);
+        entry.test.frames = entry.frames;
+        entry.test.reference_frames = spec.value("reference_frames", entry.frames);
         entry.settle_frames = spec.value("settle_frames", entry.settle_frames);
         if (spec.contains("camera"))
         {
@@ -156,21 +181,28 @@ auto Application::start_test_plan(std::filesystem::path const & path) -> bool
         if (spec.contains("move"))
         {
             nlohmann::json const & move = spec["move"];
-            entry.move.enabled = true;
-            entry.move.fixed_dt = std::max(move.value("dt", 1.0f / 60.0f), 1e-4f);
-            entry.move.camera = move.contains("camera") ? programmed_move_from_json(move["camera"], ProgrammedMove{.duration = 0.0f}) : ProgrammedMove{.duration = 0.0f};
-            entry.move.sun = move.contains("sun") ? programmed_move_from_json(move["sun"], ProgrammedMove{.translation = false, .duration = 0.0f})
-                                                  : ProgrammedMove{.translation = false, .duration = 0.0f};
-            entry.move.camera.translation = true;
-            entry.move.sun.translation = false;
+            RtLabTestMove & test_move = entry.test.move;
+            test_move.enabled = true;
+            test_move.fixed_dt = std::max(move.value("dt", 1.0f / 60.0f), 1e-4f);
+            test_move.camera = move.contains("camera") ? programmed_move_from_json(move["camera"], ProgrammedMove{.duration = 0.0f}) : ProgrammedMove{.duration = 0.0f};
+            test_move.sun = move.contains("sun") ? programmed_move_from_json(move["sun"], ProgrammedMove{.translation = false, .duration = 0.0f})
+                                                 : ProgrammedMove{.translation = false, .duration = 0.0f};
+            test_move.camera.translation = true;
+            test_move.sun.translation = false;
         }
         if (spec.contains("move_frames") && spec["move_frames"].is_array() && spec["move_frames"].size() == 2)
         {
-            entry.move_warmup_frames = spec["move_frames"][0].get<i32>();
-            entry.move_reference_frames = spec["move_frames"][1].get<i32>();
+            entry.test.move_warmup_frames = spec["move_frames"][0].get<i32>();
+            entry.test.move_reference_frames = spec["move_frames"][1].get<i32>();
+        }
+        if (spec.contains("light_shock") && spec["light_shock"].is_array() && spec["light_shock"].size() == 2)
+        {
+            entry.test.shock_start = std::max(spec["light_shock"][0].get<i32>(), 0);
+            entry.test.shock_frames = std::max(spec["light_shock"][1].get<i32>(), 0);
         }
         entry.screenshot = spec.value("screenshot", false);
         entry.force_full_pgi_update = spec.value("force_full_pgi_update", false);
+        entry.lag_tolerance = spec.value("lag_tolerance", 0.02f);
         if (spec.contains("post_stabilization"))
         {
             nlohmann::json const & stabilization = spec["post_stabilization"];
@@ -227,6 +259,7 @@ void Application::test_plan_setup(TestPlanEntry const & entry)
     set_debug_draw_mode(entry.debug_draw);
     lab.presets = entry.presets;
     lab.force_full_pgi_update = entry.force_full_pgi_update;
+    lab.lag_tolerance = entry.lag_tolerance;
     lab.post_stabilization_enabled = entry.post_stabilization_enabled;
     lab.post_stabilization_alpha = entry.post_stabilization_alpha;
     lab.post_stabilization_gamma = entry.post_stabilization_gamma;
@@ -236,14 +269,8 @@ void Application::test_plan_setup(TestPlanEntry const & entry)
     lab.active_preset = entry.active_preset;
     render_context.render_data.rt_lab_settings.enabled = 1;
     // Results of the previous test must not leak into this one.
-    lab.has_result = false;
-    lab.result = {};
-    lab.move_results.clear();
     lab.measurement = {};
-    lab.measure_move = entry.move;
-    lab.estimate_move = entry.move;
-    lab.move_warmup_frames = entry.move_warmup_frames;
-    lab.move_reference_frames = entry.move_reference_frames;
+    lab.live_analysis = false;
     _test_plan_frame_counter = 0;
     _test_plan_test_started = false;
     _test_plan_phase = TestPlanPhase::SETTLE;
@@ -320,15 +347,10 @@ void Application::update_test_plan()
             {
                 break;
             }
-            if (entry.type == TestPlanTestType::MEASURE)
+            if (entry.type == TestPlanTestType::RT_LAB)
             {
-                lab.measure_frames = entry.frames;
-                lab.measure_start_requested = true;
-            }
-            else if (entry.type == TestPlanTestType::ESTIMATE)
-            {
-                lab.test_frames = entry.frames;
-                lab.start_requested = true;
+                lab.test = entry.test;
+                lab.test_start_requested = true;
             }
             _test_plan_frame_counter = 0;
             _test_plan_test_started = false;
@@ -348,20 +370,15 @@ void Application::update_test_plan()
                 }
                 break;
             }
-            bool const lab_busy = lab.phase != RtLabConvergencePhase::IDLE || lab.measure_phase != RtLabMeasurePhase::IDLE;
-            if (lab_busy)
+            if (rt_lab_test_running(lab))
             {
                 _test_plan_test_started = true;
             }
             else if (_test_plan_test_started)
             {
-                // Measurement: idle again after collecting its rows. Move estimate: idle once its last analysis was read.
-                // Static estimate: its analysis readback arrives a few frames after it went idle -> wait for it.
-                bool const waiting_for_analysis = entry.type == TestPlanTestType::ESTIMATE && !entry.move.enabled && lab.result.pixels == 0;
-                if (!waiting_for_analysis || _test_plan_frame_counter > entry.frames * 2 + 64)
-                {
-                    test_plan_finish_test(waiting_for_analysis ? "no estimate analysis result" : std::string{});
-                }
+                // Idle again once the test collected its rows and its reference analysis.
+                bool const missing_reference = (lab.measurement.metrics & RT_LAB_TEST_METRIC_REFERENCE) != 0 && lab.measurement.reference.pixels == 0;
+                test_plan_finish_test(missing_reference ? "no reference analysis result" : std::string{});
             }
             else if (_test_plan_frame_counter > 8)
             {

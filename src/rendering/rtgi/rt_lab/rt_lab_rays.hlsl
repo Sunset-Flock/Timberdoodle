@@ -10,6 +10,24 @@
 
 [[vk::push_constant]] RtLabDemandPush rt_lab_demand_push;
 
+// Variance laziness (RtLabSettings::variance_laziness_*): factor on the reprojected history length = convergence target /
+// samples needed for the perceptual target error, >= 1. Per sample perceptual variance = luma variance / (mean + floor)^2
+// (log space derivative), from last frame's variance guide estimate and history mean at the nearest previous pixel (the
+// history length already carries the surface test).
+func rt_lab_variance_laziness(Texture2D<float4> history, Texture2D<float4> variance, CameraInfo* prev_camera, RtLabSettings settings,
+    uint2 size, float3 position, float exposure) -> float
+{
+    const float perceptual_variance = rt_lab_previous_perceptual_variance(history, variance, prev_camera, settings, size, position, exposure);
+    if (perceptual_variance < 0.0f)
+    {
+        return 1.0f;
+    }
+    const float target = max(settings.fast_convergence_samples, 1.0f);
+    const float needed = clamp(perceptual_variance / square(max(settings.variance_laziness_target_error, 1e-3f)),
+        min(max(settings.variance_laziness_min_samples, 1.0f), target), target);
+    return target / needed;
+}
+
 // Writes the lab geometry, then the pixel's desired ray count (RTGI curve: calc_desired_extra_rays over the reprojected
 // history length, amplitude = the extras up to max_rays_per_pixel) and totals the demand.
 [shader("compute")]
@@ -54,10 +72,26 @@ func entry_rt_lab_demand(uint2 dtid : SV_DispatchThreadID)
     const float3 position = linear_depth_to_world_space(camera, rt_lab_ndc(dtid, rcp(size)), depth);
     const float3 normal = uncompress_normal_octahedral_32(packed_normal);
     const float rcp_pixel_width_ws = depth > 0.0f ? rcp(rt_lab_pixel_width_ws(camera, size.y, depth)) : 0.0f;
-    // Temporal gradient: how much of the reprojected history survives (1 - lambda).
-    const float gradient_lambda = push.gradient_bound != 0u && depth > 0.0f
-        ? rt_lab_temporal_gradient(push.attach.temporal_gradient.get(), camera, push.size, dtid, position, normal, rcp_pixel_width_ws, settings.temporal_gradient_scale)
-        : 0.0f;
+    // Temporal gradient: how much of the reprojected history survives (1 - lambda); cap mode: unscaled lambda.
+    const bool gradient_cap = push.gradient_bound != 0u && settings.temporal_gradient_cap_mode != 0;
+    // temporal_gradient_pixel_relative: made relative to this pixel's own previous history luminance.
+    float gradient_lambda = 0.0f;
+    if (push.gradient_bound != 0u && depth > 0.0f)
+    {
+        const bool packed = rt_lab_gradient_packed(settings);
+        const float4 cells = rt_lab_temporal_gradient_full(push.attach.temporal_gradient.get(), camera, push.size, dtid, position, normal, rcp_pixel_width_ws, packed);
+        float2 gradient = cells.xz;
+        if (packed)
+        {
+            gradient = push.history_bound != 0u
+                ? rt_lab_gradient_pixel_relative(settings, cells, push.attach.history.get(), &push.attach.globals.view_camera_prev_frame,
+                      push.size, position, push.attach.globals.exposure)
+                : float2(0.0f, 0.0f);
+        }
+        const bool kalman = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0;
+        // Kalman: the information loss L, unscaled, no deadzone (rt_lab_gradient_history_cap).
+        gradient_lambda = kalman ? max(gradient.x, 0.0f) : saturate(rt_lab_gradient_deadzone(settings, gradient.x) * (gradient_cap ? 1.0f : settings.temporal_gradient_scale));
+    }
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RT_LAB_TEMPORAL_GRADIENT)
     {
         // lambda: 0 = history kept (cold), 1 = history dropped (hot); magenta = gradient off.
@@ -75,11 +109,30 @@ func entry_rt_lab_demand(uint2 dtid : SV_DispatchThreadID)
         if (settings.redistribution_enabled != 0)
         {
             // Exactly the history length the temporal pass reprojects (occluder aware soft normalize + temporal gradient).
-            const float history_length = push.history_bound != 0u
+            float history_length = push.history_bound != 0u
                 ? rt_lab_reproject_history_length(push.attach.history.get(), push.attach.lab_depth_history.get(), push.attach.lab_face_normal_history.get(),
                       &push.attach.globals.view_camera_prev_frame, &push.attach.globals.rt_lab_settings, int2(push.size), position, normal, rcp_pixel_width_ws)
-                      * (1.0f - gradient_lambda)
                 : 0.0f;
+            // Variance laziness BEFORE the gradient cut: a cut history still asks for the full extras.
+            if (settings.variance_laziness_enabled != 0 && push.history_bound != 0u && history_length > 0.0f)
+            {
+                history_length *= rt_lab_variance_laziness(push.attach.history.get(), push.attach.variance_history.get(),
+                    &push.attach.globals.view_camera_prev_frame, settings, push.size, position, push.attach.globals.exposure);
+            }
+            if (gradient_cap)
+            {
+                // Same cap as the temporal pass (same inputs), after the laziness: a capped history still asks for extras.
+                if (push.history_bound != 0u && history_length > 0.0f)
+                {
+                    const float perceptual_variance = rt_lab_previous_perceptual_variance(push.attach.history.get(), push.attach.variance_history.get(),
+                        &push.attach.globals.view_camera_prev_frame, settings, push.size, position, push.attach.globals.exposure);
+                    history_length = min(history_length, rt_lab_gradient_history_cap(settings, gradient_lambda, perceptual_variance, history_length));
+                }
+            }
+            else
+            {
+                history_length *= 1.0f - gradient_lambda;
+            }
             const uint max_rays = uint(max(settings.max_rays_per_pixel, 1));
             const float extra = calc_desired_extra_rays(history_length, settings.fast_convergence_samples, float(max_rays - 1u));
             desired = min(1u + uint(extra + 0.5f), max_rays);
@@ -106,12 +159,26 @@ func rt_lab_bayer_m2(uint a, uint b) -> uint
 {
     return 2u * ((a ^ b) & 1u) + (a & 1u);
 }
+// Base ray gradient records per 8x8 tile (temporal_gradient_all_base_rays): min_ray_budget of the tile's pixels. Same
+// formula in C++ (rt_lab.cpp, record image size).
+func rt_lab_gradient_base_slots(RtLabSettings settings) -> uint
+{
+    return clamp(uint(round(saturate(settings.min_ray_budget) * 64.0f)), 1u, 64u);
+}
+
 func rt_lab_bayer_8x8(uint2 p) -> uint
 {
     return 16u * rt_lab_bayer_m2(p.x, p.y) + 4u * rt_lab_bayer_m2(p.x >> 1u, p.y >> 1u) + rt_lab_bayer_m2(p.x >> 2u, p.y >> 2u);
 }
 
 #define RT_LAB_TILE_PIXELS (RT_LAB_RAYS_X * RT_LAB_RAYS_Y)
+
+// Per frame rotation of the base ray Bayer rank order (distribute; the gradient's base ray records use the same).
+func rt_lab_base_rank_rotation(RtLabSettings settings, float trunk_flt_frame_index) -> uint
+{
+    const uint frame = settings.animate_noise ? uint(trunk_flt_frame_index) : 0u;
+    return uint(frac(float(frame) * 0.61803398875f) * float(RT_LAB_TILE_PIXELS));
+}
 groupshared uint gs_desired[RT_LAB_TILE_PIXELS];   // per tile pixel (row major), 0 = sky / out of bounds
 groupshared uint gs_rays[RT_LAB_TILE_PIXELS];      // allocated rays
 groupshared uint gs_offset[RT_LAB_TILE_PIXELS];    // ray list offset
@@ -173,9 +240,9 @@ func entry_rt_lab_distribute(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_G
             const uint tile_base_budget = min(uint(float(tile_base_demand) * base_fraction), tile_base_demand);
             const uint tile_extra_budget = min(uint(float(tile_extra_demand) * extra_ratio), tile_extra_demand);
 
-            const uint frame = settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
             // Base: geometry pixels in rotated Bayer rank order until the tile's base budget is used up.
-            const uint rank_rotation = uint(frac(float(frame) * 0.61803398875f) * float(RT_LAB_TILE_PIXELS));
+            const uint frame = settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
+            const uint rank_rotation = rt_lab_base_rank_rotation(settings, push.attach.globals.trunk_flt_frame_index);
             uint base_given = 0u;
             for (uint r = 0u; r < RT_LAB_TILE_PIXELS && base_given < tile_base_budget; ++r)
             {
@@ -264,6 +331,30 @@ func rt_lab_gradient_cell_geometry(RtLabGradientBlurPush push, CameraInfo camera
         push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get(), camera, push.lab_size, half_res, cell, position, packed_normal);
 }
 
+// Last frame's gradient history (gradient_history, vertical pass) of the cell whose representative point is `position`:
+// nearest previous cell, same surface by a plane test (RT_LAB_GRADIENT_HISTORY_PLANE_TOLERANCE cell widths).
+func rt_lab_gradient_previous_cell(RtLabGradientBlurPush push, float3 position, float3 normal, float rcp_pixel_width_ws, out float4 previous) -> bool
+{
+    previous = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    CameraInfo* prev_camera = &push.attach.globals.view_camera_prev_frame;
+    const float4 prev_clip = mul(prev_camera.view_proj, float4(position, 1.0f));
+    const float2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5f + 0.5f;
+    if (!(prev_clip.w > 0.0f) || any(prev_uv <= 0.0f) || any(prev_uv >= 1.0f))
+    {
+        return false;
+    }
+    const uint2 prev_cell = min(uint2(prev_uv * float2(push.lab_size)) / RT_LAB_GRADIENT_CELL, push.size - 1u);
+    previous = push.attach.gradient_history.get()[prev_cell];
+    if (!(previous.w > 0.0f) || !all(isfinite(previous)))
+    {
+        return false;
+    }
+    const float3 prev_position = linear_depth_to_world_space(*prev_camera,
+        rt_lab_ndc(rt_lab_gradient_cell_pixel(prev_cell, push.lab_size), rcp(float2(push.lab_size))), previous.w);
+    const float plane_distance = abs(dot(prev_position - position, normal)) * rcp_pixel_width_ws;
+    return plane_distance <= RT_LAB_GRADIENT_HISTORY_PLANE_TOLERANCE * float(RT_LAB_GRADIENT_CELL);
+}
+
 [shader("compute")]
 [numthreads(RT_LAB_RAYS_X, RT_LAB_RAYS_Y, 1)]
 func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
@@ -286,22 +377,25 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
         if (vertical)
         {
             push.attach.temporal_gradient.get()[dtid] = uint4(asuint(0.0f), asuint(0.0f), 0u, 0u);
+            push.attach.gradient_history_dst.get()[dtid] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         }
         else
         {
-            push.attach.blur_sums_dst.get()[dtid] = float2(0.0f, 0.0f);
+            push.attach.blur_sums_dst.get()[dtid] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            push.attach.blur_moments_dst.get()[dtid] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         }
         return;
     }
     const float3 center_normal = uncompress_normal_octahedral_32(center_packed_normal);
-    // Plane tolerance in cell widths: one cell = RT_LAB_GRADIENT_CELL lab pixels at the center's depth.
-    const float rcp_cell_width_ws = rcp(rt_lab_pixel_width_ws(camera, float(push.lab_size.y), center_depth) * float(RT_LAB_GRADIENT_CELL));
+    // Distance weight in lab pixel widths at the center's depth (rt_lab_gradient_distance_weight).
+    const float rcp_pixel_width_ws = rcp(rt_lab_pixel_width_ws(camera, float(push.lab_size.y), center_depth));
 
     const int radius = clamp(settings.temporal_gradient_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
     const float sigma = max(float(radius) * 0.5f, 0.5f);
     const float rcp_two_sigma_sq = rcp(2.0f * sigma * sigma);
     const int2 direction = vertical ? int2(0, 1) : int2(1, 0);
-    float2 sums = float2(0.0f, 0.0f); // .x sum w delta, .y sum w max; cells without a sample add 0
+    float4 sums = float4(0.0f, 0.0f, 0.0f, 0.0f); // .x sum w delta, .y sum w max, .z sum w samples, .w sum w old; cells without a sample add 0
+    float3 moments = float3(0.0f, 0.0f, 0.0f);   // sum w^2 delta^2, sum w^2 delta old, sum w^2 old^2 (Kalman)
     for (int d = -radius; d <= radius; ++d)
     {
         const int2 cell = int2(dtid) + direction * d;
@@ -318,45 +412,202 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
             {
                 continue;
             }
-            weight *= rt_lab_gradient_surface_weight(center_position, center_normal, tap_position,
-                uncompress_normal_octahedral_32(tap_packed_normal), rcp_cell_width_ws, RT_LAB_GRADIENT_BLUR_PLANE_TOLERANCE);
+            weight *= rt_lab_gradient_distance_weight(camera.position, center_position, center_normal, tap_position,
+                uncompress_normal_octahedral_32(tap_packed_normal), rcp_pixel_width_ws, float(abs(d) * RT_LAB_GRADIENT_CELL));
             if (weight <= 0.0f)
             {
                 continue;
             }
         }
-        sums += (vertical ? push.attach.blur_sums.get()[cell] : rt_lab_unpack_gradient_sample(push.attach.gradient_samples.get()[cell])) * weight;
+        float4 tap_sample;
+        float3 tap_moments;
+        if (vertical)
+        {
+            tap_sample = push.attach.blur_sums.get()[cell];
+            tap_moments = push.attach.blur_moments.get()[cell].xyz;
+        }
+        else
+        {
+            if (push.per_pixel != 0u)
+            {
+                // Cell sums as one sample (cluster): the moments of the cell sums.
+                tap_sample = float4(float2(float(asint(push.attach.gradient_delta_sum.get()[cell])), float(push.attach.gradient_max_sum.get()[cell])) / RT_LAB_GRADIENT_SUM_SCALE,
+                    float(push.attach.gradient_count_sum.get()[cell]), float(push.attach.gradient_old_sum.get()[cell]) / RT_LAB_GRADIENT_SUM_SCALE);
+            }
+            else
+            {
+                const float2 packed_sample = rt_lab_unpack_gradient_sample(push.attach.gradient_samples.get()[cell]);
+                // A valid sample has max > 0; old = max - delta when brightening, max when darkening.
+                tap_sample = float4(packed_sample, packed_sample.y > 0.0f ? 1.0f : 0.0f, packed_sample.x >= 0.0f ? packed_sample.y - packed_sample.x : packed_sample.y);
+            }
+            tap_moments = float3(square(tap_sample.x), tap_sample.x * tap_sample.w, square(tap_sample.w));
+        }
+        sums += tap_sample * weight;
+        moments += tap_moments * square(weight);
     }
     if (!vertical)
     {
         push.attach.blur_sums_dst.get()[dtid] = sums;
+        push.attach.blur_moments_dst.get()[dtid] = float4(moments, 0.0f);
         return;
+    }
+    if ((settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0)
+    {
+        // == Kalman temporal gradient (rt_lab_rays.inl) ==
+        // Measurement: log ratio of the re-traced sums and its variance (ratio estimator, delta method).
+        float z = 0.0f;
+        float measurement_variance = -1.0f; // < 0: no samples in reach
+        if (sums.z > 1e-3f)
+        {
+            const float old_floor = RT_LAB_RELATIVE_DIFFERENCE_FLOOR * sums.z;
+            const float sum_old = max(sums.w, old_floor);
+            const float sum_new = max(sums.w + sums.x, old_floor);
+            const float ratio = sum_new / sum_old;
+            const float ratio_minus_one = ratio - 1.0f;
+            const float residual = max(moments.x - 2.0f * ratio_minus_one * moments.y + square(ratio_minus_one) * moments.z, 0.0f);
+            z = log(ratio);
+            measurement_variance = residual / square(sum_new) + RT_LAB_GRADIENT_KALMAN_MIN_VARIANCE;
+        }
+        float x = z;
+        float p = max(measurement_variance, 0.0f);
+        float4 previous;
+        if (settings.reset_history == 0 && rt_lab_gradient_previous_cell(push, center_position, center_normal, rcp_pixel_width_ws, previous))
+        {
+            const float p_predicted = previous.y + max(settings.temporal_gradient_kalman_q, 0.0f);
+            if (measurement_variance < 0.0f)
+            {
+                x = previous.x * RT_LAB_GRADIENT_KALMAN_NO_SAMPLE_DECAY;
+                p = p_predicted;
+            }
+            else
+            {
+                const float innovation = z - previous.x;
+                const float innovation_variance = p_predicted + measurement_variance;
+                // Outside the gate: a shock, reset to this frame's measurement (x = z, p = R).
+                if (square(innovation) <= square(max(settings.temporal_gradient_kalman_gate, 0.0f)) * innovation_variance)
+                {
+                    const float gain = p_predicted / innovation_variance;
+                    x = previous.x + gain * innovation;
+                    p = (1.0f - gain) * p_predicted;
+                }
+            }
+        }
+        push.attach.gradient_history_dst.get()[dtid] = float4(x, p, 0.0f, center_depth);
+        // Wiener shrunk correction, information loss = uncertainty + the change the clamp could not correct.
+        const float shrink = square(x) / max(square(x) + p, 1e-12f);
+        const float correction = clamp(shrink * x, -RT_LAB_GRADIENT_KALMAN_MAX_LOG, RT_LAB_GRADIENT_KALMAN_MAX_LOG);
+        const float loss = p + square(x - correction);
+        push.attach.temporal_gradient.get()[dtid] = uint4(asuint(loss), asuint(center_depth), center_packed_normal, asuint(correction));
+        return;
+    }
+    // This frame's sums: the signed values (history rescale) never use the smoothed ones, the rescale is applied once
+    // per frame (smoothed signed changes would rescale the history again every frame they linger).
+    const float4 current_sums = sums;
+    // Temporal smoothing of the sums (temporal_gradient_history_alpha): nearest previous cell of this cell's
+    // representative point, same surface by a plane test (RT_LAB_GRADIENT_HISTORY_PLANE_TOLERANCE cell widths).
+    {
+        // Shock bypass: a big change of THIS frame resets the smoothing (instant reaction to single frame flashes).
+        const float current_lambda = sums.y > 0.0f ? saturate(abs(sums.x) / max(sums.y, RT_LAB_RELATIVE_DIFFERENCE_FLOOR)) : 0.0f;
+        const float shock = max(settings.temporal_gradient_history_shock, 1e-3f);
+        const float alpha = lerp(saturate(settings.temporal_gradient_history_alpha), 1.0f, smoothstep(0.5f * shock, shock, current_lambda));
+        float4 previous;
+        if (alpha < 1.0f && settings.reset_history == 0 && rt_lab_gradient_previous_cell(push, center_position, center_normal, rcp_pixel_width_ws, previous))
+        {
+            sums.xyz = lerp(previous.xyz, sums.xyz, alpha);
+        }
+        push.attach.gradient_history_dst.get()[dtid] = float4(sums.xyz, center_depth);
     }
     // Denominator floor: RT_LAB_RELATIVE_DIFFERENCE_FLOOR exposed, so changes in the dark do not reset the history.
     const float lambda = sums.y > 0.0f ? saturate(abs(sums.x) / max(sums.y, RT_LAB_RELATIVE_DIFFERENCE_FLOOR)) : 0.0f;
-    push.attach.temporal_gradient.get()[dtid] = uint4(asuint(lambda), asuint(center_depth), center_packed_normal, 0u);
+    // .w = signed lambda of THIS frame (sign of the summed change), kept undilated for the history rescale.
+    const float current_lambda_abs = current_sums.y > 0.0f ? saturate(abs(current_sums.x) / max(current_sums.y, RT_LAB_RELATIVE_DIFFERENCE_FLOOR)) : 0.0f;
+    const float signed_lambda = current_sums.x < 0.0f ? -current_lambda_abs : current_lambda_abs;
+    if (rt_lab_gradient_packed(settings))
+    {
+        // + the absolute weighted mean exposed delta of the samples in reach, made relative per pixel (rt_lab_gradient_pixel_relative).
+        const float mean_delta = sums.z > 1e-6f ? sums.x / sums.z : 0.0f;
+        const float current_mean_delta = current_sums.z > 1e-6f ? current_sums.x / current_sums.z : 0.0f;
+        push.attach.temporal_gradient.get()[dtid] = uint4(rt_lab_gradient_pack_pair(lambda, abs(mean_delta)), asuint(center_depth), center_packed_normal,
+            rt_lab_gradient_pack_pair(signed_lambda, current_mean_delta));
+        return;
+    }
+    push.attach.temporal_gradient.get()[dtid] = uint4(asuint(lambda), asuint(center_depth), center_packed_normal, asuint(signed_lambda));
+}
+
+// == Temporal gradient dilation (rt_lab_rays.inl) ======================================================================
+
+[[vk::push_constant]] RtLabGradientDilatePush rt_lab_gradient_dilate_push;
+
+[shader("compute")]
+[numthreads(RT_LAB_RAYS_X, RT_LAB_RAYS_Y, 1)]
+func entry_rt_lab_gradient_dilate(uint2 dtid : SV_DispatchThreadID)
+{
+    let push = rt_lab_gradient_dilate_push;
+    if (any(dtid >= push.size))
+    {
+        return;
+    }
+    let settings = push.attach.globals.rt_lab_settings;
+    const CameraInfo camera = push.attach.globals.view_camera;
+    const uint4 center = push.attach.src.get()[dtid];
+    const float center_depth = asfloat(center.y);
+    if (!(center_depth > 0.0f))
+    {
+        push.attach.dst.get()[dtid] = center; // sky: nothing to dilate into
+        return;
+    }
+    const float2 inv_lab_size = rcp(float2(push.lab_size));
+    const float3 center_position = linear_depth_to_world_space(camera, rt_lab_ndc(rt_lab_gradient_cell_pixel(dtid, push.lab_size), inv_lab_size), center_depth);
+    const float3 center_normal = uncompress_normal_octahedral_32(center.z);
+    const float rcp_pixel_width_ws = rcp(rt_lab_pixel_width_ws(camera, float(push.lab_size.y), center_depth));
+
+    const int radius = clamp(settings.temporal_gradient_dilation_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
+    const float sigma = max(float(radius) * 0.5f, 0.5f);
+    const float rcp_two_sigma_sq = rcp(2.0f * sigma * sigma);
+    const int2 direction = push.vertical != 0u ? int2(0, 1) : int2(1, 0);
+    // temporal_gradient_pixel_relative: lambda and |mean delta| (f16 pair) dilated separately.
+    const bool packed = rt_lab_gradient_packed(settings);
+    float2 lambda = packed ? rt_lab_gradient_unpack_pair(center.x) : float2(asfloat(center.x), 0.0f);
+    for (int d = -radius; d <= radius; ++d)
+    {
+        if (d == 0)
+        {
+            continue;
+        }
+        const int2 cell = int2(dtid) + direction * d;
+        if (any(cell < 0) || any(cell >= int2(push.size)))
+        {
+            continue;
+        }
+        const uint4 tap = push.attach.src.get()[cell];
+        const float2 tap_lambda = packed ? rt_lab_gradient_unpack_pair(tap.x) : float2(asfloat(tap.x), 0.0f);
+        const float tap_depth = asfloat(tap.y);
+        if (!any(tap_lambda > lambda) || !(tap_depth > 0.0f))
+        {
+            continue; // cannot raise the max
+        }
+        const float3 tap_position = linear_depth_to_world_space(camera, rt_lab_ndc(rt_lab_gradient_cell_pixel(uint2(cell), push.lab_size), inv_lab_size), tap_depth);
+        const float weight = exp(-float(d * d) * rcp_two_sigma_sq) *
+            rt_lab_gradient_distance_weight(camera.position, center_position, center_normal, tap_position, uncompress_normal_octahedral_32(tap.z),
+                rcp_pixel_width_ws, float(abs(d) * RT_LAB_GRADIENT_CELL));
+        lambda = max(lambda, tap_lambda * weight);
+    }
+    // .w: undilated signed lambda (+ signed mean delta when packed).
+    push.attach.dst.get()[dtid] = uint4(packed ? rt_lab_gradient_pack_pair(lambda.x, lambda.y) : asuint(lambda.x), center.y, center.z, center.w);
 }
 
 // == Gather ===========================================================================================================
 
 [[vk::push_constant]] RtLabGatherPush rt_lab_gather_push;
 
-// Per gather thread (= lab pixel of the 8x8 tile, row major): luminance sum and count of its rays, for the temporal
-// gradient sample selection.
-groupshared float gs_gather_luminance[RT_LAB_TILE_PIXELS];
+// Per gather thread (= lab pixel of the 8x8 tile, row major): ray count of its pixel, for the temporal gradient sample
+// selection.
 groupshared uint gs_gather_rays[RT_LAB_TILE_PIXELS];
 
-// Temporal gradient sample selection of the cell whose corner pixel is `corner` (all its rays are traced by now):
-//   RIS (temporal_gradient_ris): one ray of all the cell's rays, picked with probability proportional to
-//        w = luminance + RT_LAB_GRADIENT_RIS_UNIFORM_WEIGHT x cell mean luminance (all black: uniform). Bright rays carry
-//        the cell's change (a relative change shows up as absolute delta in proportion to brightness), the uniform part
-//        keeps dark rays pickable (light turning on). RIS weight = (sum w / M) / w_selected: the re-trace scales delta
-//        and max by it, so each cell estimates its MEAN change, not the picked ray's.
-//        Inverse CDF in two levels: over the per-pixel sums (groupshared, filled by every gather thread), then over the
-//        picked pixel's rays.
-//   uniform: the first ray of the first pixel with rays (pixel order rotated per frame and cell), RIS weight 1.
-// Writes the cell's record (rt_lab_trace.inl: origin + t min, surface + luminance, direction + face normal + RIS weight +
-// magic) or invalidates it when the cell has no ray. Out of bounds pixels have 0 rays in the groupshared arrays.
+// Temporal gradient sample selection of the cell whose corner pixel is `corner` (all its rays are traced by now): the
+// first ray of the first pixel with rays (pixel order rotated per frame and cell).
+// Writes the cell's record (rt_lab_trace.inl: origin + t min, surface + luminance, direction + face normal + magic) or
+// invalidates it when the cell has no ray. Out of bounds pixels have 0 rays in the groupshared array.
 func rt_lab_gradient_select(RtLabGatherPush push, RtLabSettings settings, uint2 corner, uint2 corner_gtid)
 {
     const uint2 cell = corner / RT_LAB_GRADIENT_CELL;
@@ -365,74 +616,16 @@ func rt_lab_gradient_select(RtLabGatherPush push, RtLabSettings settings, uint2 
     const uint cell_hash = cell.x * 73856093u ^ cell.y * 19349663u ^ frame * 83492791u;
     uint2 selected_pixel = corner;
     uint selected_ray = RT_LAB_GRADIENT_NO_RAY;
-    float ris_weight = 1.0f;
-    if (settings.temporal_gradient_ris != 0)
+    const uint start = cell_hash % cell_pixels;
+    for (uint j = 0u; j < cell_pixels; ++j)
     {
-        float luminance_sum = 0.0f;
-        uint ray_count = 0u;
-        for (uint local = 0u; local < cell_pixels; ++local)
+        const uint local = (start + j) % cell_pixels;
+        const uint2 tile_pixel = corner_gtid + uint2(local % RT_LAB_GRADIENT_CELL, local / RT_LAB_GRADIENT_CELL);
+        if (gs_gather_rays[tile_pixel.y * RT_LAB_RAYS_X + tile_pixel.x] > 0u)
         {
-            const uint2 tile_pixel = corner_gtid + uint2(local % RT_LAB_GRADIENT_CELL, local / RT_LAB_GRADIENT_CELL);
-            const uint slot = tile_pixel.y * RT_LAB_RAYS_X + tile_pixel.x;
-            luminance_sum += gs_gather_luminance[slot];
-            ray_count += gs_gather_rays[slot];
-        }
-        if (ray_count > 0u)
-        {
-            // All black: every ray gets weight 1 -> uniform.
-            const float floor_weight = luminance_sum > 0.0f ? luminance_sum / float(ray_count) * RT_LAB_GRADIENT_RIS_UNIFORM_WEIGHT : 1.0f;
-            const float weight_sum = luminance_sum + floor_weight * float(ray_count);
-            rand_seed(cell_hash);
-            float target = rand() * weight_sum;
-            // Pixel level. Float rounding can leave target past the end: then the last pixel with rays.
-            uint selected_rays = 0u;
-            for (uint local = 0u; local < cell_pixels; ++local)
-            {
-                const uint2 tile_pixel = corner_gtid + uint2(local % RT_LAB_GRADIENT_CELL, local / RT_LAB_GRADIENT_CELL);
-                const uint slot = tile_pixel.y * RT_LAB_RAYS_X + tile_pixel.x;
-                const uint rays = gs_gather_rays[slot];
-                if (rays == 0u)
-                {
-                    continue;
-                }
-                const float pixel_weight = gs_gather_luminance[slot] + floor_weight * float(rays);
-                selected_pixel = corner + (tile_pixel - corner_gtid);
-                selected_rays = rays;
-                if (target < pixel_weight)
-                {
-                    break;
-                }
-                target -= pixel_weight;
-            }
-            // Ray level within the picked pixel (rounding: its last ray).
-            const uint offset = push.attach.ray_alloc.get()[selected_pixel].x;
-            float selected_weight = 1.0f;
-            for (uint k = 0u; k < selected_rays; ++k)
-            {
-                selected_ray = offset + k;
-                selected_weight = rt_lab_luminance(push.attach.rays[selected_ray].radiance) + floor_weight;
-                if (target < selected_weight)
-                {
-                    break;
-                }
-                target -= selected_weight;
-            }
-            ris_weight = weight_sum / (float(ray_count) * selected_weight);
-        }
-    }
-    else
-    {
-        const uint start = cell_hash % cell_pixels;
-        for (uint j = 0u; j < cell_pixels; ++j)
-        {
-            const uint local = (start + j) % cell_pixels;
-            const uint2 tile_pixel = corner_gtid + uint2(local % RT_LAB_GRADIENT_CELL, local / RT_LAB_GRADIENT_CELL);
-            if (gs_gather_rays[tile_pixel.y * RT_LAB_RAYS_X + tile_pixel.x] > 0u)
-            {
-                selected_pixel = corner + (tile_pixel - corner_gtid);
-                selected_ray = push.attach.ray_alloc.get()[selected_pixel].x;
-                break;
-            }
+            selected_pixel = corner + (tile_pixel - corner_gtid);
+            selected_ray = push.attach.ray_alloc.get()[selected_pixel].x;
+            break;
         }
     }
 
@@ -441,24 +634,31 @@ func rt_lab_gradient_select(RtLabGatherPush push, RtLabSettings settings, uint2 
         push.attach.gradient_record_data.get()[cell] = uint4(0u, 0u, 0u, 0u);
         return;
     }
+    rt_lab_gradient_write_record(push, settings, cell, selected_pixel, selected_ray);
+}
+
+// Writes a gradient record at record (rt_lab_trace.inl: origin + t min, surface + luminance, direction + face normal +
+// magic) for ray `ray_index` of `pixel`.
+func rt_lab_gradient_write_record(RtLabGatherPush push, RtLabSettings settings, uint2 record, uint2 pixel, uint ray_index)
+{
     // RAW ray (never a pre filter output like filtered_rays): the re-trace shades raw radiance, both sides must match.
-    const RtLabRay ray = push.attach.rays[selected_ray];
-    const float depth = push.attach.lab_depth.get()[selected_pixel];
-    const uint packed_normal = push.attach.lab_face_normal.get()[selected_pixel];
+    const RtLabRay ray = push.attach.rays[ray_index];
+    const float depth = push.attach.lab_depth.get()[pixel];
+    const uint packed_normal = push.attach.lab_face_normal.get()[pixel];
     float3 world_pos;
     float t_min;
-    const float3 origin = rt_lab_ray_launch(push.attach.globals.view_camera, selected_pixel, push.size, depth, uncompress_normal_octahedral_32(packed_normal), world_pos, t_min);
-    push.attach.gradient_record_origin.get()[cell] = float4(origin, t_min);
-    push.attach.gradient_record_surface.get()[cell] = float4(world_pos, rt_lab_luminance(ray.radiance));
+    const float3 origin = rt_lab_ray_launch(push.attach.globals.view_camera, pixel, push.size, depth, uncompress_normal_octahedral_32(packed_normal), world_pos, t_min);
+    push.attach.gradient_record_origin.get()[record] = float4(origin, t_min);
+    push.attach.gradient_record_surface.get()[record] = float4(world_pos, rt_lab_luminance(ray.radiance));
     // The ray's hit shading seed (same derivation as the trace), so the re-trace reproduces its shading.
-    const uint pixel_ray = selected_ray - push.attach.ray_alloc.get()[selected_pixel].x;
-    const uint hit_seed = rt_lab_hit_seed(rt_lab_ray_seed(settings, push.attach.globals.trunk_flt_frame_index, selected_pixel, pixel_ray));
-    push.attach.gradient_record_data.get()[cell] = uint4(ray.direction, packed_normal, asuint(ris_weight), RT_LAB_GRADIENT_RECORD_MAGIC | hit_seed);
+    const uint pixel_ray = ray_index - push.attach.ray_alloc.get()[pixel].x;
+    const uint hit_seed = rt_lab_hit_seed(rt_lab_ray_seed(settings, push.attach.globals.trunk_flt_frame_index, pixel, pixel_ray));
+    push.attach.gradient_record_data.get()[record] = uint4(ray.direction, packed_normal, 0u, RT_LAB_GRADIENT_RECORD_MAGIC | hit_seed);
 }
 
 [shader("compute")]
 [numthreads(RT_LAB_RAYS_X, RT_LAB_RAYS_Y, 1)]
-func entry_rt_lab_gather(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID)
+func entry_rt_lab_gather(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
 {
     let push = rt_lab_gather_push;
     const bool in_bounds = all(dtid < push.size);
@@ -474,13 +674,40 @@ func entry_rt_lab_gather(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     {
         const float count = float(alloc.y);
         push.attach.lab_raw_diffuse.get()[dtid] = alloc.y > 0u ? float4(output_sum / count, count) : float4(0.0f, 0.0f, 0.0f, 0.0f);
+        if (push.raw_luminance_bound != 0u)
+        {
+            push.attach.lab_raw_luminance.get()[dtid] = alloc.y > 0u ? rt_lab_luminance(sum / count) : 0.0f;
+        }
     }
 
+    // Base rays (temporal_gradient_all_base_rays): the pixels of the guaranteed base share (min_ray_budget of the tile:
+    // the first ranks of the distribute's rotated Bayer order, same 8x8 tiles) record their ray 0. Rate = min_ray_budget
+    // (0.125: 8 per tile, ~2 per 4x4 cell). With sky in the tile approximate (the distribute ranks geometry pixels only).
+    // DENSE records: slot (tile.x x slots + rank, tile.y), every slot rewritten each frame (invalid without a ray), so the
+    // re-trace dispatches only over real records (a sparse lab res layout left 7 of 8 lanes idle in every wave).
+    if (push.gradient_enabled != 0u && push.gradient_per_pixel != 0u)
+    {
+        let settings = push.attach.globals.rt_lab_settings;
+        const uint slots = rt_lab_gradient_base_slots(settings);
+        const uint rank = (rt_lab_bayer_8x8(gtid) + RT_LAB_TILE_PIXELS - rt_lab_base_rank_rotation(settings, push.attach.globals.trunk_flt_frame_index)) % RT_LAB_TILE_PIXELS;
+        if (rank < slots)
+        {
+            const uint2 record = uint2(gid.x * slots + rank, gid.y);
+            if (in_bounds && alloc.y > 0u)
+            {
+                rt_lab_gradient_write_record(push, settings, record, dtid, alloc.x);
+            }
+            else
+            {
+                push.attach.gradient_record_data.get()[record] = uint4(0u, 0u, 0u, 0u);
+            }
+        }
+        return;
+    }
     // Uniform branch (push constant): every thread reaches the barrier.
     if (push.gradient_enabled != 0u)
     {
         const uint slot = gtid.y * RT_LAB_RAYS_X + gtid.x;
-        gs_gather_luminance[slot] = rt_lab_luminance(sum);
         gs_gather_rays[slot] = alloc.y;
         GroupMemoryBarrierWithGroupSync();
         // The corner pixel of a cell is in bounds whenever the cell exists.

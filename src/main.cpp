@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "rendering/rtgi/rt_lab/rt_lab.hpp"
 
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
@@ -36,22 +37,24 @@ static void print_usage()
         "  --rt-lab-progressive                 Start with the RT Lab progressive preset active (implies --rt-lab).\n"
         "  --rt-lab-no-spatial                  Start with the RT Lab custom preset spatial passes off (implies --rt-lab).\n"
         "  --rt-lab-atrous                      Start with the RT Lab custom preset spatial mode a-trous (implies --rt-lab).\n"
-        "  --rt-lab-estimate <n>                Perf test: run an RT Lab convergence error estimate (n frames per preset)\n"
-        "                                       when each view starts measuring; --frames must be > 2n. Result in the json.\n"
-        "  --rt-lab-measure <n>                 Perf test: run an RT Lab convergence measurement (n frames, active preset) when\n"
-        "                                       each view starts measuring; --frames must be > n + 4. Summary in the json,\n"
-        "                                       result saved as rt_lab_results/<name>.rtlab.\n"
-        "  --rt-lab-move <vx vy vz yaw pitch s> Programmed camera move of both RT Lab tests: camera relative velocity (m/s),\n"
+        "  --rt-lab-measure <n>                 Perf test: run an RT Lab test of the active preset (n frames) when each view\n"
+        "                                       starts measuring. Metrics: convergence, instability, lag (see --rt-lab-metrics).\n"
+        "                                       Summary in the json, result saved as rt_lab_results/<name>.rtlab.\n"
+        "  --rt-lab-estimate <n>                Perf test: RT Lab test with the reference comparison (progressive preset,\n"
+        "                                       n frames). Alone: n tested frames, reference metric only. --frames must cover\n"
+        "                                       reference + run (static) or run + warmup + steps x (n + 1) (move) + a few.\n"
+        "  --rt-lab-metrics <list>              Metrics of the RT Lab test, comma separated: convergence, instability, lag,\n"
+        "                                       reference, all, none.\n"
+        "  --rt-lab-move <vx vy vz yaw pitch s> Programmed camera move of the RT Lab test: camera relative velocity (m/s),\n"
         "                                       yaw / pitch speed (deg/s), duration (s). Starts from the --camera pose.\n"
-        "  --rt-lab-sun-move <x y s>            Programmed sun move of both RT Lab tests: sun Angle X / Angle Y speed (deg/s),\n"
+        "  --rt-lab-sun-move <x y s>            Programmed sun move of the RT Lab test: sun Angle X / Angle Y speed (deg/s),\n"
         "                                       duration (s).\n"
         "  --rt-lab-sun-start <x y>             Explicit start of the programmed sun move: sun Angle X / Angle Y (degrees).\n"
         "  --rt-lab-move-dt <s>                 Move time per step of the programmed moves (default 1/60).\n"
-        "  --rt-lab-gradient-ris <0|1>          RT Lab custom preset temporal gradient sample selection: 1 RIS, 0 uniform.\n"
         "  --rt-lab-gradient <0|1>              RT Lab custom preset temporal gradient on / off.\n"
         "  --rt-lab-coarse-anti-lag <0|1>          RT Lab custom preset coarse temporal anti-lag on / off.\n"
-        "  --rt-lab-move-frames <w n>           Move estimate: w custom warmup frames, n progressive frames per step\n"
-        "                                       (default 256 128). Frames needed: w + steps x (n + 1) + a few.\n");
+        "  --rt-lab-move-frames <w n>           Move reference: w tested warmup frames, n progressive frames per step\n"
+        "                                       (default 256 128).\n");
 }
 
 int main(int argc, char const * const * argv)
@@ -66,13 +69,16 @@ int main(int argc, char const * const * argv)
     bool rt_lab_progressive = false;
     bool rt_lab_no_spatial = false;
     bool rt_lab_atrous = false;
-    std::optional<i32> rt_lab_gradient_ris = {};
     std::optional<i32> rt_lab_gradient = {};
     std::optional<i32> rt_lab_coarse_anti_lag = {};
     std::optional<f32> upward_gloss = {};
     bool perf_test = false;
     std::optional<std::filesystem::path> test_plan_path = {};
     PerfTestInfo perf_test_info = {};
+    auto & lab_test = perf_test_info.rt_lab_test_setup;
+    i32 rt_lab_measure_frames = 0;
+    i32 rt_lab_estimate_frames = 0;
+    std::optional<u32> rt_lab_metrics = {};
 
     for (i32 i = 1; i < argc; ++i)
     {
@@ -104,16 +110,28 @@ int main(int argc, char const * const * argv)
         else if (arg == "--rt-lab-measure" && has_values(1))
         {
             rt_lab = true;
-            perf_test_info.rt_lab_measure_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
+            rt_lab_measure_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
         }
         else if (arg == "--rt-lab-estimate" && has_values(1))
         {
             rt_lab = true;
-            perf_test_info.rt_lab_estimate_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
+            rt_lab_estimate_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
+        }
+        else if (arg == "--rt-lab-metrics" && has_values(1))
+        {
+            rt_lab = true;
+            u32 metrics = 0;
+            std::string unknown = {};
+            if (!rt_lab_test_metrics_from_names(argv[++i], metrics, unknown))
+            {
+                fmt::print("--rt-lab-metrics: unknown metric \"{}\"\n", unknown);
+                return 1;
+            }
+            rt_lab_metrics = metrics;
         }
         else if (arg == "--rt-lab-move" && has_values(6))
         {
-            auto & move = perf_test_info.rt_lab_move;
+            auto & move = lab_test.move;
             move.enabled = true;
             move.camera.velocity.x = std::strtof(argv[++i], nullptr);
             move.camera.velocity.y = std::strtof(argv[++i], nullptr);
@@ -128,7 +146,7 @@ int main(int argc, char const * const * argv)
         }
         else if (arg == "--rt-lab-sun-move" && has_values(3))
         {
-            auto & move = perf_test_info.rt_lab_move;
+            auto & move = lab_test.move;
             if (!move.enabled)
             {
                 move.camera.duration = 0.0f;
@@ -141,7 +159,7 @@ int main(int argc, char const * const * argv)
         }
         else if (arg == "--rt-lab-sun-start" && has_values(2))
         {
-            auto & sun = perf_test_info.rt_lab_move.sun;
+            auto & sun = lab_test.move.sun;
             sun.use_start_pose = true;
             sun.start.yaw = std::strtof(argv[++i], nullptr);
             sun.start.pitch = std::strtof(argv[++i], nullptr);
@@ -156,19 +174,14 @@ int main(int argc, char const * const * argv)
             rt_lab = true;
             rt_lab_gradient = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
         }
-        else if (arg == "--rt-lab-gradient-ris" && has_values(1))
-        {
-            rt_lab = true;
-            rt_lab_gradient_ris = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
-        }
         else if (arg == "--rt-lab-move-dt" && has_values(1))
         {
-            perf_test_info.rt_lab_move.fixed_dt = std::max(std::strtof(argv[++i], nullptr), 1e-4f);
+            lab_test.move.fixed_dt = std::max(std::strtof(argv[++i], nullptr), 1e-4f);
         }
         else if (arg == "--rt-lab-move-frames" && has_values(2))
         {
-            perf_test_info.rt_lab_move_warmup_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
-            perf_test_info.rt_lab_move_reference_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
+            lab_test.move_warmup_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
+            lab_test.move_reference_frames = static_cast<i32>(std::strtol(argv[++i], nullptr, 10));
         }
         else if (arg == "--rt-lab-progressive")
         {
@@ -197,6 +210,15 @@ int main(int argc, char const * const * argv)
             print_usage();
             return 1;
         }
+    }
+    // RT Lab test: --rt-lab-measure = per frame metrics, --rt-lab-estimate = reference, --rt-lab-metrics overrides both.
+    if (rt_lab_measure_frames > 0 || rt_lab_estimate_frames > 0 || rt_lab_metrics.has_value())
+    {
+        perf_test_info.rt_lab_test = true;
+        u32 const flag_metrics = (rt_lab_measure_frames > 0 ? RT_LAB_TEST_METRIC_PER_FRAME : 0u) | (rt_lab_estimate_frames > 0 ? RT_LAB_TEST_METRIC_REFERENCE : 0u);
+        lab_test.metrics = rt_lab_metrics.value_or(flag_metrics != 0 ? flag_metrics : RT_LAB_TEST_METRIC_DEFAULT);
+        lab_test.frames = rt_lab_measure_frames > 0 ? rt_lab_measure_frames : (rt_lab_estimate_frames > 0 ? rt_lab_estimate_frames : lab_test.frames);
+        lab_test.reference_frames = rt_lab_estimate_frames > 0 ? rt_lab_estimate_frames : lab_test.frames;
     }
     if (perf_test && !scene_path.has_value())
     {
@@ -234,10 +256,6 @@ int main(int argc, char const * const * argv)
     if (rt_lab)
     {
         app.set_rt_lab(rt_lab_half_res, rt_lab_progressive, rt_lab_no_spatial, rt_lab_atrous);
-        if (rt_lab_gradient_ris.has_value())
-        {
-            app.set_rt_lab_gradient_ris(rt_lab_gradient_ris.value());
-        }
         if (rt_lab_gradient.has_value())
         {
             app.set_rt_lab_gradient(rt_lab_gradient.value());

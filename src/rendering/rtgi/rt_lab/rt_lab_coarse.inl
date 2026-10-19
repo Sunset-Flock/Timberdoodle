@@ -37,4 +37,5 @@ struct RtLabCoarsePush
     daxa_i32 step;              // tap spacing in pixels (1, 2, 4, 8, ...)
     daxa_u32 split_enabled;     // split_src / split_dst are bound
     daxa_u32 clamp_input_count; // first pass: the input count is the plain temporal history length, clamp it
+    daxa_u32 firefly_weight;    // first pass + firefly_weight_enabled + lab_variance .a holds the raw luminance
 };

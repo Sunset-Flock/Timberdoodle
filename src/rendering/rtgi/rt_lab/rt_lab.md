@@ -39,7 +39,33 @@
   records): the RTGI specular origin (`rtgi_specular_ray_desc`), view ray pullback AND a lift along the face normal by
   one pixel width. Not yet evaluated visually.
 
+## Pre filtering
+
+### Tricks
+
+- **Firefly energy recovery: put the clipped energy into the filter WEIGHTS, not the values.** A ray pre filter (firefly
+  clamp, `ray_filter_*`) makes the input stable but loses the energy it clips. Trick (RTGI pre-blur iteration 0 trick,
+  moved post temporal): the gather writes the raw (unclamped) mean luminance next to the filtered color, the temporal
+  pass accumulates it with the color's blend, factor = accumulated raw / filtered luminance (>= 1, = how much energy the
+  clamp ate here). The FIRST fine and the first coarse spatial pass multiply each tap's color weight by its factor;
+  sample counts are not scaled.
+  - Why weights: scaling the value would just undo the clamp. A bigger weight lets the clipped tap DOMINATE the
+    weighted mean of every pixel whose kernel touches it, so its energy spreads over the footprint as a wide blob
+    bounded by the clamped values (output stays a convex mix of clamped taps, never above the ceiling, no popping dot).
+  - Only the first pass: after one pass the energy has already moved, applying it again compounds it.
+  - Recovers energy only where the factor varies over the footprint (isolated clipped events); where every pixel's
+    history clipped about equally the factor is uniform and cancels out of `sum(f x) / sum(f)`. Measured 2026-10 with
+    tight clamps (perceptual tolerance 2, 3 bistro views): no energy back for that reason.
+  - Setting `firefly_weight_enabled` (UI Trace > Ray Filter, "Firefly Energy Weighting"), default OFF.
+    Acts only when the ray filter runs (needs temporal + a spatial filter).
+
 ## Temporal accumulation
+
+- **Responsiveness vs stability is a fine line.** Anti-lag (temporal gradient cuts / caps / rescale, coarse anti-lag)
+  that reacts too eagerly makes even SMALL lighting changes cut history across nearly the whole screen, which shows up
+  as a short burst of jitter (a few frames) on most pixels. Tuning only for temporal lag pushes exactly there: the lag
+  metric rewards fast reaction, and the instability metric (EMA std over a window, judged after the move) barely
+  sees short bursts during a change. Judge anti-lag work on lag AND on frame-to-frame jitter during the change.
 
 ### Tricks
 
@@ -87,3 +113,23 @@
   means, `N(mean, variance / n)` with n = the effective sample count, and the tap is weighted by how likely both share a
   mean: `exp(-z^2 / (2 k^2))`, `z^2` = mean over rgb of `(mean_c - mean_t)^2 / (var_c / n_c + var_t / n_t)`. Few samples
   = loose test, many samples = tight test. Rejected taps also do not count into the effective sample count.
+
+### Tricks
+
+- **Gradient aware variance guide: compare against a color plane, not a constant.** The plain guide tests "same
+  mean". Smooth lighting ramps (falloffs, bounce regions) violate that, and with high effective counts the test turns
+  near binary (the gaussian weight goes from fully in to gone between ~3 and 6 sigma, the noisy z flips taps across it),
+  so the filter breaks smooth regions into blotches with hard edges. Instead fit a local rgb gradient per screen axis
+  and compare every tap with `center mean + gradient x offset`, adding the gradient's variance (a plane distance test in
+  color space). Observed (user, visual): reduces the splotchy hard edges quite a lot. Bistro street static 128 frames
+  a-trous 5, 1 run: instability p50 0.53 -> 0.48 %, p90 and split error unchanged. Setup that matters:
+  - Fit the gradient ONCE, in the first fine pass (5x5 weighted least squares, geometric weights only,
+    `var(g) = 2 var_c sum w^2 o^2 / (sum w o^2)^2`). That first pass filters WITHOUT a gradient (constant model).
+  - Do not refit in later passes. Each later pass uses the incoming gradient as is (pass 2 the raw fit) and passes it on
+    filtered with its own final color weights, variance guide included (variance with the squared weights): taps the
+    guide rejects, e.g. across an edge, do not feed into the gradient, so it stays sharp at edges. A refit per pass
+    measures the slope over the pass's growing step on increasingly blurred color and swings between passes.
+  - Shrink the gradient per channel by its significance, `g x max(0, 1 - var(g) / g^2)`: noise and the fake slope a
+    step edge produces fall back to the constant model.
+  - Setting `variance_guide_gradient`, debug view `RT_LAB_COLOR_GRADIENT` (relative slope after the shrinkage). The
+    averaging itself is not gradient corrected (a lopsided kernel still shifts the mean; not tried yet).

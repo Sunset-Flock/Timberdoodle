@@ -52,8 +52,10 @@ func rt_lab_shade_fine_hit(RtgiShadeContext ctx, RtLabSettings settings, uint in
 // identically.
 // hit_seed (rt_lab_hit_seed): rand() is seeded with it right before the hit is shaded, so the trace and the re-trace
 // draw the same random numbers in the shading.
-func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc ray, uint hit_seed) -> float3
+// hit_t: the hit distance, RT_LAB_RAY_T_MAX on a miss.
+func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc ray, uint hit_seed, out float hit_t) -> float3
 {
+    hit_t = RT_LAB_RAY_T_MAX;
     RayQuery<RAY_FLAG_NONE> q;
     q.TraceRayInline(RaytracingAccelerationStructure::get(ctx.tlas), 0, 0xFF, ray);
     while (q.Proceed())
@@ -74,6 +76,7 @@ func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc
     {
         rand_seed(hit_seed);
         const float t = q.CommittedRayT();
+        hit_t = t;
 #if RT_LAB_FINE_HIT_SHADING
         return rt_lab_shade_fine_hit(ctx, settings, q.CommittedInstanceID(), q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics(), ray.Direction, t);
 #else
@@ -128,9 +131,14 @@ func entry_rt_lab_trace(uint ray_index : SV_DispatchThreadID)
     ray.TMax      = RT_LAB_RAY_T_MAX;
 
     let ctx = RTGI_SHADE_CONTEXT(push.attach);
-    const float3 color = rt_lab_trace_radiance(ctx, settings, ray, rt_lab_hit_seed(ray_seed));
+    float hit_t;
+    const float3 color = rt_lab_trace_radiance(ctx, settings, ray, rt_lab_hit_seed(ray_seed), hit_t);
 
     push.attach.rays[ray_index] = RtLabRay(color * RTGI_RADIANCE_SCALE, compress_normal_octahedral_32(direction));
+    if (push.ray_lengths_bound != 0u)
+    {
+        push.attach.ray_lengths[ray_index] = hit_t;
+    }
 }
 
 [[vk::push_constant]] RtLabGradientTracePush rt_lab_gradient_trace_push;
@@ -198,18 +206,30 @@ func entry_rt_lab_gradient_trace(uint2 dtid : SV_DispatchThreadID)
     ray.TMax      = RT_LAB_RAY_T_MAX;
     let ctx = RTGI_SHADE_CONTEXT(push.attach);
     // The recorded hit seed: the shading draws the same random numbers as last frame's trace.
-    const float new_luminance = rt_lab_luminance(rt_lab_trace_radiance(ctx, settings, ray, data.w & RT_LAB_HIT_SEED_MASK) * RTGI_RADIANCE_SCALE);
+    float hit_t;
+    const float new_luminance = rt_lab_luminance(rt_lab_trace_radiance(ctx, settings, ray, data.w & RT_LAB_HIT_SEED_MASK, hit_t) * RTGI_RADIANCE_SCALE);
     const float old_luminance = surface.w;
     const float exposure = push.attach.globals.exposure;
-    // RIS weight of the selection (rt_lab_gradient_select, 1 = uniform): the cell's mean change, not the picked ray's.
-    const float ris_weight = asfloat(data.z);
-    const float delta = rt_lab_exposed(new_luminance - old_luminance, exposure) * ris_weight;
-    const float maximum = rt_lab_exposed(max(new_luminance, old_luminance), exposure) * ris_weight;
+    const float delta = rt_lab_exposed(new_luminance - old_luminance, exposure);
+    const float maximum = rt_lab_exposed(max(new_luminance, old_luminance), exposure);
     if (!isfinite(delta) || !(maximum > 0.0f))
     {
         return;
     }
+    const uint2 sample_cell = uint2(pixel) / RT_LAB_GRADIENT_CELL;
+    if (push.per_pixel != 0u)
+    {
+        // Every base ray: summed per cell (fixed point atomics; lambda = |sum delta| / sum max is a ratio).
+        const int delta_fixed = int(round(clamp(delta, -RT_LAB_GRADIENT_SUM_CLAMP, RT_LAB_GRADIENT_SUM_CLAMP) * RT_LAB_GRADIENT_SUM_SCALE));
+        const uint max_fixed = uint(round(min(maximum, RT_LAB_GRADIENT_SUM_CLAMP) * RT_LAB_GRADIENT_SUM_SCALE));
+        InterlockedAdd(push.attach.gradient_delta_sum.get()[sample_cell], asuint(delta_fixed));
+        InterlockedAdd(push.attach.gradient_max_sum.get()[sample_cell], max_fixed);
+        InterlockedAdd(push.attach.gradient_count_sum.get()[sample_cell], 1u);
+        const float old_exposed = rt_lab_exposed(old_luminance, exposure);
+        InterlockedAdd(push.attach.gradient_old_sum.get()[sample_cell], uint(round(clamp(old_exposed, 0.0f, RT_LAB_GRADIENT_SUM_CLAMP) * RT_LAB_GRADIENT_SUM_SCALE)));
+        return;
+    }
     // f16 packed: one 32 bit store, so colliding cells keep one whole sample.
     const uint packed = (f32tof16(clamp(delta, -65000.0f, 65000.0f)) & 0xFFFFu) | (f32tof16(min(maximum, 65000.0f)) << 16u);
-    push.attach.gradient_samples.get()[uint2(pixel) / RT_LAB_GRADIENT_CELL] = packed;
+    push.attach.gradient_samples.get()[sample_cell] = packed;
 }

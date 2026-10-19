@@ -78,8 +78,8 @@ namespace
         "RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL",
         "RTGI_DIFFUSE_PERCEPTUAL_MEAN_TEMPORAL",
         "RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL",
-        "RTGI_DIFFUSE_HISTORY_LENGTH",
-        "RTGI_SPECULAR_HISTORY_LENGTH",
+        "RTGI_DIFFUSE_SAMPLE_COUNT",
+        "RTGI_SPECULAR_SAMPLE_COUNT",
         "RTGI_DIFFUSE_TEMPORAL_REACTIVITY",
         "RTGI_SPECULAR_TEMPORAL_REACTIVITY",
         "RTGI_SPECULAR_VIRTUAL_AMOUNT",
@@ -94,7 +94,7 @@ namespace
         "RT_LAB_CONVERGENCE_RELATIVE_DIFFERENCE",
         "RT_LAB_CONVERGENCE_PREDICTED_ERROR",
         "RT_LAB_CONVERGENCE_PREDICTION_RATIO",
-        "RT_LAB_HISTORY_LENGTH",
+        "RT_LAB_SAMPLE_COUNT",
         "RT_LAB_VARIANCE",
         "RT_LAB_SPATIAL_SAMPLE_COUNT",
         "RT_LAB_COARSE_BLEND",
@@ -107,6 +107,9 @@ namespace
         "RT_LAB_COARSE_ANTI_LAG_FRAME_MEAN",
         "RT_LAB_COARSE_ANTI_LAG_RELATIVE_STD",
         "RT_LAB_COARSE_ANTI_LAG_FRAME_RELATIVE_STD",
+        "RT_LAB_HISTORY_CUTS",
+        "RT_LAB_COLOR_GRADIENT",
+        "RT_LAB_RAY_LENGTH_GUIDE",
     };
 
     static_assert(DEBUG_DRAW_MODE_NAMES.back() != nullptr, "DEBUG_DRAW_MODE_NAMES is missing entries for DEBUG_DRAW_MODE_COUNT");
@@ -127,22 +130,49 @@ namespace
 
 namespace
 {
-    // RT Lab convergence measurement analytics (RtLabMeasurement): distribution heatmap (frames x metric) with the
-    // thresholds and the "> X % of tiles" lines, the distribution at one frame, and optionally a comparison result B
-    // (its lines on A's heatmap + a table). The viewer only shows the first view_max_frames frames. Metric values are
-    // fractions.
+    // Test metric flag of each histogram metric (RT_LAB_MEASURE_METRIC_*).
+    constexpr u32 RT_LAB_MEASURE_METRIC_FLAGS[RT_LAB_MEASURE_METRICS] = {RT_LAB_TEST_METRIC_CONVERGENCE, RT_LAB_TEST_METRIC_INSTABILITY, RT_LAB_TEST_METRIC_JITTER};
+
+    // RT Lab test per frame metric analytics (RtLabMeasurement, the recorded histogram metrics only): distribution heatmap
+    // (frames x metric) with the thresholds and the "> X % of tiles" lines, the distribution at one frame, and optionally
+    // a comparison result B (its lines on A's heatmap + a table). The viewer only shows the first view_max_frames frames.
+    // Metric values are fractions.
     void rt_lab_measure_analytics(RtLabMeasurement const & m, RtLabMeasurement const * compare, RtLabMeasureUi & ui)
     {
         char const * const metric_names[RT_LAB_MEASURE_METRICS] = {
             "Convergence Error (split |A-B| / min(A,B))",
             "Temporal Instability (output std / mean)",
+            "Temporal Jitter (2nd temporal difference / mean)",
         };
-        ImGui::Combo("Metric", &ui.metric, metric_names, RT_LAB_MEASURE_METRICS);
+        if ((m.metrics & RT_LAB_MEASURE_METRIC_FLAGS[std::clamp(ui.metric, 0, RT_LAB_MEASURE_METRICS - 1)]) == 0)
+        {
+            ui.metric = (m.metrics & RT_LAB_TEST_METRIC_CONVERGENCE) != 0     ? RT_LAB_MEASURE_METRIC_ERROR
+                        : (m.metrics & RT_LAB_TEST_METRIC_INSTABILITY) != 0 ? RT_LAB_MEASURE_METRIC_INSTABILITY
+                                                                            : RT_LAB_MEASURE_METRIC_JITTER;
+        }
+        if (ImGui::BeginCombo("Metric", metric_names[std::clamp(ui.metric, 0, RT_LAB_MEASURE_METRICS - 1)]))
+        {
+            for (i32 mi = 0; mi < RT_LAB_MEASURE_METRICS; ++mi)
+            {
+                if ((m.metrics & RT_LAB_MEASURE_METRIC_FLAGS[mi]) != 0 && ImGui::Selectable(metric_names[mi], ui.metric == mi))
+                {
+                    ui.metric = mi;
+                }
+            }
+            ImGui::EndCombo();
+        }
         ImGui::SetItemTooltip(
             "Convergence error: post-spatial split history relative error, reference free.\n"
             "Temporal instability: relative temporal std of the final output luma (flicker), running mean / variance over\n"
-            "the instability window. Both per 4x4 tile (RMS), binned into 512 log bins (range in the axis).");
+            "the instability window.\n"
+            "Temporal jitter: frame to frame noise of the final output luma without the trend, |x - 2 x_prev + x_prev2| / (sqrt(6) mean),\n"
+            "instantaneous (short bursts during a change show per frame, a smooth real change does not count).\n"
+            "All per 4x4 tile (RMS), binned into 512 log bins (range in the axis).");
         i32 const metric = std::clamp(ui.metric, 0, RT_LAB_MEASURE_METRICS - 1);
+        if (compare != nullptr && (compare->metrics & RT_LAB_MEASURE_METRIC_FLAGS[metric]) == 0)
+        {
+            compare = nullptr; // B did not record this metric
+        }
         char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
         ImGui::TextDisabled("%i frames, %s preset, %u tiles, instability window %i frames",
             m.frames, preset_names[std::clamp(m.preset, 0, RT_LAB_PRESET_COUNT - 1)], m.denominator[metric], m.window);
@@ -308,9 +338,13 @@ namespace
                 ImGui::TableSetupColumn("B");
                 ImGui::TableSetupColumn("B / A");
                 ImGui::TableHeadersRow();
-                char const * const short_metric_names[RT_LAB_MEASURE_METRICS] = {"Convergence error", "Temporal instability"};
+                char const * const short_metric_names[RT_LAB_MEASURE_METRICS] = {"Convergence error", "Temporal instability", "Temporal jitter"};
                 for (i32 mi = 0; mi < RT_LAB_MEASURE_METRICS; ++mi)
                 {
+                    if ((m.metrics & compare->metrics & RT_LAB_MEASURE_METRIC_FLAGS[mi]) == 0)
+                    {
+                        continue;
+                    }
                     for (f32 const above : ui.overlay_above_percent)
                     {
                         if (above <= 0.0f || above >= 100.0f)
@@ -390,6 +424,125 @@ namespace
                 }
                 ImPlot::EndPlot();
             }
+        }
+    }
+
+    // Temporal lag (step response) of a test result: recomputed from the tile data at the UI tolerance when the result has
+    // it (unsaved runs), else the saved summary.
+    void rt_lab_lag_ui(RtLabMeasurement const & m, f32 & tolerance)
+    {
+        ImGui::SeparatorText("Temporal Lag");
+        ImGui::SliderFloat("Lag Tolerance", &tolerance, 0.002f, 0.2f, "%.3f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetItemTooltip("Relative: a tile counts as settled once it stays within this of its final value (mean of the last 8 frames).\n"
+                              "Only tiles that changed by more than 2 x this after the start frame count.");
+        RtLabLagSummary const lag = rt_lab_measure_lag(m, tolerance);
+        if (!lag.valid)
+        {
+            ImGui::TextDisabled("No lag data.");
+            return;
+        }
+        ImGui::Text("Start frame %i (%s), tolerance %.1f %%%s", lag.start_frame,
+            m.move.enabled ? "end of the programmed move" : "static run: convergence from reset", lag.tolerance * 100.0,
+            m.lag_values.empty() ? " (saved summary)" : "");
+        ImGui::Text("Changed tiles: %u of %u", lag.changed_tiles, lag.tiles);
+        ImGui::Text("Settle frames: p50 %.0f   p90 %.0f   max %.0f   never settled: %.1f %%", lag.settle_p50, lag.settle_p90, lag.settle_max, lag.never_settled * 100.0);
+        if (!lag.settled_curve.empty() && ImPlot::BeginPlot("##rt_lab_lag_curve", ImVec2(-1, 160)))
+        {
+            ImPlot::SetupAxes("frames after start", "% of changed tiles settled", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_None);
+            ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, 100.0, ImPlotCond_Always);
+            std::vector<f32> percent(lag.settled_curve.size());
+            for (size_t i = 0; i < percent.size(); ++i)
+            {
+                percent[i] = lag.settled_curve[i] * 100.0f;
+            }
+            ImPlot::PlotLine("settled", percent.data(), static_cast<i32>(percent.size()));
+            ImPlot::EndPlot();
+        }
+    }
+
+    // Reference comparison of a test result (exposed irradiance, tested - progressive).
+    void rt_lab_reference_ui(RtLabMeasurement const & m)
+    {
+        ImGui::SeparatorText("Reference Comparison");
+        auto const & result = m.reference;
+        if (result.pixels == 0)
+        {
+            ImGui::TextDisabled("No reference analysis result.");
+            return;
+        }
+        if (!m.move.enabled)
+        {
+            ImGui::TextDisabled("Last run frame vs Progressive after %i frames (exposed irradiance, as the INDIRECT_DIFFUSE debug view).", m.reference_frames);
+        }
+        else
+        {
+            ImGui::TextDisabled("Per step: tested after reprojecting + 1 frame vs a fresh Progressive (%i frames) at the same pose.\n"
+                                "Warmup %i frames. The numbers below = the last step.", m.reference_frames, m.reference_warmup_frames);
+        }
+        ImGui::Text("Pixels: %u", result.pixels);
+        ImGui::Text("MSE:  %.6g   RMSE: %.6g", result.mse, std::sqrt(result.mse));
+        ImGui::Text("Mean Abs Luminance Error: %.6g", result.mean_abs_error);
+        ImGui::Text("Bias (mean signed luminance error): %.6g", result.bias);
+        if (result.predicted_pixels > 0)
+        {
+            ImGui::TextDisabled("Split history error prediction: sqrt(tested^2 + progressive^2) of both runs' post-spatial |A - B| / 2\n"
+                                "vs actual |tested - progressive| luminance.");
+            ImGui::Text("Mean predicted: %.6g   Mean actual: %.6g", result.mean_predicted, result.mean_actual);
+            ImGui::Text("RMS predicted:  %.6g   RMS actual:  %.6g   (ratio %.3f)", result.rms_predicted, result.rms_actual,
+                result.rms_actual > 0.0 ? result.rms_predicted / result.rms_actual : 0.0);
+            ImGui::Text("Correlation (predicted vs actual): %.3f", result.correlation);
+            // MSE = variance + bias^2. The split halves share every systematic error (blur bias, lag), so the prediction is
+            // the noise part only; what the actual error has on top is bias.
+            f64 const bias_squared = std::max(result.rms_actual * result.rms_actual - result.rms_predicted * result.rms_predicted, 0.0);
+            ImGui::Text("RMS noise (predicted): %.6g   RMS bias (actual - noise): %.6g", result.rms_predicted, std::sqrt(bias_squared));
+            ImGui::SetItemTooltip("MSE = variance + bias^2. Both split halves go through the same blur and see the same lag,\n"
+                                  "so the split only measures noise. sqrt(rms_actual^2 - rms_predicted^2) estimates the RMS\n"
+                                  "systematic error (blur bias, temporal lag, ...).");
+        }
+        if (m.reference_steps.empty())
+        {
+            return;
+        }
+        std::vector<f64> steps = {};
+        std::vector<f64> rmse = {};
+        std::vector<f64> bias = {};
+        std::vector<f64> noise = {};
+        std::vector<f64> systematic = {};
+        for (RtLabConvergenceStep const & r : m.reference_steps)
+        {
+            steps.push_back(static_cast<f64>(r.step));
+            rmse.push_back(std::sqrt(r.mse));
+            bias.push_back(r.bias);
+            noise.push_back(r.rms_predicted);
+            systematic.push_back(std::sqrt(std::max(r.rms_actual * r.rms_actual - r.rms_predicted * r.rms_predicted, 0.0)));
+        }
+        if (ImPlot::BeginPlot("##rt_lab_move_error", ImVec2(-1, 220)))
+        {
+            ImPlot::SetupAxes("step", "error", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+            i32 const count = static_cast<i32>(steps.size());
+            ImPlot::PlotLine("RMSE", steps.data(), rmse.data(), count);
+            ImPlot::PlotLine("bias (mean signed)", steps.data(), bias.data(), count);
+            ImPlot::PlotLine("RMS noise (split prediction)", steps.data(), noise.data(), count);
+            ImPlot::PlotLine("RMS systematic (actual - noise)", steps.data(), systematic.data(), count);
+            ImPlot::EndPlot();
+        }
+        f64 mean_rmse = 0.0;
+        f64 mean_bias = 0.0;
+        for (size_t i = 0; i < rmse.size(); ++i)
+        {
+            mean_rmse += rmse[i];
+            mean_bias += bias[i];
+        }
+        ImGui::Text("Steps: %i   mean RMSE: %.6g   mean bias: %.6g", static_cast<i32>(rmse.size()),
+            mean_rmse / static_cast<f64>(rmse.size()), mean_bias / static_cast<f64>(rmse.size()));
+        if (ImGui::Button("Copy Per Step CSV"))
+        {
+            std::string csv = "step,pixels,mse,rmse,bias,mean_abs_error,rms_predicted,rms_actual\n";
+            for (RtLabConvergenceStep const & r : m.reference_steps)
+            {
+                csv += fmt::format("{},{},{},{},{},{},{},{}\n", r.step, r.pixels, r.mse, std::sqrt(r.mse), r.bias, r.mean_abs_error, r.rms_predicted, r.rms_actual);
+            }
+            ImGui::SetClipboardText(csv.c_str());
         }
     }
 } // namespace
@@ -1048,8 +1201,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     DEBUG_DRAW_MODE_RTGI_SPECULAR_HIT_DISTANCE_TEMPORAL,
                     DEBUG_DRAW_MODE_RTGI_DIFFUSE_PERCEPTUAL_MEAN_TEMPORAL,
                     DEBUG_DRAW_MODE_RTGI_SPECULAR_PERCEPTUAL_MEAN_TEMPORAL,
-                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_HISTORY_LENGTH,
-                    DEBUG_DRAW_MODE_RTGI_SPECULAR_HISTORY_LENGTH,
+                    DEBUG_DRAW_MODE_RTGI_DIFFUSE_SAMPLE_COUNT,
+                    DEBUG_DRAW_MODE_RTGI_SPECULAR_SAMPLE_COUNT,
                     DEBUG_DRAW_MODE_RTGI_DIFFUSE_TEMPORAL_REACTIVITY,
                     DEBUG_DRAW_MODE_RTGI_SPECULAR_TEMPORAL_REACTIVITY,
                     DEBUG_DRAW_MODE_RTGI_SPECULAR_VIRTUAL_AMOUNT,
@@ -1637,7 +1790,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
     {
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
         auto & lab = render_context.rt_lab;
-        bool const estimating = lab.phase != RtLabConvergencePhase::IDLE;
+        bool const testing = rt_lab_test_running(lab);
         // Current poses ("Take Current Position" of the test moves).
         ProgrammedMovePose const current_camera_pose = {
             .position = app_state.camera_controller.position,
@@ -1678,6 +1831,20 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::SliderInt("Max Rays Per Pixel", &settings.max_rays_per_pixel, 1, 32);
                 ImGui::SliderFloat("Convergence Target (samples)", &settings.fast_convergence_samples, 1.0f, 256.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
                 ImGui::SetItemTooltip("History length at which a pixel stops asking for extra rays (max extras at length 0, exp(-4 length / target) falloff).");
+                ImGui::Checkbox("Variance Laziness", reinterpret_cast<bool *>(&settings.variance_laziness_enabled));
+                ImGui::SetItemTooltip("Low variance pixels ask for fewer extra rays (needs temporal). Samples needed N = perceptual variance / target error^2\n"
+                                      "(per sample variance of the variance guide estimate); the convergence target becomes clamp(N, min samples, target).\n"
+                                      "Applied before the temporal gradient cut, so a gradient cut still asks for the full extras.");
+                if (settings.variance_laziness_enabled)
+                {
+                    ImGui::SliderFloat("Laziness Target Error", &settings.variance_laziness_target_error, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Relative std of the temporal mean the pixel aims for (0.2 = 20 %; the spatial filter averages far more on top).");
+                    ImGui::SliderFloat("Laziness Min Samples", &settings.variance_laziness_min_samples, 1.0f, 64.0f, "%.1f");
+                    ImGui::SetItemTooltip("Floor of the lazy convergence target (samples).");
+                    ImGui::SliderFloat("Laziness Perceptual Floor", &settings.variance_laziness_perceptual_floor, 0.001f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Error is measured perceptually: std of log(L + floor) = sigma / (mean + floor), floor = this x display white (exposed).\n"
+                                          "Pixels darker than the floor barely show their error and get lazy.");
+                }
                 ImGui::EndDisabled();
                 ImGui::Checkbox("AO On Hit", reinterpret_cast<bool *>(&settings.hit_ao_enabled));
                 ImGui::SetItemTooltip("Same short range AO as the RTGI coarse hit shading: hit PGI radiance x (min(t, range) / range)^2.\nPGI leaks at short hit distances.");
@@ -1710,6 +1877,11 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     ImGui::Checkbox("Clamp Low Too", reinterpret_cast<bool *>(&settings.ray_filter_clamp_low));
                     ImGui::SetItemTooltip("Also raise rays below mean - sigmas x std (adds energy to dark rays: biased brighter).");
                 }
+                ImGui::Checkbox("Firefly Energy Weighting", reinterpret_cast<bool *>(&settings.firefly_weight_enabled));
+                ImGui::SetItemTooltip("RTGI pre-blur style energy compensation, applied in the first fine and the first coarse spatial pass\n"
+                                      "(post temporal, no pre-blur): every tap's color weight x its accumulated raw / filtered energy (>= 1).\n"
+                                      "The clipped energy spreads over the footprint as a bounded blob instead of being lost.\n"
+                                      "Sample counts are not scaled. Needs temporal + a spatial filter.");
                 ImGui::EndDisabled();
                 ImGui::PopID();
                 ImGui::TreePop();
@@ -1743,7 +1915,9 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::SameLine();
                 ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_TRACE">()) +
                                                                   render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_H">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">())) * 0.001f);
+                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">()) +
+                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_DILATE_H">()) +
+                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_DILATE_V">())) * 0.001f);
                 ImGui::SetItemTooltip("A-SVGF style: one ray per 4x4 pixels is re-traced next frame with the exact same launch data.\n"
                                       "The luminance changes, blurred in screen space (edge aware, coarse plane + normal tests), give lambda = |sum delta| / sum max(old, new).\n"
                                       "Reprojected history lengths are scaled by 1 - lambda before the ray redistribution and in the temporal pass.\n"
@@ -1751,13 +1925,81 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::BeginDisabled(settings.temporal_gradient_enabled == 0);
                 ImGui::SliderInt("Blur Radius (cells)", &settings.temporal_gradient_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
                 ImGui::SetItemTooltip("Separable gaussian over the 4x4 pixel gradient cells (1/4 res), sigma = radius / 2.\nReach = 4 x radius pixels.");
+                ImGui::Checkbox("Re-trace Base Rays", reinterpret_cast<bool *>(&settings.temporal_gradient_all_base_rays));
+                ImGui::SetItemTooltip("On: the base rays (ray 0 of the guaranteed base share, rate Min Ray Budget, 0.125 = 2 per 4x4 cell) are recorded\n"
+                                      "and re-traced next frame, the samples summed per 4x4 cell. Off: one ray per 4x4 cell. Graph shape.");
+                ImGui::SliderInt("Dilation Radius (cells)", &settings.temporal_gradient_dilation_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
+                ImGui::SetItemTooltip("0 = off. Weighted max dilation of lambda after the blur: lambda = max over taps of lambda_tap x gauss(d), sigma = radius / 2,\n"
+                                      "same distance + normal edge stopping. Strong at the origin, fans out with distance (the blur alone dilutes\n"
+                                      "a local change when widened). Keep the blur for noise, the dilation for reach.");
+                {
+                    char const * relative_modes[] = {"Samples (A-SVGF)", "Pixel", "Min (Samples, Pixel)"};
+                    ImGui::Combo("Lambda Relative To", &settings.temporal_gradient_pixel_relative, relative_modes, 3);
+                    ImGui::SetItemTooltip("Samples: A-SVGF, lambda = |sum w delta| / sum w max of the re-traced samples.\n"
+                                          "Pixel: blur + dilation carry the ABSOLUTE luminance change (mean delta of the re-traced samples), made relative\n"
+                                          "only at each pixel against its own previous history luminance L: lambda = |delta| / max(old, new) of the pixel,\n"
+                                          "rescale ratio = (L + delta) / L. A small change in the dark no longer cuts a bright pixel's history.\n"
+                                          "Min: the smaller of both (a bright change no longer cuts dark neighbors fully either).");
+                }
+                ImGui::SliderFloat("Temporal Alpha", &settings.temporal_gradient_history_alpha, 0.05f, 1.0f);
+                ImGui::SetItemTooltip("1 = off. Temporal EMA of the blurred gradient sums per cell (reprojected), before lambda:\n"
+                                      "the re-trace's frame to frame noise averages over ~1 / alpha frames, a real step still shows alpha x lambda at once.");
+                if (settings.temporal_gradient_history_alpha < 1.0f)
+                {
+                    ImGui::SliderFloat("Temporal Shock Lambda", &settings.temporal_gradient_history_shock, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Smoothing bypass: alpha ramps to 1 (reset to this frame) as this frame's lambda goes from shock / 2 to shock,\n"
+                                          "so single frame flashes still cut at once (both edges).");
+                }
+                ImGui::SliderFloat("Lambda Deadzone", &settings.temporal_gradient_deadzone, 0.0f, 0.5f);
+                ImGui::SetItemTooltip("lambda' = (lambda - d) / (1 - d) before the scale / cap: removes small, noise level lambdas, keeps big ones\n"
+                                      "(single frame flashes) almost unchanged. The history rescale stays on the raw signed lambda.");
                 ImGui::SliderFloat("Scale", &settings.temporal_gradient_scale, 0.0f, 8.0f);
                 ImGui::SetItemTooltip("lambda multiplier (saturated): history kept = 1 - saturate(lambda x scale).");
-                ImGui::Checkbox("RIS Sample Selection", reinterpret_cast<bool *>(&settings.temporal_gradient_ris));
-                ImGui::SetItemTooltip("On: each cell's re-traced ray is picked by RIS over ALL of the cell's rays, target = luminance + 0.1 x cell mean\n"
-                                      "(bright rays carry most of a relative change; the uniform part keeps dark rays pickable).\n"
-                                      "Delta and max are scaled by the RIS weight (sum w / M) / w_picked, so a cell still estimates its mean change.\n"
-                                      "Off: uniform, first ray of a pixel with rays (pixel order rotated per frame).");
+                {
+                    bool cap_mse = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_MSE) != 0;
+                    bool cap_settle = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_SETTLE) != 0;
+                    bool changed = ImGui::Checkbox("MSE Cap", &cap_mse);
+                    ImGui::SetItemTooltip("Replaces the scale: history capped (same frame) at k x perceptual variance / (lambda^2 - floor^2), floored at Cap Min.\n"
+                                          "k folds in the spatial filter's noise reduction (k << 1).");
+                    changed |= ImGui::Checkbox("Settle Cap", &cap_settle);
+                    bool cap_kalman = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0;
+                    changed |= ImGui::Checkbox("Kalman (correct + information loss)", &cap_kalman);
+                    ImGui::SetItemTooltip("Replaces the other caps: the gradient measures the change (log ratio + variance), a per cell Kalman filter tracks it\n"
+                                          "(innovation gate = instant reset on shocks), the history is CORRECTED by the shrunk change (History Rescale) and only\n"
+                                          "the remaining uncertainty L cuts it continuously: N' = N / (1 + N k L / v). No deadzone / smoothing thresholds.");
+                    ImGui::SetItemTooltip("Replaces the scale: history capped so the remaining lag lambda x (N / (N + 1))^K drops below the tolerance\n"
+                                          "within K frames: N = 1 / ((lambda / tolerance)^(1 / K) - 1). Combined with the MSE cap: the smaller one.");
+                    if (changed)
+                    {
+                        settings.temporal_gradient_cap_mode = (cap_mse ? RT_LAB_GRADIENT_CAP_MSE : 0) | (cap_settle ? RT_LAB_GRADIENT_CAP_SETTLE : 0) | (cap_kalman ? RT_LAB_GRADIENT_CAP_KALMAN : 0);
+                    }
+                    if (cap_mse)
+                    {
+                        ImGui::SliderFloat("Cap k", &settings.temporal_gradient_cap_k, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    }
+                    if (cap_kalman)
+                    {
+                        ImGui::SliderFloat("Kalman Process Noise q", &settings.temporal_gradient_kalman_q, 1e-7f, 1e-1f, "%.2e", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SliderFloat("Kalman Gate (sigmas)", &settings.temporal_gradient_kalman_gate, 1.0f, 10.0f);
+                        ImGui::SliderFloat("Kalman Loss k", &settings.temporal_gradient_kalman_k, 0.1f, 1000.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                    }
+                    if (cap_settle)
+                    {
+                        ImGui::SliderFloat("Settle Frames (K)", &settings.temporal_gradient_settle_frames, 1.0f, 64.0f, "%.1f");
+                        ImGui::SliderFloat("Settle Tolerance", &settings.temporal_gradient_settle_tolerance, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    }
+                    if (cap_mse || cap_settle)
+                    {
+                        ImGui::SliderFloat("Cap Min (samples)", &settings.temporal_gradient_cap_min, 0.0f, 32.0f, "%.1f");
+                    }
+                    ImGui::Checkbox("History Rescale", reinterpret_cast<bool *>(&settings.temporal_gradient_rescale));
+                    ImGui::SetItemTooltip("Multiplies the reprojected histories by the gradient's luminance ratio sum new / sum old (signed, undilated\n"
+                                          "lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening): jumps to the new lighting without losing samples.");
+                    if (settings.temporal_gradient_rescale)
+                    {
+                        ImGui::SliderFloat("Rescale Strength", &settings.temporal_gradient_rescale_strength, 0.0f, 1.0f);
+                    }
+                }
                 ImGui::EndDisabled();
                 ImGui::PopID();
                 ImGui::SeparatorText("Coarse Temporal Anti-Lag");
@@ -1767,7 +2009,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 bool anti_lag_enabled = anti_lag_mode != RT_LAB_ANTI_LAG_OFF;
                 if (ImGui::Checkbox("Enabled", &anti_lag_enabled))
                 {
-                    settings.coarse_anti_lag_enabled = (anti_lag_enabled ? RT_LAB_ANTI_LAG_REDUCE_SAMPLES : RT_LAB_ANTI_LAG_OFF) | anti_lag_flags;
+                    settings.coarse_anti_lag_enabled = (anti_lag_enabled ? RT_LAB_ANTI_LAG_BLEND_ONLY : RT_LAB_ANTI_LAG_OFF) | anti_lag_flags;
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_DOWNSAMPLE">()) +
@@ -1788,8 +2030,18 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 ImGui::SetItemTooltip("On: the stored history length is cut, so the following frames keep converging fast on the new result.\n"
                                       "Off: RTGI style, only this frame's blend uses the cut length, the stored length keeps growing.");
+                bool kalman = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_KALMAN) != 0;
+                if (ImGui::Checkbox("Kalman", &kalman))
+                {
+                    settings.coarse_anti_lag_enabled = kalman ? (settings.coarse_anti_lag_enabled | RT_LAB_ANTI_LAG_KALMAN) : (settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_KALMAN);
+                }
+                ImGui::SetItemTooltip("Per cell Kalman filter of the log coarse mean (measurement noise from the blur footprint's ray variance),\n"
+                                      "predicted with the temporal gradient's correction, robust gate (a second frame outside resets). The pixel histories\n"
+                                      "are CORRECTED towards it (shrunk, ratio), only the uncorrectable rest cuts the count.\n"
+                                      "Replaces History Frames / MSE / Noise Estimate / Variance Blend (unused while on).");
                 ImGui::SliderInt("Blur Radius (cells)", &settings.coarse_anti_lag_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
                 ImGui::SetItemTooltip("Separable edge aware gaussian over the 4x4 pixel cells, sigma = radius / 2. Reach = 4 x radius pixels.");
+                ImGui::BeginDisabled(kalman);
                 ImGui::SliderInt("History Frames", &settings.coarse_anti_lag_history_frames, 1, 64);
                 ImGui::SetItemTooltip("Fast history window in frames (RTGI temporal_fast_history_frames, default 4 = measured best).\n"
                                       "The slow side is the denoiser's own history length (Max History Frames / Progressive Max Samples).");
@@ -1801,9 +2053,23 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::SetItemTooltip("Heuristic for the cut. Off: RTGI fast history anti-lag (variance scaling x (1 / slow-fast ratio)^2).\n"
                                       "On: MSE optimal length N* = k x fast rel variance / (slow-fast rel difference)^2 (difference debiased by the\n"
                                       "fast mean's own noise), never below History Frames. Continuous in the difference: no threshold, no abrupt cut.");
+                {
+                    i32 const noise_bits = RT_LAB_ANTI_LAG_NOISE_MAD | RT_LAB_ANTI_LAG_NOISE_SPATIAL;
+                    i32 noise = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_NOISE_SPATIAL) != 0 ? 2 : ((settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_NOISE_MAD) != 0 ? 1 : 0);
+                    char const * noise_names[] = {"Variance", "Relative Abs Deviation", "Spatial Prediction"};
+                    if (ImGui::Combo("Noise Estimate", &noise, noise_names, 3))
+                    {
+                        settings.coarse_anti_lag_enabled = (settings.coarse_anti_lag_enabled & ~noise_bits) |
+                            (noise == 1 ? RT_LAB_ANTI_LAG_NOISE_MAD : (noise == 2 ? RT_LAB_ANTI_LAG_NOISE_SPATIAL : 0));
+                    }
+                    ImGui::SetItemTooltip("Fast history noise estimate. Variance: EMA of squared relative deviations (inflates quadratically on change).\n"
+                                          "Relative Abs Deviation: EMA of |deviation|, sigma = MAD x sqrt(pi/2) (inflates linearly, recovers faster).\n"
+                                          "Spatial Prediction: ray variance over the blur footprint / effective ray count (no temporal inflation).");
+                }
                 ImGui::SliderFloat(mse_optimal ? "MSE k" : "Variance Blend", &settings.coarse_anti_lag_variance_blend, 0.0f, 16.0f);
                 ImGui::SetItemTooltip(mse_optimal ? "MSE optimal length scale k: 1 = plain MSE optimum, larger = longer histories (less noise, more lag)."
                                                   : "How much fast relative variance (noise) earns trust back (RTGI temporal_variance_fast_history_blend, default 4).");
+                ImGui::EndDisabled(); // kalman
                 ImGui::EndDisabled();
                 ImGui::PopID();
                 ImGui::TreePop();
@@ -1830,6 +2096,43 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                                       "Rejected taps also do not count into the effective sample count. Debug view RT_LAB_VARIANCE.");
                 ImGui::BeginDisabled(settings.variance_guide_enabled == 0);
                 ImGui::SliderFloat("Tolerance (sigmas)", &settings.variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                ImGui::Checkbox("Gradient Aware", reinterpret_cast<bool *>(&settings.variance_guide_gradient));
+                ImGui::SetItemTooltip("Fine filter. The first pass fits the local rgb gradient per screen axis (5x5 weighted least squares, geometric\n"
+                                      "weights only) for the next pass and filters without it itself; the later passes use the incoming gradient and\n"
+                                      "do not refit but filter it on with the color's own weights (rejected taps,\n"
+                                      "e.g. across an edge, do not feed in). Every tap is compared with center mean + gradient x offset instead of the\n"
+                                      "plain center mean, plus the gradient's variance; the gradient is shrunk toward 0 where not significant.\n"
+                                      "Graph shape. Debug view RT_LAB_COLOR_GRADIENT.");
+                ImGui::EndDisabled();
+                char const * const ray_length_guide_modes[] = {"Off", "Radius Scale", "Radius Weighting"};
+                ImGui::Combo("Ray Length Guide", &settings.ray_length_guide_mode, ray_length_guide_modes, 3);
+                ImGui::SetItemTooltip("Fine filter. RTGI AO guide: per ray shortness 1 - min(1, (t / R)^2), R = Ray Length Max RTGI half res pixel widths,\n"
+                                      "5x5 mean on this surface, guide = 1 - sqrt(mean), accumulated. Guide radius r = guide x R.\n"
+                                      "Radius Scale: donors farther than r (world distance) fade, weight x exp(-(max(d / r - 1, 0) / falloff)^2)\n"
+                                      "(short rays at contacts / corners = small footprint).\n"
+                                      "Radius Weighting: donor weight x exp(-(log2(r_center / r_donor) / tolerance)^2), more similar = higher.\n"
+                                      "Graph shape (off vs on). Debug RT_LAB_RAY_LENGTH_GUIDE.");
+                ImGui::BeginDisabled(settings.ray_length_guide_mode == 0);
+                ImGui::SliderFloat("Ray Length Max (px)", &settings.ray_length_guide_radius_px, 1.0f, 256.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SetItemTooltip("RTGI max_visibility_pixel_range: ray lengths are scaled and clamped to this many RTGI half res pixel widths.");
+                ImGui::SliderFloat("Radius Falloff", &settings.ray_length_guide_distance_falloff, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat("Similarity Tolerance (stops)", &settings.ray_length_guide_similarity_tolerance, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                ImGui::EndDisabled();
+                ImGui::BeginDisabled(settings.variance_guide_enabled == 0 && settings.coarse_variance_guide_enabled == 0);
+                ImGui::Checkbox("Heavy Tail (Student-t)", reinterpret_cast<bool *>(&settings.variance_guide_heavy_tail));
+                ImGui::SetItemTooltip("Fine AND coarse variance guide. Weight (1 + z^2 / (nu k^2))^(-(nu + 1) / 2) instead of exp(-z^2 / (2 k^2)):\n"
+                                      "polynomial tail, a noisy z no longer flips a tap between fully in and gone (less splotchy).\n"
+                                      "nu -> infinity = gaussian, 1 = Cauchy. Real edges (z >> 10) stay strongly suppressed.");
+                ImGui::BeginDisabled(settings.variance_guide_heavy_tail == 0);
+                ImGui::InputFloat("Tail nu", &settings.variance_guide_tail_nu, 0.5f, 1.0f, "%.2f");
+                ImGui::EndDisabled();
+                ImGui::Checkbox("Cap Sample Count", reinterpret_cast<bool *>(&settings.variance_guide_count_cap_enabled));
+                ImGui::SetItemTooltip("Fine AND coarse variance guide. The effective sample count n in the standard error var / n is capped:\n"
+                                      "the spatially compounded count (about x7 per a-trous pass, reused samples counted again) overstates the\n"
+                                      "independent samples, so z inflates and later passes reject hard. Looser test = slightly more blur bias.");
+                ImGui::BeginDisabled(settings.variance_guide_count_cap_enabled == 0);
+                ImGui::InputFloat("Count Cap", &settings.variance_guide_count_cap, 8.0f, 64.0f, "%.0f");
+                ImGui::EndDisabled();
                 ImGui::EndDisabled();
                 ImGui::SetItemTooltip("Separable gaussian: horizontal + vertical pass, Blur Radius taps per side.\nA-trous: passes of a 5x5 B3 spline kernel, tap spacing 1, 2, 4, 8, ... px.\nBoth use the same geometric edge stopping (plane tolerance, normal power).");
                 if (settings.spatial_mode == 0)
@@ -1921,7 +2224,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::SetItemTooltip("While RT Lab runs (also during its tests), PGI updates every probe every frame (update rate FULL).\n"
                                   "Unchecked: the PGI settings' own update rate (restored when this turns off).");
             char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
-            ImGui::BeginDisabled(estimating);
+            ImGui::BeginDisabled(testing);
             ImGui::Combo("Active Preset", &lab.active_preset, preset_names, RT_LAB_PRESET_COUNT);
             ImGui::EndDisabled();
             ImGui::SetItemTooltip("Progressive: reference (full res, fp32 long history, 2 tight a-trous passes, no coarse fallback by default).\nCustom: the settings under test.");
@@ -1946,7 +2249,8 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
         if (ImGui::CollapsingHeader("Debug Views", ImGuiTreeNodeFlags_DefaultOpen))
         {
             debug_mode_sub_selector("rt lab debug visualization", &rt_lab_debug_visualization, {
-                DEBUG_DRAW_MODE_RT_LAB_HISTORY_LENGTH,
+                DEBUG_DRAW_MODE_RT_LAB_SAMPLE_COUNT,
+                DEBUG_DRAW_MODE_RT_LAB_HISTORY_CUTS,
                 DEBUG_DRAW_MODE_RT_LAB_TEMPORAL_GRADIENT,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_MEAN,
@@ -1954,6 +2258,8 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_RELATIVE_STD,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_RELATIVE_STD,
                 DEBUG_DRAW_MODE_RT_LAB_VARIANCE,
+                DEBUG_DRAW_MODE_RT_LAB_COLOR_GRADIENT,
+                DEBUG_DRAW_MODE_RT_LAB_RAY_LENGTH_GUIDE,
                 DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_BLEND,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_SAMPLE_COUNT,
@@ -1990,49 +2296,122 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::SliderFloat("Temporal Count Clamp", &lab.sample_count_input_clamp, 0.0f, 512.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
             ImGui::SetItemTooltip("The temporal history length is clamped to this before the spatial passes accumulate it.\n0 = off, 1 = count only the spatial samples. Metric only, the filtering is unchanged.");
         }
-        if (ImGui::CollapsingHeader("Convergence Measurement", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("Test", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            bool const measuring = lab.measure_phase != RtLabMeasurePhase::IDLE;
-            ImGui::BeginDisabled(measuring || estimating);
-            ImGui::SliderInt("Measure Frames", &lab.measure_frames, 16, 4096);
-            ImGui::SliderInt("Instability Window (frames)", &lab.measure_window, 2, 128);
-            ImGui::SetItemTooltip("Temporal instability: per pixel running mean / variance of the output luma, plain average for\nthis many frames, then an EMA over this many frames. Reprojected with the camera.");
-            rt_lab_test_move_ui("measure_move", lab, lab.measure_move, current_camera_pose, current_sun_pose);
-            if (lab.measure_move.enabled)
+            RtLabTestSetup & setup = lab.test;
+            char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
+            ImGui::BeginDisabled(testing);
+            ImGui::TextDisabled("Tests the active preset (%s) from a reset, camera locked.", preset_names[std::clamp(lab.active_preset, 0, RT_LAB_PRESET_COUNT - 1)]);
+            ImGui::SliderInt("Frames", &setup.frames, 16, 4096);
+            ImGui::SetItemTooltip("Frames the tested preset accumulates from a reset (one move step per frame with a programmed move).");
+            ImGui::CheckboxFlags("Convergence", &setup.metrics, RT_LAB_TEST_METRIC_CONVERGENCE);
+            ImGui::SetItemTooltip("Per frame: post-spatial split history relative error |A - B| / min(A, B) per 4x4 tile. Reference free.");
+            ImGui::CheckboxFlags("Temporal Stability", &setup.metrics, RT_LAB_TEST_METRIC_INSTABILITY);
+            ImGui::SetItemTooltip("Per frame: temporal instability of the final output, luma std / mean per 4x4 tile (flicker),\n"
+                                  "running mean / variance reprojected with the camera.");
+            if ((setup.metrics & RT_LAB_TEST_METRIC_INSTABILITY) != 0)
             {
-                ImGui::TextDisabled("One move step per measured frame, then the poses hold still.");
+                ImGui::Indent();
+                ImGui::SliderInt("Instability Window (frames)", &setup.window, 2, 128);
+                ImGui::SetItemTooltip("Plain average for this many frames, then an EMA over this many frames.");
+                ImGui::Unindent();
             }
-            ImGui::EndDisabled();
-            if (!measuring)
+            ImGui::SliderInt("Light Shock Frames", &setup.shock_frames, 0, 64);
+            ImGui::SetItemTooltip("Temporal shock test: the point light culling is flipped for this many run frames (1 = single frame flash),\n"
+                                  "starting at Light Shock Start. The lag metric measures from the shock's end. 0 = off.");
+            if (setup.shock_frames > 0)
             {
-                ImGui::BeginDisabled(estimating);
-                if (ImGui::Button("Measure Convergence"))
-                {
-                    lab.measure_start_requested = true;
-                }
-                ImGui::EndDisabled();
-                ImGui::SetItemTooltip(
-                    "Locks the camera, resets the history and runs the ACTIVE preset for Measure Frames frames (split history forced on).\n"
-                    "Every frame logs 512 bin log histograms over 4x4 tiles of the post-spatial convergence error and the output\n"
-                    "temporal instability. Reference free.");
+                ImGui::Indent();
+                ImGui::SliderInt("Light Shock Start", &setup.shock_start, 0, setup.frames - 1);
+                ImGui::Unindent();
             }
-            else
+            ImGui::CheckboxFlags("Temporal Jitter", &setup.metrics, RT_LAB_TEST_METRIC_JITTER);
+            ImGui::SetItemTooltip("Per frame: frame to frame jitter of the final output, |x - 2 x_prev + x_prev2| / (sqrt(6) mean) per 4x4 tile.\n"
+                                  "A smooth real change (linear trend) does not count, short bursts show in the frame they happen.");
+            ImGui::CheckboxFlags("Temporal Lag", &setup.metrics, RT_LAB_TEST_METRIC_LAG);
+            ImGui::SetItemTooltip("Step response: per 16x16 tile mean luma every frame; frames until each tile stays within a tolerance of its\n"
+                                  "final value, after the programmed move's end (static: convergence from the reset).");
+            ImGui::CheckboxFlags("Compare To Reference", &setup.metrics, RT_LAB_TEST_METRIC_REFERENCE);
+            ImGui::SetItemTooltip("Error vs the Progressive preset (MSE, bias, split error prediction check).\n"
+                                  "Static: Progressive accumulates Reference Frames first, the run's last frame is compared with it.\n"
+                                  "Programmed move: after the run, the tested preset warms up at step 0, then per step it reprojects + adds ONE\n"
+                                  "frame, Progressive accumulates Reference Frames Per Step at the same pose, the two are compared.");
+            rt_lab_test_move_ui("test_move", lab, setup.move, current_camera_pose, current_sun_pose);
+            if (setup.move.enabled)
             {
-                if (ImGui::Button("Cancel##measure"))
+                ImGui::TextDisabled("One move step per run frame, then the poses hold still.");
+            }
+            if ((setup.metrics & RT_LAB_TEST_METRIC_REFERENCE) != 0)
+            {
+                ImGui::SeparatorText("Reference");
+                if (!setup.move.enabled)
                 {
-                    lab.measure_cancel_requested = true;
-                }
-                ImGui::SameLine();
-                if (lab.measure_phase == RtLabMeasurePhase::RUNNING)
-                {
-                    ImGui::Text("Camera locked%s, measuring: %i / %i", lab.measurement.move.enabled ? " (programmed move)" : "", lab.measure_frame, lab.measurement.frames);
-                    ImGui::ProgressBar(static_cast<f32>(lab.measure_frame) / static_cast<f32>(std::max(lab.measurement.frames, 1)));
+                    ImGui::SliderInt("Reference Frames", &setup.reference_frames, 1, 4096);
+                    ImGui::SetItemTooltip("Progressive frames accumulated from a reset before the run.");
                 }
                 else
                 {
-                    ImGui::Text("Collecting...");
+                    ImGui::SliderInt("Reference Frames Per Step", &setup.move_reference_frames, 2, 4096);
+                    ImGui::SetItemTooltip("Progressive frames accumulated from a reset at every step (rounded up to even: the tested preset then\n"
+                                          "alternates frame index parity, which the split history needs).");
+                    ImGui::SliderInt("Warmup Frames", &setup.move_warmup_frames, 1, 4096);
+                    ImGui::SetItemTooltip("The tested preset accumulates this many frames at step 0 before the per step comparison.");
                 }
             }
+            ImGui::EndDisabled();
+            if (!testing)
+            {
+                if (ImGui::Button("Run Test"))
+                {
+                    lab.test_start_requested = true;
+                }
+            }
+            else
+            {
+                RtLabTestSetup const & running = lab.running;
+                if (ImGui::Button("Cancel##test"))
+                {
+                    lab.test_cancel_requested = true;
+                }
+                ImGui::SameLine();
+                f32 progress = 0.0f;
+                switch (lab.phase)
+                {
+                    case RtLabTestPhase::REFERENCE:
+                    {
+                        ImGui::Text("Reference (Progressive): %i / %i", lab.phase_frame, running.reference_frames);
+                        progress = static_cast<f32>(lab.phase_frame) / static_cast<f32>(std::max(running.reference_frames, 1));
+                        break;
+                    }
+                    case RtLabTestPhase::RUN:
+                    {
+                        ImGui::Text("Run%s: %i / %i", running.move.enabled ? " (programmed move)" : "", lab.phase_frame, running.frames);
+                        progress = static_cast<f32>(lab.phase_frame) / static_cast<f32>(std::max(running.frames, 1));
+                        break;
+                    }
+                    case RtLabTestPhase::MOVE_WARMUP:
+                    {
+                        ImGui::Text("Reference warmup: %i / %i", lab.phase_frame, running.move_warmup_frames);
+                        progress = static_cast<f32>(lab.phase_frame) / static_cast<f32>(std::max(running.move_warmup_frames, 1));
+                        break;
+                    }
+                    case RtLabTestPhase::MOVE_TESTED:
+                    case RtLabTestPhase::MOVE_REFERENCE:
+                    {
+                        ImGui::Text("Reference step %i / %i: %s", lab.move_step, lab.move_steps, lab.phase == RtLabTestPhase::MOVE_TESTED ? "tested" : "progressive");
+                        progress = static_cast<f32>(lab.move_step) / static_cast<f32>(std::max(lab.move_steps, 1));
+                        break;
+                    }
+                    default:
+                    {
+                        ImGui::Text("Collecting...");
+                        progress = 1.0f;
+                        break;
+                    }
+                }
+                ImGui::ProgressBar(progress);
+            }
+
             // == Results: list (latest runs unsaved, saved ones from disk), save, compare ==
             ImGui::SeparatorText("Results");
             if (!lab.results_scanned)
@@ -2056,24 +2435,28 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 std::snprintf(rt_lab_measure_ui.save_name.data(), rt_lab_measure_ui.save_name.size(), "%s", name.c_str());
                 rt_lab_measure_ui.save_failed = false;
-                ImGui::OpenPopup("Save Measurement Result");
+                ImGui::OpenPopup("Save Test Result");
             }
             ImGui::EndDisabled();
             ImGui::SetItemTooltip("Save the selected result to " RT_LAB_RESULTS_DIRECTORY "/<name>.rtlab (gitignored).");
-            if (ImGui::BeginPopupModal("Save Measurement Result", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            // File name safe: letters, digits, '-', '_', '.', anything else becomes '_'.
+            auto file_safe = [](std::string name) -> std::string
+            {
+                for (char & c : name)
+                {
+                    bool const allowed = std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.';
+                    c = allowed ? c : '_';
+                }
+                return name;
+            };
+            if (ImGui::BeginPopupModal("Save Test Result", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
                 if (ImGui::IsWindowAppearing())
                 {
                     ImGui::SetKeyboardFocusHere();
                 }
                 bool const entered = ImGui::InputText("Name", rt_lab_measure_ui.save_name.data(), rt_lab_measure_ui.save_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
-                // File name safe: letters, digits, '-', '_', '.', spaces become '_'.
-                std::string name = rt_lab_measure_ui.save_name.data();
-                for (char & c : name)
-                {
-                    bool const allowed = std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.';
-                    c = allowed ? c : '_';
-                }
+                std::string const name = file_safe(rt_lab_measure_ui.save_name.data());
                 bool const exists = !name.empty() && std::filesystem::exists(std::filesystem::path(RT_LAB_RESULTS_DIRECTORY) / (name + ".rtlab"));
                 ImGui::TextDisabled("File: " RT_LAB_RESULTS_DIRECTORY "/%s.rtlab%s", name.c_str(), exists ? "  (overwrites)" : "");
                 if (rt_lab_measure_ui.save_failed)
@@ -2098,7 +2481,6 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::EndPopup();
             }
 
-            char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
             auto result_label = [&](RtLabResult const & r) -> std::string
             {
                 return fmt::format("{}{}  ({} frames)", r.path.empty() ? "* " : "", r.name, r.measurement.frames);
@@ -2107,11 +2489,20 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             {
                 auto const & m = r.measurement;
                 auto const & s = m.settings;
+                std::string metrics = {};
+                for (auto const & [flag, name] : {std::pair{RT_LAB_TEST_METRIC_CONVERGENCE, "convergence"}, std::pair{RT_LAB_TEST_METRIC_INSTABILITY, "stability"}, std::pair{RT_LAB_TEST_METRIC_JITTER, "jitter"},
+                                                  std::pair{RT_LAB_TEST_METRIC_LAG, "lag"}, std::pair{RT_LAB_TEST_METRIC_REFERENCE, "reference"}})
+                {
+                    if ((m.metrics & flag) != 0)
+                    {
+                        metrics += metrics.empty() ? name : fmt::format(", {}", name);
+                    }
+                }
                 ImGui::SetItemTooltip(
-                    "%s\n%s\nresolution %ux%u, camera (%.2f, %.2f, %.2f), instability window %i\n"
+                    "%s\n%s\nmetrics: %s\nresolution %ux%u, camera (%.2f, %.2f, %.2f), instability window %i\n"
                     "half res %i, temporal %i (%s, max %i / %i), split %i, spatial %i (radius %i [-N = a-trous 5x5 x N passes], plane %.2f, normal power %.1f)\n"
                     "disocclusion plane %.2f, normal %.2f, bicubic reprojection %i, occluder aware soft normalize %i (-1 = plain)%s%s",
-                    r.name.c_str(), m.timestamp.c_str(), m.resolution[0], m.resolution[1],
+                    r.name.c_str(), m.timestamp.c_str(), metrics.c_str(), m.resolution[0], m.resolution[1],
                     m.camera_position[0], m.camera_position[1], m.camera_position[2], m.window,
                     s.half_res, s.temporal_enabled, s.temporal_progressive ? "progressive" : "smart", s.max_history_frames, s.progressive_max_samples,
                     s.split_history_enabled, s.spatial_enabled, s.spatial_mode == 1 ? -s.atrous_passes : s.blur_radius, s.blur_plane_tolerance, s.blur_normal_power,
@@ -2121,7 +2512,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                         m.move.camera.yaw_speed, m.move.camera.pitch_speed, m.move.camera.duration, m.move.sun.yaw_speed, m.move.sun.pitch_speed, m.move.sun.duration).c_str(),
                     r.path.empty() ? "\n(unsaved)" : "");
             };
-            // Right click on a result (in a dropdown list or on a closed dropdown) -> rename.
+            // Right click on a result (in a dropdown list or on a closed dropdown) -> rename / delete.
             auto result_context_menu = [&](i32 index)
             {
                 if (ImGui::BeginPopupContextItem("##result_context"))
@@ -2216,12 +2607,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 bool const saved = index_valid && !lab.results[index].path.empty();
                 if (saved)
                 {
-                    // Saved results are files: file name safe characters only.
-                    for (char & c : name)
-                    {
-                        bool const allowed = std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.';
-                        c = allowed ? c : '_';
-                    }
+                    name = file_safe(name); // saved results are files
                     ImGui::TextDisabled("File: " RT_LAB_RESULTS_DIRECTORY "/%s.rtlab", name.c_str());
                 }
                 if (rt_lab_measure_ui.rename_failed)
@@ -2291,7 +2677,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             // Re-check: a rename / delete above can have changed the list this frame.
             bool const show_selection = lab.selected_result >= 0 && lab.selected_result < static_cast<i32>(lab.results.size());
             bool const show_compare = lab.compare_result >= 0 && lab.compare_result < static_cast<i32>(lab.results.size()) && lab.compare_result != lab.selected_result;
-            if (!measuring && show_selection)
+            if (!testing && show_selection)
             {
                 RtLabResult & selected = lab.results[lab.selected_result];
                 RtLabMeasurement const * compare = nullptr;
@@ -2301,36 +2687,19 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 if (rt_lab_result_ensure_loaded(selected) && selected.measurement.frames > 0)
                 {
-                    rt_lab_measure_analytics(selected.measurement, compare, rt_lab_measure_ui);
-                    // Temporal lag (step response): recomputed from the tile data at the UI tolerance when the result has it.
-                    ImGui::SeparatorText("Temporal Lag");
-                    ImGui::SliderFloat("Lag Tolerance", &lab.lag_tolerance, 0.002f, 0.2f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SetItemTooltip("Relative: a tile counts as settled once it stays within this of its final value (mean of the last 8 frames).\n"
-                                          "Only tiles that changed by more than 2 x this after the start frame count.");
-                    RtLabLagSummary const lag = rt_lab_measure_lag(selected.measurement, lab.lag_tolerance);
-                    if (!lag.valid)
+                    RtLabMeasurement const & m = selected.measurement;
+                    if ((m.metrics & RT_LAB_TEST_METRIC_HISTOGRAMS) != 0)
                     {
-                        ImGui::TextDisabled("No lag data (result recorded before the lag metric).");
+                        ImGui::SeparatorText("Convergence / Temporal Stability");
+                        rt_lab_measure_analytics(m, compare, rt_lab_measure_ui);
                     }
-                    else
+                    if ((m.metrics & RT_LAB_TEST_METRIC_LAG) != 0)
                     {
-                        ImGui::Text("Start frame %i (%s), tolerance %.1f %%%s", lag.start_frame,
-                            selected.measurement.move.enabled ? "end of the programmed move" : "static run: convergence from reset", lag.tolerance * 100.0,
-                            selected.measurement.lag_values.empty() ? " (saved summary)" : "");
-                        ImGui::Text("Changed tiles: %u of %u", lag.changed_tiles, lag.tiles);
-                        ImGui::Text("Settle frames: p50 %.0f   p90 %.0f   max %.0f   never settled: %.1f %%", lag.settle_p50, lag.settle_p90, lag.settle_max, lag.never_settled * 100.0);
-                        if (!lag.settled_curve.empty() && ImPlot::BeginPlot("##rt_lab_lag_curve", ImVec2(-1, 160)))
-                        {
-                            ImPlot::SetupAxes("frames after start", "% of changed tiles settled", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_None);
-                            ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, 100.0, ImPlotCond_Always);
-                            std::vector<f32> percent(lag.settled_curve.size());
-                            for (size_t i = 0; i < percent.size(); ++i)
-                            {
-                                percent[i] = lag.settled_curve[i] * 100.0f;
-                            }
-                            ImPlot::PlotLine("settled", percent.data(), static_cast<i32>(percent.size()));
-                            ImPlot::EndPlot();
-                        }
+                        rt_lab_lag_ui(m, lab.lag_tolerance);
+                    }
+                    if ((m.metrics & RT_LAB_TEST_METRIC_REFERENCE) != 0)
+                    {
+                        rt_lab_reference_ui(m);
                     }
                 }
                 else
@@ -2338,194 +2707,56 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Could not load %s.", selected.path.string().c_str());
                 }
             }
-        }
-        if (ImGui::CollapsingHeader("Convergence Error vs Progressive"))
-        {
-            ImGui::BeginDisabled(estimating);
-            rt_lab_test_move_ui("estimate_move", lab, lab.estimate_move, current_camera_pose, current_sun_pose);
-            if (!lab.estimate_move.enabled)
+
+            // Live analysis after a static reference comparison (runs every frame: debug views, histogram).
+            if (lab.live_analysis && ImGui::TreeNodeEx("Live Reference Analysis"))
             {
-                ImGui::SliderInt("Frames Per Preset", &lab.test_frames, 1, 4096);
-            }
-            else
-            {
-                ImGui::SliderInt("Reference Frames Per Step", &lab.move_reference_frames, 2, 4096);
-                ImGui::SetItemTooltip("Progressive frames accumulated from a reset at every step (rounded up to even: custom then alternates\n"
-                                      "frame index parity, which the split history needs).");
-                ImGui::SliderInt("Custom Warmup Frames", &lab.move_warmup_frames, 1, 4096);
-                ImGui::SetItemTooltip("Custom accumulates this many frames at step 0 before the move starts.");
-            }
-            ImGui::EndDisabled();
-            if (!estimating)
-            {
-                ImGui::BeginDisabled(lab.measure_phase != RtLabMeasurePhase::IDLE);
-                if (ImGui::Button("Estimate Convergence Error"))
+                ImGui::TextDisabled("The captures of the last test, compared every frame with the current exposure (debug views RT_LAB_CONVERGENCE_*).");
+                ImGui::Checkbox("Histogram Auto Range", &lab.histogram_auto_range);
+                ImGui::SetItemTooltip("The histogram range rescales itself over time to the smallest symmetric range holding Auto Coverage of the pixels.\nOff = the manual range.");
+                if (lab.histogram_auto_range)
                 {
-                    lab.start_requested = true;
-                }
-                ImGui::EndDisabled();
-                if (!lab.estimate_move.enabled)
-                {
-                    ImGui::SetItemTooltip("Locks the camera, accumulates the Progressive preset for Frames Per Preset frames and captures it,\nthen the same for the Custom preset, then compares Custom against Progressive.");
+                    ImGui::SliderFloat("Histogram Auto Coverage", &lab.histogram_auto_coverage, 0.5f, 1.0f, "%.3f");
                 }
                 else
                 {
-                    ImGui::SetItemTooltip(
-                        "Custom warms up at step 0, then for every step of the move: Custom reprojects its history to the step pose\n"
-                        "and adds ONE frame (captured), then Progressive resets and accumulates Reference Frames Per Step frames at\n"
-                        "the same pose (captured) and the two are compared. The custom history is kept across the progressive frames.");
+                    ImGui::SliderFloat("Histogram Range", &lab.histogram_range, 0.001f, 4.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
                 }
-            }
-            else
-            {
-                if (ImGui::Button("Cancel"))
+                ImGui::SetItemTooltip("The histogram covers [-range, range] of signed luminance difference. Pixels outside are counted separately.");
+                auto const & result = lab.live_result;
+                if (result.pixels > 0)
                 {
-                    lab.cancel_requested = true;
-                }
-                ImGui::SameLine();
-                switch (lab.phase)
-                {
-                    case RtLabConvergencePhase::PROGRESSIVE:
-                    case RtLabConvergencePhase::CUSTOM:
+                    ImGui::Text("RMSE: %.6g   bias: %.6g   mean abs: %.6g", std::sqrt(result.mse), result.bias, result.mean_abs_error);
+                    f64 const total = static_cast<f64>(result.pixels);
+                    ImGui::Text("Histogram range: +-%.4g, outside: %.2f%% below, %.2f%% above",
+                        result.histogram_range, 100.0 * result.below_range / total, 100.0 * result.above_range / total);
+                    ImGui::Checkbox("Log Scale", &rt_lab_histogram_log_scale);
+                    std::array<f64, RT_LAB_CONVERGENCE_HISTOGRAM_BINS> xs = {};
+                    std::array<f64, RT_LAB_CONVERGENCE_HISTOGRAM_BINS> ys = {};
+                    f64 const bin_width = 2.0 * static_cast<f64>(result.histogram_range) / static_cast<f64>(RT_LAB_CONVERGENCE_HISTOGRAM_BINS);
+                    for (u32 b = 0; b < RT_LAB_CONVERGENCE_HISTOGRAM_BINS; ++b)
                     {
-                        ImGui::Text("Camera locked, accumulating %s: %i / %i",
-                            lab.phase == RtLabConvergencePhase::PROGRESSIVE ? "Progressive" : "Custom", lab.phase_frame, lab.test_frames);
-                        ImGui::ProgressBar(static_cast<f32>(lab.phase_frame) / static_cast<f32>(std::max(lab.test_frames, 1)));
-                        break;
+                        xs[b] = -static_cast<f64>(result.histogram_range) + (static_cast<f64>(b) + 0.5) * bin_width;
+                        ys[b] = 100.0 * static_cast<f64>(result.histogram[b]) / total;
                     }
-                    case RtLabConvergencePhase::MOVE_WARMUP:
+                    if (ImPlot::BeginPlot("##rt_lab_convergence_histogram", ImVec2(-1, 220)))
                     {
-                        ImGui::Text("Custom warmup: %i / %i", lab.phase_frame, lab.move_warmup_frames);
-                        ImGui::ProgressBar(static_cast<f32>(lab.phase_frame) / static_cast<f32>(std::max(lab.move_warmup_frames, 1)));
-                        break;
-                    }
-                    default:
-                    {
-                        ImGui::Text("Step %i / %i: %s", lab.move_step, lab.move_steps,
-                            lab.phase == RtLabConvergencePhase::MOVE_CUSTOM ? "custom" : (lab.phase == RtLabConvergencePhase::MOVE_PROGRESSIVE ? "progressive" : "collecting"));
-                        ImGui::ProgressBar(static_cast<f32>(lab.move_step) / static_cast<f32>(std::max(lab.move_steps, 1)));
-                        break;
+                        ImPlot::SetupAxes("luminance difference", "% of pixels", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                        if (rt_lab_histogram_log_scale)
+                        {
+                            ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
+                        }
+                        ImPlot::PlotBars("pixels", xs.data(), ys.data(), RT_LAB_CONVERGENCE_HISTOGRAM_BINS, bin_width);
+                        f64 const zero = 0.0;
+                        ImPlot::PlotInfLines("##zero", &zero, 1);
+                        ImPlot::EndPlot();
                     }
                 }
-            }
-            // Per step results of the (last) programmed move estimate.
-            if (!lab.move_results.empty())
-            {
-                ImGui::SeparatorText("Programmed Move: Error Per Step");
-                ImGui::TextDisabled("Custom after reprojecting + 1 frame vs a fresh progressive reference at the same pose (exposed irradiance).");
-                std::vector<f64> steps = {};
-                std::vector<f64> rmse = {};
-                std::vector<f64> bias = {};
-                std::vector<f64> noise = {};
-                std::vector<f64> systematic = {};
-                for (RtLabConvergenceStep const & r : lab.move_results)
+                else
                 {
-                    steps.push_back(static_cast<f64>(r.step));
-                    rmse.push_back(std::sqrt(r.mse));
-                    bias.push_back(r.bias);
-                    noise.push_back(r.rms_predicted);
-                    systematic.push_back(std::sqrt(std::max(r.rms_actual * r.rms_actual - r.rms_predicted * r.rms_predicted, 0.0)));
+                    ImGui::TextDisabled("Waiting for the analysis readback (RT Lab must be enabled).");
                 }
-                if (ImPlot::BeginPlot("##rt_lab_move_error", ImVec2(-1, 220)))
-                {
-                    ImPlot::SetupAxes("step", "error", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
-                    i32 const count = static_cast<i32>(steps.size());
-                    ImPlot::PlotLine("RMSE", steps.data(), rmse.data(), count);
-                    ImPlot::PlotLine("bias (mean signed)", steps.data(), bias.data(), count);
-                    ImPlot::PlotLine("RMS noise (split prediction)", steps.data(), noise.data(), count);
-                    ImPlot::PlotLine("RMS systematic (actual - noise)", steps.data(), systematic.data(), count);
-                    ImPlot::EndPlot();
-                }
-                f64 mean_rmse = 0.0;
-                f64 mean_bias = 0.0;
-                for (size_t i = 0; i < rmse.size(); ++i)
-                {
-                    mean_rmse += rmse[i];
-                    mean_bias += bias[i];
-                }
-                ImGui::Text("Steps: %i   mean RMSE: %.6g   mean bias: %.6g", static_cast<i32>(rmse.size()),
-                    mean_rmse / static_cast<f64>(rmse.size()), mean_bias / static_cast<f64>(rmse.size()));
-                if (ImGui::Button("Copy Per Step CSV"))
-                {
-                    std::string csv = "step,pixels,mse,rmse,bias,mean_abs_error,rms_predicted,rms_actual\n";
-                    for (RtLabConvergenceStep const & r : lab.move_results)
-                    {
-                        csv += fmt::format("{},{},{},{},{},{},{},{}\n", r.step, r.pixels, r.mse, std::sqrt(r.mse), r.bias, r.mean_abs_error, r.rms_predicted, r.rms_actual);
-                    }
-                    ImGui::SetClipboardText(csv.c_str());
-                }
-                ImGui::TextDisabled("The single result below = the last compared step.");
-            }
-            ImGui::Checkbox("Histogram Auto Range", &lab.histogram_auto_range);
-            ImGui::SetItemTooltip("The histogram range rescales itself over time to the smallest symmetric range holding Auto Coverage of the pixels.\nOff = the manual range.");
-            if (lab.histogram_auto_range)
-            {
-                ImGui::SliderFloat("Histogram Auto Coverage", &lab.histogram_auto_coverage, 0.5f, 1.0f, "%.3f");
-            }
-            else
-            {
-                ImGui::SliderFloat("Histogram Range", &lab.histogram_range, 0.001f, 4.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-            }
-            ImGui::SetItemTooltip("The histogram covers [-range, range] of signed luminance difference. Pixels outside are counted separately.");
-            if (lab.result.pixels > 0)
-            {
-                auto const & result = lab.result;
-                ImGui::TextDisabled("Exposed irradiance (as the INDIRECT_DIFFUSE debug view), Custom - Progressive");
-                ImGui::Text("Pixels: %u", result.pixels);
-                ImGui::Text("MSE:  %.6g", result.mse);
-                ImGui::Text("RMSE: %.6g", std::sqrt(result.mse));
-                ImGui::Text("Mean Abs Luminance Error: %.6g", result.mean_abs_error);
-                ImGui::Text("Bias (mean signed luminance error): %.6g", result.bias);
-                if (result.predicted_pixels > 0)
-                {
-                    ImGui::SeparatorText("Split History Error Prediction");
-                    ImGui::TextDisabled("Predicted sqrt(custom^2 + progressive^2) of both runs' post-spatial |A - B| / 2 (the actual\n"
-                                        "error contains both) vs actual |Custom - Progressive| luminance.");
-                    ImGui::Text("Pixels with a prediction: %u", result.predicted_pixels);
-                    ImGui::Text("Mean predicted: %.6g   Mean actual: %.6g", result.mean_predicted, result.mean_actual);
-                    ImGui::Text("RMS predicted:  %.6g   RMS actual:  %.6g   (ratio %.3f)", result.rms_predicted, result.rms_actual,
-                        result.rms_actual > 0.0 ? result.rms_predicted / result.rms_actual : 0.0);
-                    ImGui::Text("Correlation (predicted vs actual): %.3f", result.correlation);
-                    // MSE = variance + bias^2. The split halves share every systematic error (blur bias, lag), so the
-                    // prediction is the noise part only; what the actual error has on top is bias.
-                    f64 const bias_squared = std::max(result.rms_actual * result.rms_actual - result.rms_predicted * result.rms_predicted, 0.0);
-                    ImGui::Text("RMS noise (predicted): %.6g   RMS bias (actual - noise): %.6g", result.rms_predicted, std::sqrt(bias_squared));
-                    ImGui::SetItemTooltip("MSE = variance + bias^2. Both split halves go through the same blur and see the same lag,\n"
-                                          "so the split only measures noise. sqrt(rms_actual^2 - rms_predicted^2) estimates the RMS\n"
-                                          "systematic error (blur bias, temporal lag, ...).");
-                }
-                else if (lab.presets[RT_LAB_PRESET_CUSTOM].split_history_enabled == 0)
-                {
-                    ImGui::TextDisabled("Enable Split History in the Custom preset for the error prediction check.");
-                }
-                f64 const total = static_cast<f64>(result.pixels);
-                ImGui::Text("Histogram range: +-%.4g, outside: %.2f%% below, %.2f%% above",
-                    result.histogram_range, 100.0 * result.below_range / total, 100.0 * result.above_range / total);
-                ImGui::Checkbox("Log Scale", &rt_lab_histogram_log_scale);
-                std::array<f64, RT_LAB_CONVERGENCE_HISTOGRAM_BINS> xs = {};
-                std::array<f64, RT_LAB_CONVERGENCE_HISTOGRAM_BINS> ys = {};
-                f64 const bin_width = 2.0 * static_cast<f64>(result.histogram_range) / static_cast<f64>(RT_LAB_CONVERGENCE_HISTOGRAM_BINS);
-                for (u32 b = 0; b < RT_LAB_CONVERGENCE_HISTOGRAM_BINS; ++b)
-                {
-                    xs[b] = -static_cast<f64>(result.histogram_range) + (static_cast<f64>(b) + 0.5) * bin_width;
-                    ys[b] = 100.0 * static_cast<f64>(result.histogram[b]) / static_cast<f64>(result.pixels);
-                }
-                if (ImPlot::BeginPlot("##rt_lab_convergence_histogram", ImVec2(-1, 220)))
-                {
-                    ImPlot::SetupAxes("luminance difference", "% of pixels", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
-                    if (rt_lab_histogram_log_scale)
-                    {
-                        ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
-                    }
-                    ImPlot::PlotBars("pixels", xs.data(), ys.data(), RT_LAB_CONVERGENCE_HISTOGRAM_BINS, bin_width);
-                    f64 const zero = 0.0;
-                    ImPlot::PlotInfLines("##zero", &zero, 1);
-                    ImPlot::EndPlot();
-                }
-            }
-            else if (lab.has_result)
-            {
-                ImGui::TextDisabled("Waiting for the analysis readback (RT Lab must be enabled).");
+                ImGui::TreePop();
             }
         }
         ImGui::PopItemWidth();

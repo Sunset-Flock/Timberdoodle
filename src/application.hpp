@@ -38,16 +38,11 @@ struct PerfTestInfo
     u32 wait_frames = 1000;
     std::filesystem::path output_dir = "perf_tests";
     std::string name = "perf";
-    // > 0: start an RT Lab convergence error estimate with this many frames per preset when each view starts measuring
-    // (--frames must cover 2x this). The result is written into the timings json.
-    i32 rt_lab_estimate_frames = 0;
-    // > 0: start an RT Lab convergence measurement of the active preset with this many frames when each view starts
-    // measuring (--frames must cover it + a few frames). Summary written into the timings json.
-    i32 rt_lab_measure_frames = 0;
-    // Programmed move of both RT Lab tests (--rt-lab-move / --rt-lab-sun-move / --rt-lab-move-dt), enabled when set.
-    RtLabTestMove rt_lab_move = {};
-    i32 rt_lab_move_warmup_frames = 256;    // move estimate: custom frames at step 0
-    i32 rt_lab_move_reference_frames = 128; // move estimate: progressive frames per step
+    // RT Lab test (--rt-lab-measure / --rt-lab-estimate / --rt-lab-metrics / --rt-lab-move ...): started when each view
+    // starts measuring (--frames must cover it), summary written into the timings json, result saved as
+    // rt_lab_results/<name>.rtlab.
+    bool rt_lab_test = false;
+    RtLabTestSetup rt_lab_test_setup = {};
     bool rt_lab_move_sun_set = false;       // --rt-lab-sun-move given (else --rt-lab-move zeroes the sun move)
 };
 
@@ -55,17 +50,16 @@ struct PerfTestInfo
 // results appended to <out>/<name>_results.json after each test. Format: see application_test_plan.cpp.
 enum struct TestPlanTestType
 {
-    PERF,     // render `frames` frames, then write the GPU timings
-    MEASURE,  // RT Lab convergence measurement of the active preset, `frames` frames
-    ESTIMATE, // RT Lab convergence error vs progressive (`frames` per preset; with a move: move_warmup / move_reference)
+    PERF,    // render `frames` frames, then write the GPU timings
+    RT_LAB,  // RT Lab test of the active preset (RtLabTestSetup)
 };
 
 struct TestPlanEntry
 {
     std::string name = {};
     nlohmann::json spec = {}; // the entry as given (echoed into the results)
-    TestPlanTestType type = TestPlanTestType::MEASURE;
-    i32 frames = 256;
+    TestPlanTestType type = TestPlanTestType::RT_LAB;
+    i32 frames = 256;         // perf: frames before the timings are taken (RT Lab: test.frames)
     i32 settle_frames = 16;   // frames rendered after the setup before the test starts (graph rebuild, PGI, exposure)
     bool has_camera = false;
     ProgrammedMovePose camera = {};
@@ -74,12 +68,11 @@ struct TestPlanEntry
     i32 debug_draw = 0;
     i32 active_preset = RT_LAB_PRESET_CUSTOM;
     std::array<RtLabSettings, RT_LAB_PRESET_COUNT> presets = {};
-    RtLabTestMove move = {};
-    i32 move_warmup_frames = 256;
-    i32 move_reference_frames = 128;
+    RtLabTestSetup test = {};
     bool screenshot = false;
     bool force_full_pgi_update = false;
-    bool post_stabilization_enabled = true;
+    f32 lag_tolerance = 0.02f; // RT Lab temporal lag metric tolerance (relative)
+    bool post_stabilization_enabled = false;
     f32 post_stabilization_alpha = 0.1f;
     f32 post_stabilization_gamma = 1.0f;
     i32 post_stabilization_radius = 1;
@@ -102,8 +95,6 @@ public:
     void set_upward_gloss(f32 gloss);
     // Selects the RT Lab denoiser instead of the RTGI denoiser.
     void set_rt_lab(bool half_res, bool progressive, bool no_spatial, bool atrous);
-    // RT Lab custom preset temporal gradient sample selection (RtLabSettings::temporal_gradient_ris).
-    void set_rt_lab_gradient_ris(i32 ris);
     // RT Lab custom preset temporal gradient on / off (RtLabSettings::temporal_gradient_enabled).
     void set_rt_lab_gradient(i32 enabled);
     // RT Lab custom preset coarse temporal anti-lag on / off (RtLabSettings::coarse_anti_lag_enabled).
@@ -118,7 +109,7 @@ private:
     // Camera / sun programmed moves: the RT Lab tests' fixed step moves (+ fixed delta time) or the property viewer's
     // free runs. Called in update() before the camera input.
     void update_programmed_moves();
-    void start_perf_test_rt_lab_estimate();
+    void start_perf_test_rt_lab_test();
     void write_perf_test_timings(std::filesystem::path const & path);
     // The perf test result blocks of the current state: camera, resolution, RT Lab estimate / measurement, GPU timings.
     auto perf_test_result_json() -> nlohmann::json;

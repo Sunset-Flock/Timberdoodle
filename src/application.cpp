@@ -476,11 +476,6 @@ void Application::set_rt_lab_gradient(i32 enabled)
     _renderer->render_context->rt_lab.presets[RT_LAB_PRESET_CUSTOM].temporal_gradient_enabled = enabled;
 }
 
-void Application::set_rt_lab_gradient_ris(i32 ris)
-{
-    _renderer->render_context->rt_lab.presets[RT_LAB_PRESET_CUSTOM].temporal_gradient_ris = ris;
-}
-
 void Application::set_rt_lab(bool half_res, bool progressive, bool no_spatial, bool atrous)
 {
     auto & lab = _renderer->render_context->rt_lab;
@@ -532,7 +527,7 @@ void Application::update_perf_test()
                 fmt::print("[PerfTest] Scene loaded (frame {}), rendering {} frames\n", app_state.frame_index, _perf_test.wait_frames);
                 _perf_test_phase = PerfTestPhase::WARMUP;
                 _perf_test_frame_counter = 0;
-                start_perf_test_rt_lab_estimate();
+                start_perf_test_rt_lab_test();
             }
             break;
         }
@@ -546,9 +541,9 @@ void Application::update_perf_test()
                     : _perf_test.name;
                 std::filesystem::create_directories(_perf_test.output_dir);
                 write_perf_test_timings(_perf_test.output_dir / (prefix + "_timings.json"));
-                // A measurement run of this view: also save it as an RT Lab result (viewer / comparisons).
+                // An RT Lab test of this view: also save it as an RT Lab result (viewer / comparisons).
                 auto & lab = _renderer->render_context->rt_lab;
-                if (_perf_test.rt_lab_measure_frames > 0 && !lab.results.empty() && lab.results.back().path.empty())
+                if (_perf_test.rt_lab_test && !lab.results.empty() && lab.results.back().path.empty())
                 {
                     rt_lab_result_save(lab, static_cast<i32>(lab.results.size()) - 1, prefix);
                 }
@@ -571,7 +566,7 @@ void Application::update_perf_test()
                     fmt::print("[PerfTest] View {}: rendering {} frames\n", _perf_test_view_index, _perf_test.wait_frames);
                     _perf_test_phase = PerfTestPhase::WARMUP;
                     _perf_test_frame_counter = 0;
-                    start_perf_test_rt_lab_estimate();
+                    start_perf_test_rt_lab_test();
                 }
                 else
                 {
@@ -584,22 +579,13 @@ void Application::update_perf_test()
     }
 }
 
-void Application::start_perf_test_rt_lab_estimate()
+void Application::start_perf_test_rt_lab_test()
 {
-    auto & lab = _renderer->render_context->rt_lab;
-    lab.estimate_move = _perf_test.rt_lab_move;
-    lab.measure_move = _perf_test.rt_lab_move;
-    lab.move_warmup_frames = _perf_test.rt_lab_move_warmup_frames;
-    lab.move_reference_frames = _perf_test.rt_lab_move_reference_frames;
-    if (_perf_test.rt_lab_estimate_frames > 0)
+    if (_perf_test.rt_lab_test)
     {
-        lab.test_frames = _perf_test.rt_lab_estimate_frames;
-        lab.start_requested = true;
-    }
-    if (_perf_test.rt_lab_measure_frames > 0)
-    {
-        lab.measure_frames = _perf_test.rt_lab_measure_frames;
-        lab.measure_start_requested = true;
+        auto & lab = _renderer->render_context->rt_lab;
+        lab.test = _perf_test.rt_lab_test_setup;
+        lab.test_start_requested = true;
     }
 }
 
@@ -631,63 +617,35 @@ auto Application::perf_test_result_json() -> nlohmann::json
     // Last frame's shader debug tape value (globals.readback.debug_value), e.g. a debug-draw probe.
     auto const debug_value = _renderer->render_context->general_readback.debug_value;
     json["debug_value"] = {debug_value.x, debug_value.y, debug_value.z, debug_value.w};
-    auto const & lab_result = _renderer->render_context->rt_lab.result;
-    if (lab_result.pixels > 0)
-    {
-        json["rt_lab_convergence"] = {
-            {"frames_per_preset", _renderer->render_context->rt_lab.test_frames},
-            {"pixels", lab_result.pixels},
-            {"mse", lab_result.mse},
-            {"rmse", std::sqrt(lab_result.mse)},
-            {"mean_abs_error", lab_result.mean_abs_error},
-            {"bias", lab_result.bias},
-            {"histogram_range", lab_result.histogram_range},
-            {"histogram", lab_result.histogram},
-            {"below_range", lab_result.below_range},
-            {"above_range", lab_result.above_range},
-            {"predicted_pixels", lab_result.predicted_pixels},
-            {"mean_predicted", lab_result.mean_predicted},
-            {"mean_actual", lab_result.mean_actual},
-            {"rms_predicted", lab_result.rms_predicted},
-            {"rms_actual", lab_result.rms_actual},
-            {"correlation", lab_result.correlation},
-            {"rms_bias", std::sqrt(std::max(lab_result.rms_actual * lab_result.rms_actual - lab_result.rms_predicted * lab_result.rms_predicted, 0.0))},
-        };
-        // Programmed move estimate: the error of every step (the block above = the last step).
-        auto const & lab = _renderer->render_context->rt_lab;
-        if (!lab.move_results.empty())
-        {
-            nlohmann::json steps = nlohmann::json::array();
-            for (RtLabConvergenceStep const & r : lab.move_results)
-            {
-                steps.push_back({
-                    {"step", r.step},
-                    {"pixels", r.pixels},
-                    {"mse", r.mse},
-                    {"rmse", std::sqrt(r.mse)},
-                    {"bias", r.bias},
-                    {"mean_abs_error", r.mean_abs_error},
-                    {"rms_predicted", r.rms_predicted},
-                    {"rms_actual", r.rms_actual},
-                });
-            }
-            json["rt_lab_convergence"]["move_warmup_frames"] = lab.move_warmup_frames;
-            json["rt_lab_convergence"]["move_reference_frames"] = lab.move_reference_frames;
-            json["rt_lab_convergence"]["move_time_per_step"] = lab.estimate_move.fixed_dt;
-            json["rt_lab_convergence"]["move_steps"] = steps;
-        }
-    }
-    // RT Lab convergence measurement summary: per metric, per threshold of a fixed ladder the % of tiles below it every
-    // frame + frames until 90 % stay below, and the p50 / p90 percentiles every frame (metric values in %).
+    // RT Lab test: reference comparison (the last step with a move, every step in move_steps).
     auto const & measurement = _renderer->render_context->rt_lab.measurement;
-    if (measurement.frames > 0 && !measurement.cumulative[0].empty())
+    if ((measurement.metrics & RT_LAB_TEST_METRIC_REFERENCE) != 0 && measurement.reference.pixels > 0)
+    {
+        nlohmann::json convergence = rt_lab_convergence_result_to_json(measurement.reference);
+        convergence["reference_frames"] = measurement.reference_frames;
+        if (measurement.move.enabled)
+        {
+            convergence["move_warmup_frames"] = measurement.reference_warmup_frames;
+            convergence["move_time_per_step"] = measurement.move.fixed_dt;
+            convergence["move_steps"] = rt_lab_convergence_steps_to_json(measurement.reference_steps);
+        }
+        json["rt_lab_convergence"] = convergence;
+    }
+    // RT Lab test per frame metrics: per histogram metric, per threshold of a fixed ladder the % of tiles below it every
+    // frame + frames until 90 % stay below, and the p50 / p90 percentiles every frame (metric values in %), + the lag.
+    if (measurement.frames > 0 && !measurement.cumulative[0].empty() && (measurement.metrics & RT_LAB_TEST_METRIC_PER_FRAME) != 0)
     {
         nlohmann::json measure = {};
         measure["frames"] = measurement.frames;
         measure["window"] = measurement.window;
-        char const * const metric_names[RT_LAB_MEASURE_METRICS] = {"convergence_error", "temporal_instability"};
+        char const * const metric_names[RT_LAB_MEASURE_METRICS] = {"convergence_error", "temporal_instability", "temporal_jitter"};
+        u32 const metric_flags[RT_LAB_MEASURE_METRICS] = {RT_LAB_TEST_METRIC_CONVERGENCE, RT_LAB_TEST_METRIC_INSTABILITY, RT_LAB_TEST_METRIC_JITTER};
         for (i32 metric = 0; metric < RT_LAB_MEASURE_METRICS; ++metric)
         {
+            if ((measurement.metrics & metric_flags[metric]) == 0)
+            {
+                continue;
+            }
             nlohmann::json m = {};
             m["tiles"] = measurement.denominator[metric];
             m["thresholds"] = nlohmann::json::array();
@@ -718,18 +676,22 @@ auto Application::perf_test_result_json() -> nlohmann::json
         }
         // Temporal lag (step response after the programmed move's end, or convergence from reset in static runs).
         RtLabLagSummary const & lag = measurement.lag;
-        measure["lag"] = {
-            {"valid", lag.valid},
-            {"tolerance", lag.tolerance},
-            {"start_frame", lag.start_frame},
-            {"tiles", lag.tiles},
-            {"changed_tiles", lag.changed_tiles},
-            {"settle_p50", lag.settle_p50},
-            {"settle_p90", lag.settle_p90},
-            {"settle_max", lag.settle_max},
-            {"never_settled", lag.never_settled},
-            {"settled_curve", lag.settled_curve},
-        };
+        if ((measurement.metrics & RT_LAB_TEST_METRIC_LAG) != 0)
+        {
+            measure["lag"] = {
+                {"valid", lag.valid},
+                {"tolerance", lag.tolerance},
+                {"start_frame", lag.start_frame},
+                {"tiles", lag.tiles},
+                {"changed_tiles", lag.changed_tiles},
+                {"settle_p50", lag.settle_p50},
+                {"settle_p90", lag.settle_p90},
+                {"settle_max", lag.settle_max},
+                {"never_settled", lag.never_settled},
+                {"settled_curve", lag.settled_curve},
+                {"mean_curve", lag.mean_curve},
+            };
+        }
         json["rt_lab_measure"] = measure;
     }
     json["groups"] = nlohmann::json::array();

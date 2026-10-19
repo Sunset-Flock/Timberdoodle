@@ -46,6 +46,9 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), ray_list)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec2>, ray_alloc)
 DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(RtLabRay), rays)
 RT_LAB_SHADE_ATTACHMENTS
+// Ray length guide (RtLabSettings::ray_length_guide_mode, null when off): hit distance t per ray list entry
+// (miss = RT_LAB_RAY_T_MAX).
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(daxa_f32), ray_lengths)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLabTracePush
@@ -53,12 +56,13 @@ struct RtLabTracePush
     daxa_BufferPtr(RtLabTraceH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;     // lab resolution
     daxa_u32 ray_capacity; // ray list entries
+    daxa_u32 ray_lengths_bound; // ray_lengths is bound
 };
 
 // Temporal gradient re-trace (A-SVGF style, rt_lab_rays.inl), one thread per gradient cell record of LAST frame: the
 // record's surface point is reprojected to the nearest current lab pixel; if that pixel still shows the same surface
 // (plane + normal test), the identical ray (origin, direction, t min) is traced and shaded again and the luminance
-// change + max(old, new) (exposed, both x the record's RIS weight) are written, packed f16, into the current cell that
+// change + max(old, new) (exposed) are written, packed f16, into the current cell that
 // pixel falls in (gradient_samples, cleared every frame; colliding cells keep one sample).
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtLabGradientTraceH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
@@ -70,12 +74,18 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, gradient_record_
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, gradient_record_surface)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, gradient_record_data)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_samples)
+// temporal_gradient_all_base_rays: per cell atomic fixed point sums (RT_LAB_GRADIENT_SUM_SCALE), cleared every frame.
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_delta_sum)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_max_sum)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_count_sum) // samples per cell
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_old_sum)   // old luminance per cell (Kalman)
 RT_LAB_SHADE_ATTACHMENTS
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLabGradientTracePush
 {
     daxa_BufferPtr(RtLabGradientTraceH::AttachmentShaderBlob) attach;
-    daxa_u32vec2 size;     // gradient cells
+    daxa_u32vec2 size;     // records (gradient cells, or lab pixels with per_pixel)
     daxa_u32vec2 lab_size; // lab resolution
+    daxa_u32 per_pixel;    // temporal_gradient_all_base_rays: one record per lab pixel, samples summed per cell
 };
