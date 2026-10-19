@@ -12,6 +12,8 @@
 
 #define INVALIDATE_DIRECTIONAL_PAGES_X_DISPATCH 256
 #define FORCE_ALWAYS_PRESENT_PAGES_X_DISPATCH 256
+#define FREE_MOVED_LIGHT_PAGES_X_DISPATCH 8
+#define FREE_MOVED_LIGHT_PAGES_Y_DISPATCH 8
 #define MARK_REQUIRED_PAGES_X_DISPATCH 16
 #define MARK_REQUIRED_PAGES_Y_DISPATCH 16
 #define FIND_FREE_PAGES_X_DISPATCH 32
@@ -53,6 +55,20 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
+
+// Frees all cached pages (every mip) of point / spot lights whose shadow cameras changed this frame.
+// One dispatch per moved light, z covers the light's array layers (6 cube faces or 1 spot layer).
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(FreeMovedLightPagesH)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
+DAXA_DECL_TASK_HEAD_END
+
+struct FreeMovedLightPagesPush
+{
+    daxa_BufferPtr(FreeMovedLightPagesH::AttachmentShaderBlob) attachments;
+    daxa_u32 first_array_layer;
+    daxa_u32 mip_count;
+};
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ForceAlwaysResidentPagesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)

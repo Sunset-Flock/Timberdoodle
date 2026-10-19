@@ -18,7 +18,8 @@ inline auto create_light_mask_volume(daxa::TaskGraph& tg, RenderContext& render_
     });
 }
 
-inline void lights_resolve_settings(RenderGlobalData & render_data)
+// always_enabled_spot_light is kept in the mask even when cull_all_spot_lights is set (used for the flashlight).
+inline void lights_resolve_settings(RenderGlobalData & render_data, std::optional<u32> always_enabled_spot_light = std::nullopt)
 {
     LightSettings& settings = render_data.light_settings;
     settings.mask_volume_cell_size = {
@@ -57,6 +58,13 @@ inline void lights_resolve_settings(RenderGlobalData & render_data)
     if (settings.cull_all_spot_lights)
     {
         settings.spot_light_mask = {};
+    }
+    if (always_enabled_spot_light.has_value() && always_enabled_spot_light.value() < settings.spot_light_count)
+    {
+        u32 l = always_enabled_spot_light.value() + settings.first_spot_light_instance;
+        u32 uint_idx = l / 32;
+        u32 bit_idx = l - 32 * uint_idx;
+        (&settings.spot_light_mask.x)[uint_idx] |= (1u << bit_idx);
     }
 }
 

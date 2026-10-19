@@ -77,6 +77,8 @@ struct Renderer
 
     VSMState vsm_state = {};
     PGIState pgi_state = {};
+    // Scene spot lights plus the flashlight (when on), rebuilt every prepare_frame.
+    std::vector<SpotLight> active_spot_lights = {};
 
     std::unique_ptr<RenderContext> render_context = {};
     Window *window = {};
