@@ -38,7 +38,7 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, split_differenc
 // sample variance of every frame blended in by 1 / history length. Read by the spatial passes (variance guide).
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, variance_history)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, variance)
-// Coarse fallback input (null when the coarse fallback is off): the diffuse as RTGI SH-Y + CoCg, accumulated with the same
+// SH guide input (null when no SH consumer is on): the diffuse as RTGI SH-Y + CoCg, accumulated with the same
 // reprojection weights (bilinear) and n / history length. cocg: .xy CoCg, .z history length. The frame's SH comes from
 // the pixel's rays (ray_alloc, rays).
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec2>, ray_alloc)
@@ -51,14 +51,33 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, cocg_accumulate
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, temporal_gradient)
 // Coarse temporal anti-lag statistics per cell (rt_lab_anti_lag.inl), null when off: caps the reprojected lengths.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, coarse_anti_lag)
-// Firefly energy weighting (null without the ray filter): this frame's raw mean luminance (gather), accumulated into the
-// variance image's .a with the color's blend factor.
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_raw_luminance)
-// Ray length guide (null when off): per ray hit distance (trace) -> RTGI style AO guide accumulated like the color
-// (.x 1 - sqrt(mean shortness), .y mean shortness, < 0 .x = no estimate, RtLabSettings::ray_length_guide_*).
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), ray_lengths)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, ray_length_history)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, ray_length_accumulated)
+// Perceptual luma moments (RtLabSettings::luma_moments_enabled, null when off), reprojected like the history and blended
+// with the color's blend factor: (m1, m2, valid) of x = log(1 + luma / floor), center + distance weighted over 3x3 pixels.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, moments_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, moments)
+// SH second moments (RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE, null when off), 3x3 center + distance weighted per frame, reprojected + blended
+// like the SH-Y (the first moment). A: (E[Y d.x^2], E[Y d.y^2], E[Y d.z^2], E[Y d.x d.y]), B: (E[Y d.x d.z], E[Y d.y d.z], E[Y^2], 0).
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, sh_m2_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, sh_m2_accumulated)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, sh_m2b_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, sh_m2b_accumulated)
+// Neural training data (push.sq_bound, only while a neural dump runs): the per pixel (not blurred) mean of the squared ray Y, Co, Cg (.xyz, f32: Y is in
+// RTGI_RADIANCE_SCALE units, its square overflows f16), reprojected + blended like the SH-Y (the first moments). .w unused.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, sq_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, sq_accumulated)
+// Distribution guide (RtLabSettings::distribution_guide_mode, push.dist_mode, null when off): the per pixel body / tail mixture of
+// x = log(1 + luma / floor), reprojected with the color's weights. A: (body mean, body variance, perceptual mean of all samples (the
+// tail thresholds hang on it), body sample count), B: (tail fraction p, tail mean, tail variance, tail sample count). Body count < 1 = no state.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, dist_a_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, dist_a)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, dist_b_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, dist_b)
+// Dark tail state C (mode RT_LAB_DISTRIBUTION_LOGNORMAL_3, null otherwise): (dark tail fraction, dark tail mean, dark tail variance, dark tail count).
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, dist_c_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, dist_c)
+// COLOR accumulation step (push.color_pass, null in the statistics step): the first a-trous pass's output, the filtered frame. Its rgb replaces the raw
+// mean as the new sample of the color history; the ray counts, the statistics and everything else still come from the raw rays.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, lab_prefiltered)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLabTemporalPush
@@ -66,9 +85,13 @@ struct RtLabTemporalPush
     daxa_BufferPtr(RtLabTemporalH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
     daxa_u32 split_enabled; // the split images are bound (graph built with split_history_enabled)
-    daxa_u32 sh_enabled;    // the SH-Y + CoCg images are bound (graph built with the coarse fallback)
+    daxa_u32 sh_enabled;    // the SH-Y + CoCg images are bound (graph built with an SH consumer)
     daxa_u32 gradient_bound; // temporal_gradient is bound
     daxa_u32 anti_lag_bound;    // coarse_anti_lag is bound
-    daxa_u32 raw_luminance_bound; // lab_raw_luminance is bound
-    daxa_u32 ray_length_bound;    // ray_lengths / ray_length_history / ray_length_accumulated are bound
+    daxa_u32 moments_bound;       // moments_history / moments are bound
+    daxa_u32 sh_m2_bound;         // sh_m2_history / sh_m2_accumulated are bound
+    daxa_u32 sq_bound;            // sq_history / sq_accumulated are bound
+    daxa_u32 color_pass;          // 1 = the color accumulation step (lab_prefiltered is the new sample), 0 = the statistics step (the raw rays)
+    daxa_u32 dist_mode;           // dist_* images are bound: RT_LAB_DISTRIBUTION_* (0 = not bound)
 };
+

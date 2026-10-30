@@ -24,7 +24,7 @@ namespace RenderTimes
 {
     static constexpr inline u32 INVALID_RENDER_TIME_INDEX = ~0u;
 
-    static constexpr inline u32 GROUP_SIZE_MAX = 40;
+    static constexpr inline u32 GROUP_SIZE_MAX = 48;
     static constexpr inline u32 GROUP_COUNT_MAX = 16;
     using TimingName = std::string_view;
     struct GroupNames
@@ -130,8 +130,6 @@ namespace RenderTimes
                 "GRADIENT_TRACE",
                 "GRADIENT_BLUR_H",
                 "GRADIENT_BLUR_V",
-                "GRADIENT_DILATE_H",
-                "GRADIENT_DILATE_V",
                 "RAY_DEMAND",
                 "RAY_DISTRIBUTE",
                 "TRACE",
@@ -147,14 +145,6 @@ namespace RenderTimes
                 "ATROUS5",
                 "ATROUS6",
                 "ATROUS7",
-                "COARSE0",
-                "COARSE1",
-                "COARSE2",
-                "COARSE3",
-                "COARSE4",
-                "COARSE5",
-                "COARSE6",
-                "COARSE7",
                 "RESOLVE",
                 "CONVERGENCE_CAPTURE",
                 "CONVERGENCE_ANALYZE",
@@ -163,6 +153,21 @@ namespace RenderTimes
                 "ANTI_LAG_BLUR_H",
                 "ANTI_LAG_BLUR_V",
                 "RAY_FILTER",
+                "NEURAL_LATENT",
+                "NEURAL_RAY_STATS",
+                "LAB2_RESET",
+                "LAB2_QUERY",
+                "LAB2_CELL_PREPARE",
+                "LAB2_ACCUMULATE",
+                "LAB2_CELL_INTEGRATE",
+                "LAB2_LOOKUP",
+                "LAB2_INTEGRATOR",
+                "LAB2_DEMAND",
+                "LAB2_STATS",
+                "LAB2_RAYS_DEBUG",
+                "LAB2_GRADIENT_TRACE",
+                "LAB2_GRADIENT_SPATIAL",
+                "LAB2_GRADIENT_RECORD",
             },
         },
         GroupNames{

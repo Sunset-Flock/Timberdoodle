@@ -15,6 +15,7 @@
 #include "path_trace/kajiya/brdf_fg.inl"
 #include "rtgi/rtgi.hpp"
 #include "rtgi/rt_lab/rt_lab.hpp"
+#include "rtgi/rt_lab/rt_lab2.hpp"
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
@@ -239,18 +240,39 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_guide_resample_vertical_compile_info()},
         {rt_lab_gradient_trace_compile_info()},
         {rt_lab_gradient_blur_compile_info()},
-        {rt_lab_gradient_dilate_compile_info()},
         {rt_lab_demand_compile_info()},
         {rt_lab_distribute_compile_info()},
         {rt_lab_gather_compile_info()},
+        {rt_lab2_reset_compile_info()},
+        {rt_lab2_query_compile_info()},
+        {rt_lab2_demand_compile_info()},
+        {rt_lab2_gradient_record_compile_info()},
+        {rt_lab2_gradient_spatial_compile_info()},
+        {rt_lab2_gradient_trace_compile_info()},
+        {rt_lab2_select_compile_info()},
+        {rt_lab2_distribute_compile_info()},
+        {rt_lab2_stats_compile_info()},
+        {rt_lab2_rays_debug_compile_info()},
+        {rt_lab2_prepare_compile_info()},
+        {rt_lab2_accumulate_compile_info()},
+        {rt_lab2_cell_integrate_compile_info()},
+        {rt_lab2_lookup_compile_info()},
+        {rt_lab2_integrator_compile_info()},
+        {rt_lab2_probe_compile_info()},
         {rt_lab_ray_filter_compile_info()},
         {rt_lab_trace_compile_info()},
+        {rt_lab_probe_compile_info()},
+        {rt_lab_telemetry_compile_info()},
+        {rt_lab_telemetry_reference_compile_info()},
         {rt_lab_anti_lag_downsample_compile_info()},
         {rt_lab_anti_lag_blur_compile_info()},
         {rt_lab_temporal_compile_info()},
         {rt_lab_blur_compile_info()},
         {rt_lab_atrous_compile_info()},
-        {rt_lab_coarse_compile_info()},
+        {rt_lab_neural_latent_compile_info()},
+        {rt_lab_neural_atrous_compile_info()},
+        {rt_lab_neural_dump_compile_info()},
+        {rt_lab_neural_ray_stats_compile_info()},
         {rt_lab_resolve_compile_info()},
         {rt_lab_convergence_capture_compile_info()},
         {rt_lab_convergence_analyze_compile_info()},
@@ -303,6 +325,24 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {raymarch_clouds_debug_compile_info()},
         {compose_clouds_compile_info()},
     };
+    // Neural affinity pipeline variants (feature set x precision, rt_lab_neural_variant); tensor core entries only with VK_NV_cooperative_vector.
+    // Feature masks of the trained networks the engine can run: plain 3x3 statistics (0), 5x5 window (1), no guide inputs (2), no guide inputs + ray length 3x3 (6), lite raw (32).
+    for (u32 feature_mask : {0u, RT_LAB_NEURAL_FEATURE_WINDOW, RT_LAB_NEURAL_FEATURE_NO_GUIDE_INPUTS,
+             RT_LAB_NEURAL_FEATURE_NO_GUIDE_INPUTS | RT_LAB_NEURAL_FEATURE_RAYLENGTH3, RT_LAB_NEURAL_FEATURE_LITE})
+    {
+        for (bool half : {false, true})
+        {
+            if (feature_mask != 0 || half)
+            {
+                computes.push_back({rt_lab_neural_variant(rt_lab_neural_latent_compile_info(), feature_mask, half)});
+            }
+            if (rt_lab_neural_coopvec_supported(gpu_context->device))
+            {
+                computes.push_back({rt_lab_neural_variant(rt_lab_neural_latent_coopvec_compile_info(), feature_mask, half)});
+            }
+        }
+    }
+    computes.push_back({rt_lab_neural_variant(rt_lab_neural_atrous_compile_info(), 0u, true)});
     std::vector<daxa::RayTracingPipelineCompileInfo2> ray_tracings = {
         {pgi_trace_probe_lighting_pipeline_compile_info()},
         {reference_path_trace_rt_pipeline_info()},
@@ -584,6 +624,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     // Every graph build records the post stabilization state, also when the RT Lab is not part of the graph: otherwise
     // rt_lab_frame_update sees enabled != built forever and forces a rebuild every frame.
     render_context->rt_lab.post_stabilization_built = render_context->rt_lab.post_stabilization_enabled;
+    render_context->rt_lab.telemetry.built = render_context->rt_lab.telemetry.enabled;
+    render_context->rt_lab.probe.built = render_context->rt_lab.probe.enabled;
+    rt_lab_neural_record_built(render_context->render_data.rt_lab_settings, render_context->rt_lab.neural);
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
@@ -1077,7 +1120,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.vsm_point_spot_page_table = vsm_point_spot_page_table_view;
 
         // Master switch: the experimental RT Lab path replaces the RTGI denoiser.
-        auto rtgi_result = render_context->render_data.rt_lab_settings.enabled ? tasks_rt_lab_main(info) : tasks_rtgi_main(info);
+        // (RT Lab 2 replaces the RT Lab denoiser while rt_lab_frame_update says it is active.)
+        auto rtgi_result = render_context->render_data.rt_lab_settings.enabled
+            ? (render_context->rt_lab.lab2.active ? tasks_rt_lab2_main(info) : tasks_rt_lab_main(info))
+            : tasks_rtgi_main(info);
         rtgi_per_pixel_diffuse = rtgi_result.opaque_diffuse;
         rtgi_per_pixel_specular = rtgi_result.opaque_specular;
     }

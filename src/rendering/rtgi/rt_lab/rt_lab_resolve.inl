@@ -23,11 +23,6 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, lab_diffuse)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, resolved)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, lab_split_difference)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, split_difference_resolved)
-// Coarse spatial fallback output (null when off), SH-Y + CoCg (.xy) / effective sample count (.z, / RT_LAB_SPATIAL_COUNT_SCALE):
-// resolved for the receiver's normal and blended in to top up the effective sample count (rt_lab_coarse_top_up).
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, lab_coarse_sh_y)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, lab_coarse_cocg_count)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, lab_coarse_split_difference)
 // Post stabilization (push.stabilize, RtLabState::post_stabilization_*): TAA style variance clipped history of the output,
 // .rgb stabilized radiance, .a linear depth (0 = none). Null when off.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, stabilize_history)
@@ -45,7 +40,6 @@ struct RtLabResolvePush
     daxa_u32vec2 size;
     daxa_u32 split_enabled; // lab_split_difference / split_difference_resolved are bound
     daxa_u32 clamp_input_count; // no spatial pass ran: clamp the sample count (sample_count_input_clamp) here
-    daxa_u32 coarse_enabled;    // lab_coarse_sh_y / lab_coarse_cocg_count / lab_coarse_split_difference are bound
     daxa_u32 stabilize;         // post stabilization bits RT_LAB_STABILIZE_* (an older C++ build sends 1 = enabled only)
     daxa_f32 stabilize_alpha;   // blend factor of the current output
     daxa_f32 stabilize_gamma;   // neighborhood box half width in standard deviations

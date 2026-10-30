@@ -13,6 +13,10 @@
 #include "../../../shader_shared/readback.inl"
 #include "rt_lab_settings.inl"
 #include "rt_lab_measure_layout.inl"
+#include "neural/rt_lab_neural_state.hpp"
+#include "rt_lab_probe.hpp"
+#include "rt_lab_telemetry.hpp"
+#include "rt_lab2_state.hpp"
 
 using namespace tido::types;
 
@@ -21,9 +25,10 @@ using namespace tido::types;
 
 enum RtLabPreset : i32
 {
-    RT_LAB_PRESET_PROGRESSIVE = 0, // reference: full res, fp32 long accumulation, 2 tight a-trous passes, no coarse fallback
+    RT_LAB_PRESET_PROGRESSIVE = 0, // reference: full res, fp32 long accumulation, 2 tight a-trous passes
     RT_LAB_PRESET_CUSTOM = 1,      // the settings under test
-    RT_LAB_PRESET_COUNT = 2,
+    RT_LAB_PRESET_NEURAL = 2,      // the custom defaults with the neural affinity a-trous (RtLabState::neural, enabled while this preset is active)
+    RT_LAB_PRESET_COUNT = 3,
 };
 
 // Programmed move of a test: camera and sun move, stepped with a FIXED time step (also the frame delta time while the
@@ -285,6 +290,16 @@ struct RtLabState
     bool post_stabilization_clamp = true; // false = no variance clamp (plain exponential history)
     bool post_stabilization_temporal_variance = true; // short (<= 4 frame) temporal input variance widens the clamp box
     bool post_stabilization_built = false; // graph built with the pass (rebuild trigger)
+
+    // Pixel telemetry (rt_lab_telemetry.hpp): rays + surface detail of the pixel under the held mouse button.
+    RtLabTelemetryState telemetry = {};
+    // Live pixel probes (rt_lab_probe.hpp): the accumulated denoiser state of two followed pixels.
+    RtLabProbeState probe = {};
+
+    // Neural affinity (neural/rt_lab_neural.hpp): learned similarity of the a-trous taps, training data dump.
+    RtLabNeuralState neural = {};
+    // RT Lab 2 (rt_lab2.hpp): the hash grid denoiser, an alternative to everything above that denoises (the trace and the tests are shared).
+    RtLab2State lab2 = {};
     bool pgi_update_rate_overridden = false;
     i32 saved_pgi_update_rate = 0;
 };

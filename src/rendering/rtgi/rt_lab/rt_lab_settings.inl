@@ -26,11 +26,23 @@
 // predicted with the temporal gradient's correction, corrects the pixel histories (ratio), cuts only the uncorrectable
 // rest (rt_lab_anti_lag.hlsl, parameters RT_LAB_ANTI_LAG_KALMAN_* there).
 #define RT_LAB_ANTI_LAG_KALMAN 32
+// sh_guide_mode (fine spatial filter): compares the light direction of center and tap using the temporal pass's SH-Y + CoCg.
+#define RT_LAB_SH_GUIDE_OFF 0
+#define RT_LAB_SH_GUIDE_MODE_MASK 15  // sh_guide_mode & this = the mode below
+#define RT_LAB_SH_GUIDE_DIRECTION 1   // dominant light direction agreement, gated by the (debiased) concentration of both
+#define RT_LAB_SH_GUIDE_CROSS 2       // the tap's SH resolved at the center's normal vs the center's own, perceptual
+#define RT_LAB_SH_GUIDE_STATISTICAL 3 // mean light vector difference as a z test (direction noise from 1 - R^2 and history lengths)
+// DIRECTIONAL_VARIANCE: the temporal pass also accumulates the second moments of the light direction distribution (3x3 center +
+// distance weighted per frame like the luma moments): E[Y d d^T] (6 numbers) and E[Y^2]. With the SH-Y as the first moment that
+// gives the Y weighted direction covariance C = E[Y d d^T] / E[Y] - m m^T (m = xyz / w) and the luma variance. The test is a
+// Mahalanobis distance of the mean light direction under the summed covariances / history lengths (anisotropic: light through
+// a window spreads in one plane only) plus a z test of the mean Y. Z^2 per degree of freedom, base = exp(-z^2 / 8).
+#define RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE 4
 // temporal_gradient_cap_mode bits. 0 = old behaviour: reprojected lengths x (1 - saturate(lambda x temporal_gradient_scale)).
 // Any bit set: the lengths are CAPPED (same frame, no compounding) at the smallest enabled cap, floored at
 // temporal_gradient_cap_min; lambda unscaled.
 //   MSE:    N* = temporal_gradient_cap_k x v / (lambda^2 - RT_LAB_GRADIENT_CAP_LAMBDA_FLOOR^2), v = per sample perceptual
-//           variance (variance laziness estimate, floor variance_laziness_perceptual_floor). k folds in the spatial filter's
+//           variance (variance guide estimate, floor RT_LAB_PERCEPTUAL_VARIANCE_FLOOR). k folds in the spatial filter's
 //           noise reduction (the pixel's own samples are not the output's noise), so k << 1.
 //   SETTLE: the remaining lag lambda x (N / (N + 1))^K falls below temporal_gradient_settle_tolerance within
 //           K = temporal_gradient_settle_frames frames: N = 1 / ((lambda / tolerance)^(1 / K) - 1), only when lambda > tolerance.
@@ -43,12 +55,30 @@
 //           N' = N / (1 + N x temporal_gradient_kalman_k x L / v), v = per sample perceptual variance.
 #define RT_LAB_GRADIENT_CAP_KALMAN 4
 #define RT_LAB_RAY_FILTER_OFF 0
-#define RT_LAB_RAY_FILTER_VARIANCE 1
+#define RT_LAB_RAY_FILTER_ABSOLUTE 1
 #define RT_LAB_RAY_FILTER_PERCEPTUAL 2
 #define RT_LAB_RAY_FILTER_MAX_RADIUS 3 // RtLabSettings::ray_filter_radius limit
-// RtLabSettings::ray_length_guide_mode (UI tristate: 0 off, 1 radius scale, 2 radius weighting; tested as bits).
-#define RT_LAB_RAY_LENGTH_GUIDE_DISTANCE 1   // radius: donors farther than the accumulated ray length radius lose weight
-#define RT_LAB_RAY_LENGTH_GUIDE_SIMILARITY 2 // similarity: donors with a different accumulated radius lose weight
+// distribution_guide_mode: the pixel's tracked mixture, all components lognormal in y = ln(1 + luma / floor). (Values 2 / 4 were the skew-normal body
+// schemes, removed: saved settings with them load as 1 / 3.)
+#define RT_LAB_DISTRIBUTION_OFF 0
+#define RT_LAB_DISTRIBUTION_LOGNORMAL 1   // body + bright tail
+#define RT_LAB_DISTRIBUTION_LOGNORMAL_3 3 // dark tail + body + bright tail
+// distribution_guide_compare: how the fine filter compares a tap's tracked state with the center's in the body + bright tail mode (1). Mode 3 always
+// compares all components (sample fraction weighted overlap). All in rt_lab_distribution.hlsl.
+#define RT_LAB_DISTRIBUTION_COMPARE_DISTRIBUTION 0    // DEFAULT: body + tail test AND the total energy test (min)
+#define RT_LAB_DISTRIBUTION_COMPARE_MEMBERSHIP 1      // membership of the donor body + tail in the receiver mixture and back, AND the total energy test
+#define RT_LAB_DISTRIBUTION_COMPARE_PERCEPTUAL_MEAN 2 // perceptual mean test x body + tail test, AND the total energy test
+#define RT_LAB_DISTRIBUTION_COMPARE_BODY_TAIL 3       // body + tail test alone (cheap, no energy test)
+#define RT_LAB_DISTRIBUTION_COMPARE_COUNT 4
+// Distribution guide tracking (rt_lab_temporal.hlsl rt_lab_temporal_distribution).
+#define RT_LAB_DIST_MAX_COUNT 32.0f           // body sample count cap = the window in samples
+#define RT_LAB_DIST_TAIL_WINDOW_FACTOR 4.0f   // the tails keep this many times the body's window (sample count cap, history cut cap, fraction window): they are rare
+#define RT_LAB_DIST_TAIL_OFFSET 2.0f          // tail thresholds = the tracked perceptual mean +- this (y = ln(1 + luma / floor): a factor e^2 = 7.4 in luminance)
+#define RT_LAB_DIST_PROMOTE_FRACTION 0.5f     // the tail becomes the body once it holds more than this share of the samples
+#define RT_LAB_DIST_PROMOTE_COUNT 8.0f        // ... and at least this many tail samples
+// Luminance floor of y = log(1 + luma / floor): a FIXED value (scene radiance 1e-4), NOT exposure dependent: the auto exposure ramps for hundreds of
+// frames after a reset, an exposure dependent floor shifted every y upwards and the body (which only accepts samples below tau) froze.
+#define RT_LAB_DIST_LUMINANCE_FLOOR (RTGI_RADIANCE_SCALE * 1e-4f)
 #define RT_LAB_GRADIENT_MAX_BLUR_RADIUS 32 // RtLabSettings::temporal_gradient_blur_radius limit (gradient cells)
 
 struct RtLabSettings
@@ -72,17 +102,6 @@ struct RtLabSettings
     // ceil(ray_budget) (ray list capacity, rt_lab_ray_capacity_per_pixel).
     daxa_i32 redistribution_enabled;
     daxa_f32 ray_budget;               // rays per lab pixel per frame (hard)
-    // Variance laziness (demand pass, needs temporal): a pixel whose per sample PERCEPTUAL variance v is low needs fewer
-    // samples to reach variance_laziness_target_error (perceptual std of the mean): N = v / target^2. Perceptual = log
-    // space with an exposure relative floor: std of log(L + floor) ~ sigma / (mean + floor), floor =
-    // variance_laziness_perceptual_floor x display white (exposed). Bright pixels: relative error as before; pixels darker
-    // than the floor: their error is barely visible, they get lazy. Luma variance = last frame's variance guide estimate. The convergence target becomes clamp(N, variance_laziness_min_samples,
-    // fast_convergence_samples). Applied to the reprojected history length BEFORE the temporal gradient cut (length x
-    // fast_convergence_samples / N), so a gradient cut still asks for the full extras. Not graph shape.
-    daxa_i32 variance_laziness_enabled;
-    daxa_f32 variance_laziness_target_error;
-    daxa_f32 variance_laziness_min_samples;
-    daxa_f32 variance_laziness_perceptual_floor;
     daxa_f32 min_ray_budget;           // base ray coverage the extras never drain below (0..1)
     daxa_i32 max_rays_per_pixel;       // base included
     daxa_f32 fast_convergence_samples; // history length (samples) at which a pixel stops asking for extras
@@ -97,7 +116,6 @@ struct RtLabSettings
     // next frame (lab res records, the samples are summed per cell with atomics) instead of one ray per
     // RT_LAB_GRADIENT_CELL^2 cell. Graph shape.
     daxa_i32 temporal_gradient_all_base_rays;
-    daxa_i32 temporal_gradient_dilation_radius; // cells, 0 = off: weighted max dilation of lambda after the blur (reach without dilution), graph shape
     daxa_f32 temporal_gradient_scale;
     daxa_i32 temporal_gradient_cap_mode;          // RT_LAB_GRADIENT_CAP_* bits, 0 = scale mode
     daxa_f32 temporal_gradient_cap_k;             // MSE cap scale
@@ -105,14 +123,14 @@ struct RtLabSettings
     daxa_f32 temporal_gradient_settle_frames;     // SETTLE: K
     daxa_f32 temporal_gradient_settle_tolerance;  // SETTLE: relative lag tolerance
     // History rescale: the reprojected histories (color, split A/B, SH / CoCg, variance) are multiplied by the gradient's
-    // luminance ratio sum new / sum old of the re-traced rays (blurred, NOT dilated). With one change direction inside
+    // luminance ratio sum new / sum old of the re-traced rays (blurred). With one change direction inside
     // the footprint it follows from the signed lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening (clamped at
     // RT_LAB_GRADIENT_RESCALE_MAX_LAMBDA); ratio^temporal_gradient_rescale_strength. Mixed directions: lambda shrinks,
     // the rescale with it. The history jumps to the new lighting without losing samples.
     daxa_i32 temporal_gradient_rescale;
     daxa_f32 temporal_gradient_rescale_strength;
     // RT_LAB_GRADIENT_RELATIVE_*. SAMPLES (0) = A-SVGF: lambda = |sum w delta| / sum w max relative to the re-traced
-    // samples themselves (a dark change can cut a bright pixel's history). PIXEL (1) = the blur + dilation also carry the
+    // samples themselves (a dark change can cut a bright pixel's history). PIXEL (1) = the blur also carries the
     // ABSOLUTE exposed luminance change (weighted mean delta of the re-traced samples), made relative only per pixel
     // against the pixel's own previous history luminance L (nearest previous pixel): lambda = |delta| /
     // max(L + max(delta, 0), floor), signed the same for the rescale (= (L + delta) / L exactly). MIN (2) = min of both
@@ -165,19 +183,22 @@ struct RtLabSettings
     // (mean_c - mean_t)^2 / (var_c / n_c + var_t / n_t), k = variance_guide_sigmas. Few samples = loose test.
     daxa_i32 variance_guide_enabled;
     daxa_f32 variance_guide_sigmas;
-    // Variance guide variants (fine AND coarse guide, rt_lab_variance_guide_likelihood / _count, rt_lab_shared.hlsl):
-    // heavy_tail: Student-t weight (1 + z^2 / (nu k^2))^(-(nu + 1) / 2) instead of the gaussian (polynomial tail: a noisy z no
-    //             longer flips a tap between fully in and gone -> less splotchy); nu -> infinity = gaussian, 1 = Cauchy.
-    // count_cap:  the effective sample count in the standard error var / n is capped at variance_guide_count_cap (the
-    //             spatially compounded count overstates the independent samples -> z inflates in later passes).
-    daxa_i32 variance_guide_heavy_tail;
-    daxa_f32 variance_guide_tail_nu;
-    daxa_i32 variance_guide_count_cap_enabled;
-    daxa_f32 variance_guide_count_cap;
-    // Gradient aware fine variance guide (rt_lab_blur.hlsl): each fine pass fits the local rgb gradient per screen axis
-    // (weighted least squares over its own taps, geometric weights, significance shrinkage) and compares every tap with
-    // the center's mean + gradient x offset instead of the plain center mean ("plane distance test in color space").
-    daxa_i32 variance_guide_gradient;
+    // Perceptual luma moments (rt_lab_temporal.hlsl): the temporal pass accumulates, with the color's blend, the 3x3 weighted
+    // filtered m1 = x and m2 = x^2 of x = log(1 + luma / floor) and derives the per sample variance from them (log variance
+    // m2 - m1^2, back to linear with the delta method, spread over rgb in proportion to the color) instead of the 5x5
+    // spatial estimate. Feeds the variance guides + the temporal gradient cap's perceptual variance. Graph shape (moments
+    // history image).
+    daxa_i32 luma_moments_enabled;
+    // Distribution guide (RT_LAB_DISTRIBUTION_*, rt_lab_temporal.hlsl tracks, rt_lab_blur.hlsl guides): every pixel tracks a
+    // body / tail mixture of x = log(1 + luma / floor): a lognormal body and lognormal tails (bright, and with mode 3 dark),
+    // split by thresholds = the pixel's tracked perceptual mean (mean of x over all samples, independent of the split) +- 2.
+    // The fine spatial passes weigh a tap by the two sided Welch test of the BODY log means,
+    // exp(-|mu_c - mu_t| / (k sqrt(var_c + var_t) + eps)), k = distribution_guide_sigmas. Needs temporal. Graph shape: mode != 0
+    // (history images) and the dark tail.
+    daxa_i32 distribution_guide_mode;   // RT_LAB_DISTRIBUTION_*
+    daxa_f32 distribution_guide_sigmas; // k
+    // RT_LAB_DISTRIBUTION_COMPARE_*: the comparison of the body + bright tail mode (1). Not graph shape.
+    daxa_i32 distribution_guide_compare;
     // Split (A/B) history for a per-pixel error estimate of the accumulated mean, |A - B| / 2 (rt_lab_temporal.hlsl).
     // Costs two more history images. Graph shape.
     daxa_i32 split_history_enabled;
@@ -196,26 +217,9 @@ struct RtLabSettings
     // outwards; the ring that would push the effective sample count over this is scaled so the pass reaches it exactly,
     // the rest is dropped. A pass whose center already holds this many samples returns the center. Fine filter only.
     daxa_f32 fine_target_samples;
-
-    // == Coarse spatial fallback ==
-    // A second, sloppy spatial filter (a-trous, coarse_atrous_passes) on the same temporal output, blended in at the
-    // resolve where the fine spatial filter gathered few effective samples (edges, thin geometry, disocclusions).
-    // Edge stopping: no plane test, a smooth relative distance test (world distance vs what a camera facing surface at
-    // that screen offset would give, exp(-(max(d_rel - 1, 0) / coarse_distance_tolerance)^2)) and a smooth normal test
-    // ((1 + dot) / 2)^coarse_normal_power (0 at 180 degrees). Graph shape: coarse_enabled, coarse_atrous_passes.
-    daxa_i32 coarse_enabled;
-    daxa_i32 coarse_atrous_passes;
-    daxa_f32 coarse_distance_tolerance;
-    daxa_f32 coarse_normal_power;
-    // Variance guide of the coarse filter: same test as variance_guide_* on the mean rgb of the SH-Y + CoCg, own
-    // (wider) tolerance in sigmas. Independent of variance_guide_enabled.
-    daxa_i32 coarse_variance_guide_enabled;
-    daxa_f32 coarse_variance_guide_sigmas;
-    // Top up (rt_lab_coarse_top_up): blend t = the smallest t with which lerp(fine, coarse, t) reaches this effective
-    // sample count, treating fine / coarse as estimates with variance 1 / N: N_eff = 1 / ((1 - t)^2 / N_fine + t^2 / N_coarse).
-    // Unreachable: the minimum variance mix. Capped by coarse_max_blend.
-    daxa_f32 coarse_target_samples;
-    daxa_f32 coarse_max_blend;
+    // Fine spatial passes early out (before any guide / tap work) for pixels whose center already holds fine_target_samples:
+    // the output is the center, same as without, only cheaper. Needs fine_target_samples > 0.
+    daxa_i32 fine_target_early_out;
 
     // == Coarse temporal anti-lag (rt_lab_anti_lag.inl) ==
     // The rays' luminance per 4x4 cell, blurred a lot (edge aware gaussian, coarse_anti_lag_blur_radius cells), drives an
@@ -233,35 +237,35 @@ struct RtLabSettings
     // == Ray filter (rt_lab_rays.hlsl entry_rt_lab_ray_filter) ==
     // After the trace, one thread per ray: statistics of all rays of the (2 radius + 1)^2 neighbor pixels on the same
     // surface (the ray itself excluded), the ray clamped against them hue preserving. Mode RT_LAB_RAY_FILTER_*:
-    // variance (luminance mean + sigmas x std, optionally also mean - sigmas x std) or perceptual (RTGI firefly clamp
-    // style: per channel exp(mean log + tolerance)). The pixel means, temporal SH and coarse clamp use the filtered rays,
-    // the temporal gradient the raw ones. Graph shape: mode != off.
+    // absolute (per channel linear mean x ray_filter_factor) or perceptual (RTGI firefly clamp style: per channel
+    // exp(mean log + tolerance)). The pixel means, temporal SH and coarse clamp use the filtered rays, the temporal
+    // gradient the raw ones. Graph shape: mode != off.
     daxa_i32 ray_filter_mode;
     daxa_i32 ray_filter_radius;     // 2 = 5x5, max RT_LAB_RAY_FILTER_MAX_RADIUS
-    daxa_f32 ray_filter_sigmas;     // variance mode
-    daxa_i32 ray_filter_clamp_low;  // variance mode: also raise rays below mean - sigmas x std
+    daxa_f32 ray_filter_factor;     // absolute mode: ceiling = neighbors' linear mean x this (default 2^6)
     daxa_f32 ray_filter_tolerance;  // perceptual mode: log units above the neighbors' log mean
-    // Firefly energy weighting (RTGI pre-blur iteration 0 style, but post temporal): with the ray filter on, the temporal
-    // pass accumulates the RAW (unclamped) mean luminance next to the filtered color with the same blend; factor =
-    // accumulated raw / filtered luminance (>= 1, energy_pre / energy_post). The first fine and the first coarse spatial
-    // pass multiply each tap's (and the center's) color weight by its factor: the clipped energy is spread over the
-    // footprint as a bounded blob instead of discarded. Sample counts are not scaled. Not graph shape.
-    daxa_i32 firefly_weight_enabled;
 
-    // == Ray length guide (fine spatial filter, rt_lab_blur.hlsl) ==
-    // The trace stores every ray's hit distance t (miss = RT_LAB_RAY_T_MAX). RTGI AO guide calculation: per ray
-    // calc_ray_shortness = 1 - min(1, (t / R)^2), R = ray_length_guide_radius_px RTGI half res pixel widths
-    // (= RTGI max_visibility_pixel_range, default 20), per pixel mean, mean over the 5x5 neighborhood on the same surface
-    // (plane + normal test, like the variance estimate), ao guide = 1 - sqrt(mean shortness), accumulated like the color
-    // (.x ao guide, .y mean shortness). Guide radius r = ao guide x R. Modes (bits
-    // RT_LAB_RAY_LENGTH_GUIDE_*): DISTANCE: tap weight x exp(-(max(d / r - 1, 0) / distance_falloff)^2), d = world
-    // distance center -> tap, r floored at one pixel width; SIMILARITY: x exp(-(log2(r_center / r_tap) /
-    // similarity_tolerance)^2). Rejected taps are not counted (like the variance guide). Debug RT_LAB_RAY_LENGTH_GUIDE.
-    // Graph shape: mode != 0.
-    daxa_i32 ray_length_guide_mode;
-    daxa_f32 ray_length_guide_radius_px;
-    daxa_f32 ray_length_guide_distance_falloff;
-    daxa_f32 ray_length_guide_similarity_tolerance;
+
+    // == SH guide (fine spatial filter, rt_lab_blur.hlsl) ==
+    // RT_LAB_SH_GUIDE_*: tap weight x a factor from comparing where the light comes from (SH-Y xyz = direction x Y, w = Y,
+    // of the temporal pass, read only). Rejected taps
+    // are not counted. Weight = pow(base weight of the mode, the mode's strength): 0 = no effect, higher = stronger (the base
+    // shapes are shader defines). Every mode keeps its own strength. Graph shape: mode != 0.
+    // sh_guide_mode = mode | flags (the flag lives here to keep the settings layout).
+    daxa_i32 sh_guide_mode;
+    daxa_f32 sh_guide_direction_strength; // RT_LAB_SH_GUIDE_DIRECTION (cosine power)
+    daxa_f32 sh_guide_cross_strength;     // RT_LAB_SH_GUIDE_CROSS
+    daxa_f32 sh_guide_statistical_strength; // RT_LAB_SH_GUIDE_STATISTICAL
+    daxa_f32 sh_guide_directional_variance_strength; // RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE
+
+    // == Neural affinity (rendering/rtgi/rt_lab/neural, weights in RtLabState::neural) ==
+    // The a-trous passes weight every tap with a learned similarity of per pixel latents (the geometric edge stopping stays, no lab guide applies)
+    // Needs temporal + a-trous (not with the progressive history) and loaded weights. Graph shape:
+    // neural_enabled. neural_target_samples = the target samples of the neural a-trous passes.
+    daxa_i32 neural_enabled;
+    daxa_i32 neural_use_coopvec; // tensor cores (VK_NV_cooperative_vector) when the device has them
+    daxa_i32 neural_use_half;    // f16 network math (radiometric work stays f32)
+    daxa_f32 neural_target_samples;
 
     // Set by the CPU for single frames (convergence error estimate phase starts): the temporal pass treats every pixel
     // as disoccluded. Not part of the presets.

@@ -59,6 +59,30 @@ struct RtLabTracePush
     daxa_u32 ray_lengths_bound; // ray_lengths is bound
 };
 
+// Pixel telemetry reference rays (rt_lab_telemetry.hpp): RT_LAB_TELEMETRY_REFERENCE_RAYS cosine rays from ONE lab pixel, traced + shaded exactly like
+// the lab trace, all in one frame: ray i uses the frame counter advanced by i (its own noise sample). Never part of the denoiser, only a reference
+// for the statistics. Host visible `reference` words: header (RT_LAB_TELEMETRY_REFERENCE_HEADER_WORDS: 0 stamp, 1 geometry flag), then per ray
+// RT_LAB_TELEMETRY_REFERENCE_RAY_WORDS floats: radiance rgb (scene units), hit distance (RT_LAB_RAY_T_MAX = miss), direction xyz, 0.
+#define RT_LAB_TELEMETRY_REFERENCE_RAYS 4096
+#define RT_LAB_TELEMETRY_REFERENCE_THREADS 64
+#define RT_LAB_TELEMETRY_REFERENCE_HEADER_WORDS 8
+#define RT_LAB_TELEMETRY_REFERENCE_RAY_WORDS 8
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtLabTelemetryReferenceH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_depth)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, lab_face_normal)
+RT_LAB_SHADE_ATTACHMENTS
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(daxa_u32), reference)
+DAXA_DECL_TASK_HEAD_END
+
+struct RtLabTelemetryReferencePush
+{
+    daxa_BufferPtr(RtLabTelemetryReferenceH::AttachmentShaderBlob) attach;
+    daxa_u32vec2 lab_pixel;
+    daxa_u32vec2 size; // lab resolution
+    daxa_u32 stamp;
+};
+
 // Temporal gradient re-trace (A-SVGF style, rt_lab_rays.inl), one thread per gradient cell record of LAST frame: the
 // record's surface point is reprojected to the nearest current lab pixel; if that pixel still shows the same surface
 // (plane + normal test), the identical ray (origin, direction, t min) is traced and shaded again and the luminance

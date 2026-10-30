@@ -1,5 +1,6 @@
 #include "application.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab.hpp"
+#include "rendering/rtgi/rt_lab/rt_lab2.hpp"
 
 #include <fmt/format.h>
 #include <fstream>
@@ -27,12 +28,15 @@
 //       "camera": "px py pz fx fy fz" | [x, y, z, yaw, pitch],   View Camera "Copy to clipboard" format or yaw / pitch
 //       "sun": "angle_x angle_y" | [angle_x, angle_y],      sun panel angles (degrees)
 //       "debug_draw": 0,                                    DEBUG_DRAW_MODE_* (int)
-//       "preset": "custom" | "progressive",                 active (tested) RT Lab preset, default custom
+//       "preset": "custom" | "progressive" | "neural",      active (tested) RT Lab preset, default custom
 //       "force_full_pgi_update": false,                     RT Lab "Force Full PGI Update" for this test
 //       "lag_tolerance": 0.02,                              temporal lag metric tolerance (relative), default 0.02
 //       "post_stabilization": { "enabled": true, "alpha": 0.1, "gamma": 1.0, "radius": 1, "clamp": true, "temporal_variance": true },   RT Lab post stabilization (default off)
 //       "custom": { "coarse_anti_lag_enabled": 1, ... },       RT Lab preset overrides, keys = saved result settings keys,
-//       "progressive": { ... },                             applied to the app's presets as they were at plan start
+//       "progressive": { ... }, "neural_preset": { ... },   applied to the app's presets as they were at plan start (the neural preset also takes "custom" first)
+//       "lab2": { "enabled": true, "ray_budget": 0.25, "cell_size_px": 16, ... },   RT Lab 2 (hash grid denoiser) instead of the original denoiser:
+//                                                           keys = RtLab2Settings field names (rt_lab2_settings.inl), default off. The progressive reference
+//                                                           phases still run the original denoiser; every test starts from the RT Lab 2 defaults
 //       "move": {                                           programmed move of the RT Lab test
 //         "dt": 0.0166667,                                  time per step
 //         "camera": { "velocity": [vx, vy, vz], "yaw_speed": 0, "pitch_speed": 0, "duration": 1, "start": "px py pz fx fy fz" },
@@ -41,6 +45,13 @@
 //       "move_frames": [256, 128],                          move reference: tested warmup, progressive frames per step
 //       "light_shock": [start, frames],                     temporal shock: point light culling flipped for run frames
 //                                                           [start, start + frames), lag metric from its end
+//       "neural": {                                         RT Lab neural affinity (rendering/rtgi/rt_lab/neural). enabled / coopvec / half /
+//         "enabled": true, "coopvec": true, "half": false,   target_samples are legacy keys: they set the ACTIVE preset's neural_* settings
+//         "target_samples": 1000000,                        (better: preset overrides "neural_enabled", "neural_target_samples", ... or preset "neural")
+//         "weights": "src/rendering/rtgi/rt_lab/neural/weights/rt_lab_neural.bin",
+//         "dump": { "first": 0, "frames": 96, "crop": [x, y, 192], "path": "<out>/<name>_<test>.rtlndump" }   training data
+//                    ("frame_list": [0, 3, 7, 15, 31, 63] instead of first / frames = the RUN frames to dump)
+//       },                                                  (dump: needs frames > first + frames + 8; train/dataset.py reads it)
 //       "screenshot": false                                 <out>/<name>_<test>_screenshot.png after the test
 //     }
 //   ]
@@ -163,19 +174,35 @@ auto Application::start_test_plan(std::filesystem::path const & path) -> bool
         }
         entry.debug_draw = spec.value("debug_draw", 0);
         std::string const preset = spec.value("preset", std::string("custom"));
-        if (preset != "custom" && preset != "progressive")
+        if (preset != "custom" && preset != "progressive" && preset != "neural")
         {
-            return fail("\"preset\" must be custom or progressive");
+            return fail("\"preset\" must be custom, progressive or neural");
         }
-        entry.active_preset = preset == "custom" ? RT_LAB_PRESET_CUSTOM : RT_LAB_PRESET_PROGRESSIVE;
+        entry.active_preset = preset == "custom" ? RT_LAB_PRESET_CUSTOM : (preset == "neural" ? RT_LAB_PRESET_NEURAL : RT_LAB_PRESET_PROGRESSIVE);
         for (i32 p = 0; p < RT_LAB_PRESET_COUNT; ++p)
         {
-            char const * const key = p == RT_LAB_PRESET_CUSTOM ? "custom" : "progressive";
+            char const * const key = p == RT_LAB_PRESET_CUSTOM ? "custom" : (p == RT_LAB_PRESET_NEURAL ? "neural_preset" : "progressive");
             std::vector<std::string> unknown = {};
-            entry.presets[p] = rt_lab_settings_apply_json(lab.presets[p], spec.value(key, nlohmann::json::object()), unknown);
+            entry.presets[p] = lab.presets[p];
+            if (p == RT_LAB_PRESET_NEURAL)
+            {
+                // The Neural preset starts from the plan's custom overrides, then its own ("neural" is the affinity config).
+                entry.presets[p] = rt_lab_settings_apply_json(entry.presets[p], spec.value("custom", nlohmann::json::object()), unknown);
+            }
+            entry.presets[p] = rt_lab_settings_apply_json(entry.presets[p], spec.value(key, nlohmann::json::object()), unknown);
             if (!unknown.empty())
             {
                 return fail(fmt::format("unknown \"{}\" setting \"{}\"", key, unknown.front()));
+            }
+        }
+        if (spec.contains("lab2"))
+        {
+            RtLab2State scratch = {};
+            std::vector<std::string> unknown = {};
+            rt_lab2_apply_json(scratch, spec["lab2"], unknown);
+            if (!unknown.empty())
+            {
+                return fail(fmt::format("unknown \"lab2\" setting \"{}\"", unknown.front()));
             }
         }
         if (spec.contains("move"))
@@ -267,6 +294,44 @@ void Application::test_plan_setup(TestPlanEntry const & entry)
     lab.post_stabilization_clamp = entry.post_stabilization_clamp;
     lab.post_stabilization_temporal_variance = entry.post_stabilization_temporal_variance;
     lab.active_preset = entry.active_preset;
+    {
+        // RT Lab 2: tests are independent, every test starts from the defaults plus its own overrides.
+        RtLab2State lab2 = {};
+        std::vector<std::string> unknown = {};
+        rt_lab2_apply_json(lab2, entry.spec.value("lab2", nlohmann::json::object()), unknown);
+        lab.lab2.enabled = lab2.enabled;
+        lab.lab2.ray_budget = lab2.ray_budget;
+        lab.lab2.min_base_coverage = lab2.min_base_coverage;
+        lab.lab2.ray_filter_mode = lab2.ray_filter_mode;
+        lab.lab2.ray_filter_radius = lab2.ray_filter_radius;
+        lab.lab2.ray_filter_tolerance = lab2.ray_filter_tolerance;
+        lab.lab2.ray_filter_factor = lab2.ray_filter_factor;
+        lab.lab2.settings = lab2.settings;
+    }
+    {
+        // Neural affinity + training data dump (rendering/rtgi/rt_lab/neural).
+        nlohmann::json const neural = entry.spec.value("neural", nlohmann::json::object());
+        // Plans from before the neural settings lived in the presets: these keys set the ACTIVE preset's neural_* settings.
+        RtLabSettings & active = lab.presets[std::clamp(lab.active_preset, 0, RT_LAB_PRESET_COUNT - 1)];
+        active.neural_enabled = neural.value("enabled", active.neural_enabled != 0) ? 1 : 0;
+        active.neural_use_coopvec = neural.value("coopvec", active.neural_use_coopvec != 0) ? 1 : 0;
+        active.neural_use_half = neural.value("half", active.neural_use_half != 0) ? 1 : 0;
+        active.neural_target_samples = neural.value("target_samples", active.neural_target_samples);
+        if (neural.contains("weights"))
+        {
+            lab.neural.weights_path = neural["weights"].get<std::string>();
+        }
+        lab.neural.dump.enabled = false;
+        if (neural.contains("dump"))
+        {
+            nlohmann::json const & dump = neural["dump"];
+            std::filesystem::path const path = dump.contains("path") ? std::filesystem::path(dump["path"].get<std::string>())
+                                                                      : _test_plan_output_dir / fmt::format("{}_{}.rtlndump", _test_plan_name, entry.name);
+            nlohmann::json const crop = dump.value("crop", nlohmann::json::array({0, 0, 192}));
+            rt_lab_neural_dump_begin(lab.neural, path, dump.value("first", 0), dump.value("frames", 96), crop.size() > 0 ? crop[0].get<i32>() : 0,
+                crop.size() > 1 ? crop[1].get<i32>() : 0, crop.size() > 2 ? crop[2].get<i32>() : 192, dump.value("frame_list", std::vector<i32>{}));
+        }
+    }
     render_context.render_data.rt_lab_settings.enabled = 1;
     // Results of the previous test must not leak into this one.
     lab.measurement = {};

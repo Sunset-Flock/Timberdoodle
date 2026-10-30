@@ -14,12 +14,9 @@
 [[vk::push_constant]] RtLabTracePush rt_lab_trace_push;
 
 
-// Hit shading of the lab rays. 1 = fine: full material + lights at the hit like the RTGI sharp path (evaluate_material +
-// shade_material, sun / light shadow rays), PGI only as the hit's indirect term, scaled by the lab's short range AO on hit.
-// 0 = coarse: PGI radiance at the hit with the lab's short range AO (the RTGI coarse path).
-#define RT_LAB_FINE_HIT_SHADING 1
-
-// Fine hit shading (RT_LAB_FINE_HIT_SHADING): rtgi_shade_sharp_hit with the lab's hit AO (hit_ao_*) on the PGI indirect term.
+// Hit shading of the lab rays: full material + lights at the hit like the RTGI sharp path (evaluate_material +
+// shade_material, sun / light shadow rays), rtgi_shade_sharp_hit with the lab's short range hit AO (hit_ao_*) on the PGI
+// indirect term.
 func rt_lab_shade_fine_hit(RtgiShadeContext ctx, RtLabSettings settings, uint instance_id, uint primitive_index, float2 barycentrics,
     float3 ray_direction, float t) -> float3
 {
@@ -48,7 +45,7 @@ func rt_lab_shade_fine_hit(RtgiShadeContext ctx, RtLabSettings settings, uint in
 }
 
 // Traces one lab ray (closest hit, alpha test in the traversal loop: masked geometry is non-opaque) and shades the hit
-// (RT_LAB_FINE_HIT_SHADING), sky on miss. Shared by the trace and the temporal gradient re-trace, which must shade
+// (rt_lab_shade_fine_hit), sky on miss. Shared by the trace and the temporal gradient re-trace, which must shade
 // identically.
 // hit_seed (rt_lab_hit_seed): rand() is seeded with it right before the hit is shaded, so the trace and the re-trace
 // draw the same random numbers in the shading.
@@ -77,19 +74,7 @@ func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc
         rand_seed(hit_seed);
         const float t = q.CommittedRayT();
         hit_t = t;
-#if RT_LAB_FINE_HIT_SHADING
         return rt_lab_shade_fine_hit(ctx, settings, q.CommittedInstanceID(), q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics(), ray.Direction, t);
-#else
-        float3 hit_position;
-        float3 hit_face_normal;
-        rtgi_shade_hit_position_face_normal(ctx, q.CommittedInstanceID(), q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics(), hit_position, hit_face_normal);
-        float3 color = rtgi_shade_coarse_hit_pgi(ctx, ray.Origin + ray.Direction * t, hit_face_normal);
-        if (settings.hit_ao_enabled)
-        {
-            color *= rtgi_coarse_hit_ao(t, max(settings.hit_ao_range, 1e-4f));
-        }
-        return color;
-#endif
     }
     return rtgi_shade_miss(ctx, ray.Direction);
 }
@@ -139,6 +124,60 @@ func entry_rt_lab_trace(uint ray_index : SV_DispatchThreadID)
     {
         push.attach.ray_lengths[ray_index] = hit_t;
     }
+}
+
+[[vk::push_constant]] RtLabTelemetryReferencePush rt_lab_telemetry_reference_push;
+
+// Pixel telemetry reference rays (rt_lab_trace.inl): one thread per ray, all of one lab pixel, in one frame. The noise sample of ray i is the frame
+// counter advanced by i (the trunked counter takes 4096 distinct values, the reference ray count), the animated noise is forced on.
+[shader("compute")]
+[numthreads(RT_LAB_TELEMETRY_REFERENCE_THREADS, 1, 1)]
+func entry_rt_lab_telemetry_reference(uint ray_index : SV_DispatchThreadID)
+{
+    let push = rt_lab_telemetry_reference_push;
+    if (ray_index >= RT_LAB_TELEMETRY_REFERENCE_RAYS)
+    {
+        return;
+    }
+    RtLabSettings settings = push.attach.globals.rt_lab_settings;
+    settings.animate_noise = 1;
+    const float depth = push.attach.lab_depth.get()[push.lab_pixel];
+    const uint base = RT_LAB_TELEMETRY_REFERENCE_HEADER_WORDS + ray_index * RT_LAB_TELEMETRY_REFERENCE_RAY_WORDS;
+    if (ray_index == 0u)
+    {
+        push.attach.reference[0] = push.stamp;
+        push.attach.reference[1] = depth > 0.0f ? 1u : 0u;
+    }
+    if (depth == 0.0f)
+    {
+        return;
+    }
+    const float3 face_normal = uncompress_normal_octahedral_32(push.attach.lab_face_normal.get()[push.lab_pixel]);
+    // The frame counter, advanced by hand per ray.
+    const float trunk_frame = float((push.attach.globals.frame_index + ray_index) & 0xFFFu);
+    const uint ray_seed = rt_lab_ray_seed(settings, trunk_frame, push.lab_pixel, 0u);
+    rand_seed(ray_seed);
+    const float3 tangent = normalize(cross(face_normal, float3(0, 0, 1) + 0.0001f));
+    const float3x3 tbn = transpose(float3x3(tangent, cross(tangent, face_normal), face_normal));
+    const float3 direction = uncompress_normal_octahedral_32(compress_normal_octahedral_32(mul(tbn, rand_cosine_sample_hemi())));
+    float3 world_pos;
+    float t_min;
+    RayDesc ray = {};
+    ray.Origin    = rt_lab_ray_launch(push.attach.globals.view_camera, push.lab_pixel, push.size, depth, face_normal, world_pos, t_min);
+    ray.Direction = direction;
+    ray.TMin      = t_min;
+    ray.TMax      = RT_LAB_RAY_T_MAX;
+    let ctx = RTGI_SHADE_CONTEXT(push.attach);
+    float hit_t;
+    const float3 color = rt_lab_trace_radiance(ctx, settings, ray, rt_lab_hit_seed(ray_seed), hit_t);
+    push.attach.reference[base + 0u] = asuint(color.x);
+    push.attach.reference[base + 1u] = asuint(color.y);
+    push.attach.reference[base + 2u] = asuint(color.z);
+    push.attach.reference[base + 3u] = asuint(hit_t);
+    push.attach.reference[base + 4u] = asuint(direction.x);
+    push.attach.reference[base + 5u] = asuint(direction.y);
+    push.attach.reference[base + 6u] = asuint(direction.z);
+    push.attach.reference[base + 7u] = 0u;
 }
 
 [[vk::push_constant]] RtLabGradientTracePush rt_lab_gradient_trace_push;

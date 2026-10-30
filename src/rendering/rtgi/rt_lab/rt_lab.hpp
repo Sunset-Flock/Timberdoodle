@@ -7,6 +7,7 @@
 
 #include "../../scene_renderer_context.hpp"
 #include "../rtgi.hpp" // TasksRtgiInfo / TasksRtgiMainResult: RT Lab is a drop-in replacement for tasks_rtgi_main
+#include "neural/rt_lab_neural.hpp"
 
 ///
 /// RT Lab: experimental diffuse RTGI path, selected instead of the RTGI denoiser by rt_lab_settings.enabled.
@@ -51,14 +52,15 @@ MAKE_COMPUTE_COMPILE_INFO(rt_lab_distribute_compile_info, "./src/rendering/rtgi/
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_ray_filter_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_ray_filter")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gather_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gather")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_blur_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gradient_blur")
-MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_dilate_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gradient_dilate")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_gradient_trace")
+MAKE_COMPUTE_COMPILE_INFO(rt_lab_probe_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_probe.hlsl", "entry_rt_lab_probe")
+MAKE_COMPUTE_COMPILE_INFO(rt_lab_telemetry_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_telemetry.hlsl", "entry_rt_lab_telemetry")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_trace")
+MAKE_COMPUTE_COMPILE_INFO(rt_lab_telemetry_reference_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_telemetry_reference")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_anti_lag_downsample_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_anti_lag.hlsl", "entry_rt_lab_anti_lag_downsample")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_anti_lag_blur_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_anti_lag.hlsl", "entry_rt_lab_anti_lag_blur")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_temporal_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_temporal.hlsl", "entry_rt_lab_temporal")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_blur_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_blur.hlsl", "entry_rt_lab_blur")
-MAKE_COMPUTE_COMPILE_INFO(rt_lab_coarse_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_coarse.hlsl", "entry_rt_lab_coarse")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_atrous_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_blur.hlsl", "entry_rt_lab_atrous")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_resolve_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_resolve.hlsl", "entry_rt_lab_resolve")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_convergence_capture_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_convergence.hlsl", "entry_rt_lab_convergence_capture")
@@ -114,10 +116,10 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
     return a.enabled != b.enabled ||
            rt_lab_ray_capacity_per_pixel(a) != rt_lab_ray_capacity_per_pixel(b) ||
            a.temporal_gradient_enabled != b.temporal_gradient_enabled ||
-           a.variance_guide_gradient != b.variance_guide_gradient ||
+           a.luma_moments_enabled != b.luma_moments_enabled ||
+           a.distribution_guide_mode != b.distribution_guide_mode ||
            a.temporal_gradient_all_base_rays != b.temporal_gradient_all_base_rays ||
            (a.temporal_gradient_all_base_rays != 0 && a.min_ray_budget != b.min_ray_budget) || // dense record size
-           (a.temporal_gradient_dilation_radius > 0) != (b.temporal_gradient_dilation_radius > 0) ||
            a.half_res != b.half_res ||
            a.temporal_enabled != b.temporal_enabled ||
            a.temporal_progressive != b.temporal_progressive ||
@@ -125,11 +127,10 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
            a.spatial_enabled != b.spatial_enabled ||
            a.spatial_mode != b.spatial_mode ||
            a.atrous_passes != b.atrous_passes ||
-           a.coarse_enabled != b.coarse_enabled ||
-           a.coarse_atrous_passes != b.coarse_atrous_passes ||
            ((a.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MODE_MASK) != RT_LAB_ANTI_LAG_OFF) != ((b.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MODE_MASK) != RT_LAB_ANTI_LAG_OFF) ||
            (a.ray_filter_mode != RT_LAB_RAY_FILTER_OFF) != (b.ray_filter_mode != RT_LAB_RAY_FILTER_OFF) ||
-           (a.ray_length_guide_mode != 0) != (b.ray_length_guide_mode != 0);
+           ((a.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) != 0) != ((b.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) != 0) ||
+           ((a.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE) != ((b.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE);
 }
 
 // Opaque specular is null: the opaque shading then falls back to its diffuse based specular approximation.

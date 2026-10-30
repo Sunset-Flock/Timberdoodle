@@ -85,7 +85,7 @@ func rt_lab_anti_lag_reproject(RtLabAntiLagBlurPush push, float3 position, float
             continue;
         }
         float4 history = push.attach.history_previous.get()[cell];
-        history.z = rt_lab_anti_lag_unpack_frames(history.z); // frames (+ clip ratio, RT_LAB_ANTI_LAG_CLIP)
+        history.z = rt_lab_anti_lag_unpack_frames(history.z); // frames (+ clip ratio)
         const float4 tap_fast = push.attach.fast_history_previous.get()[cell];
         if (!(history.w > 0.0f) || !(history.z > 0.0f) || !all(isfinite(history)))
         {
@@ -255,7 +255,7 @@ func entry_rt_lab_anti_lag_blur(uint2 dtid : SV_DispatchThreadID)
     const float2 moments = sums.z > 1e-3f ? sums.xy / sums.z : float2(0.0f, 0.0f); // this frame's blurred (mean, second moment)
     const float frame_variance = max(moments.y - moments.x * moments.x, 0.0f);
     float anti_lag_alpha = 0.0f;
-    float clip_ratio = 1.0f; // RT_LAB_ANTI_LAG_CLIP: clipped / slow, applied to the pixel histories by the temporal pass
+    float clip_ratio = 1.0f; // clipped / slow, applied to the pixel histories by the temporal pass
     const bool kalman = (uint(settings.coarse_anti_lag_enabled) & RT_LAB_ANTI_LAG_KALMAN) != 0;
     if (kalman && sums.z > 1e-3f)
     {
@@ -355,7 +355,6 @@ func entry_rt_lab_anti_lag_blur(uint2 dtid : SV_DispatchThreadID)
             }
             fast = float4(fast_mean, lerp(fast.y, noise_point, fast_blend), fast_frames, 0.0f);
             const float fast_var_now = noise_mode == RT_LAB_ANTI_LAG_NOISE_MAD ? square(fast.y) * (0.5f * PI) : fast.y;
-#if RT_LAB_ANTI_LAG_CLIP
             if (history.z > window && history.x > 0.0f)
             {
                 // TAA style: the slow mean is clipped into the fast mean's noise band; the pixel histories follow (ratio).
@@ -365,7 +364,6 @@ func entry_rt_lab_anti_lag_blur(uint2 dtid : SV_DispatchThreadID)
                 clip_ratio = clamp(clipped / history.x, 0.01f, 100.0f);
                 history.x = clipped;
             }
-#endif
             if (history.z > window)
             {
                 float cap = history.z;

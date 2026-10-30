@@ -4,6 +4,7 @@
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <optional>
 #include <string_view>
@@ -54,12 +55,40 @@ static void print_usage()
         "  --rt-lab-gradient <0|1>              RT Lab custom preset temporal gradient on / off.\n"
         "  --rt-lab-coarse-anti-lag <0|1>          RT Lab custom preset coarse temporal anti-lag on / off.\n"
         "  --rt-lab-move-frames <w n>           Move estimate: w custom warmup frames, n progressive frames per step\n"
-        "                                       (default 256 128). Frames needed: w + steps x (n + 1) + a few.\n");
-        "  --flashlight                         Start with the camera flashlight on (toggle in app with F).\n");
+        "                                       (default 256 128). Frames needed: w + steps x (n + 1) + a few.\n"
+        "  --flashlight                        Start with the camera flashlight on (toggle in app with F).\n");
 }
 
 int main(int argc, char const * const * argv)
 {
+    if (std::getenv("TIDO_UNBUFFERED_LOG") != nullptr)
+    {
+        // Redirected stdout is fully buffered: an abort loses the last messages (validation / assert text). Set for crash hunting.
+        std::setvbuf(stdout, nullptr, _IONBF, 0);
+        std::setvbuf(stderr, nullptr, _IONBF, 0);
+    }
+    std::set_terminate(
+        []()
+        {
+            // An uncaught exception ends in abort() (exit code 3) without any text: print what it was.
+            try
+            {
+                if (auto exception = std::current_exception())
+                {
+                    std::rethrow_exception(exception);
+                }
+            }
+            catch (std::exception const & e)
+            {
+                fmt::print(stderr, "[terminate] uncaught exception: {}\n", e.what());
+            }
+            catch (...)
+            {
+                fmt::print(stderr, "[terminate] uncaught non standard exception\n");
+            }
+            std::fflush(stderr);
+            std::abort();
+        });
     std::optional<std::filesystem::path> scene_path = {};
     std::vector<PerfTestView> cameras = {};
     i32vec2 resolution = {1024, 1024};

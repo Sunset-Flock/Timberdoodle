@@ -9,6 +9,7 @@
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
 #include "../rendering/rtgi/rt_lab/rt_lab.hpp"
+#include "../rendering/rtgi/rt_lab/rt_lab2.hpp"
 #include "../rendering/rtgi/rt_lab/rt_lab_resolve.inl" // RT_LAB_STABILIZE_MAX_RADIUS
 #include "../shader_shared/gpu_work_expansion.inl"
 #include "../shader_lib/volumetric.hlsl"
@@ -97,8 +98,6 @@ namespace
         "RT_LAB_SAMPLE_COUNT",
         "RT_LAB_VARIANCE",
         "RT_LAB_SPATIAL_SAMPLE_COUNT",
-        "RT_LAB_COARSE_BLEND",
-        "RT_LAB_COARSE_SAMPLE_COUNT",
         "RT_LAB_SPLIT_ERROR",
         "RT_LAB_SPLIT_RELATIVE_ERROR",
         "RT_LAB_TEMPORAL_GRADIENT",
@@ -108,8 +107,26 @@ namespace
         "RT_LAB_COARSE_ANTI_LAG_RELATIVE_STD",
         "RT_LAB_COARSE_ANTI_LAG_FRAME_RELATIVE_STD",
         "RT_LAB_HISTORY_CUTS",
-        "RT_LAB_COLOR_GRADIENT",
-        "RT_LAB_RAY_LENGTH_GUIDE",
+        "RT_LAB_SH_DIRECTION",
+        "RT_LAB_SH_DIRECTION_SCALED",
+        "RT_LAB_SH_CONCENTRATION",
+        "RT_LAB_SH_VARIANCE",
+        "RT_LAB_DIST_BODY_MEAN",
+        "RT_LAB_DIST_BODY_STD",
+        "RT_LAB_DIST_TAIL_FRACTION",
+        "RT_LAB_DIST_TAIL_HEIGHT",
+        "RT_LAB_DIST_BODY_COUNT",
+        "RT_LAB_DIST_TAIL_COUNT",
+        "RT_LAB_DIST_TAIL_ENERGY_SHARE",
+        "RT_LAB_DIST_MODEL_ERROR",
+        "RT_LAB2_CELLS",
+        "RT_LAB2_CELL_SAMPLES",
+        "RT_LAB2_CELL_EXPOSURE",
+        "RT_LAB2_LOOKUP",
+        "RT_LAB2_VARIANCE",
+        "RT_LAB2_HISTORY",
+        "RT_LAB2_TEMPORAL_GRADIENT",
+        "RT_LAB2_TEMPORAL_GRADIENT_LOSS",
     };
 
     static_assert(DEBUG_DRAW_MODE_NAMES.back() != nullptr, "DEBUG_DRAW_MODE_NAMES is missing entries for DEBUG_DRAW_MODE_COUNT");
@@ -173,7 +190,7 @@ namespace
         {
             compare = nullptr; // B did not record this metric
         }
-        char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
+        char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom", "Neural"};
         ImGui::TextDisabled("%i frames, %s preset, %u tiles, instability window %i frames",
             m.frames, preset_names[std::clamp(m.preset, 0, RT_LAB_PRESET_COUNT - 1)], m.denominator[metric], m.window);
         ImGui::SliderInt("Max Frames (viewer)", &ui.view_max_frames, 0, std::max(m.frames, compare != nullptr ? compare->frames : 0));
@@ -1848,20 +1865,6 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::SliderInt("Max Rays Per Pixel", &settings.max_rays_per_pixel, 1, 32);
                 ImGui::SliderFloat("Convergence Target (samples)", &settings.fast_convergence_samples, 1.0f, 256.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
                 ImGui::SetItemTooltip("History length at which a pixel stops asking for extra rays (max extras at length 0, exp(-4 length / target) falloff).");
-                ImGui::Checkbox("Variance Laziness", reinterpret_cast<bool *>(&settings.variance_laziness_enabled));
-                ImGui::SetItemTooltip("Low variance pixels ask for fewer extra rays (needs temporal). Samples needed N = perceptual variance / target error^2\n"
-                                      "(per sample variance of the variance guide estimate); the convergence target becomes clamp(N, min samples, target).\n"
-                                      "Applied before the temporal gradient cut, so a gradient cut still asks for the full extras.");
-                if (settings.variance_laziness_enabled)
-                {
-                    ImGui::SliderFloat("Laziness Target Error", &settings.variance_laziness_target_error, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SetItemTooltip("Relative std of the temporal mean the pixel aims for (0.2 = 20 %; the spatial filter averages far more on top).");
-                    ImGui::SliderFloat("Laziness Min Samples", &settings.variance_laziness_min_samples, 1.0f, 64.0f, "%.1f");
-                    ImGui::SetItemTooltip("Floor of the lazy convergence target (samples).");
-                    ImGui::SliderFloat("Laziness Perceptual Floor", &settings.variance_laziness_perceptual_floor, 0.001f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SetItemTooltip("Error is measured perceptually: std of log(L + floor) = sigma / (mean + floor), floor = this x display white (exposed).\n"
-                                          "Pixels darker than the floor barely show their error and get lazy.");
-                }
                 ImGui::EndDisabled();
                 ImGui::Checkbox("AO On Hit", reinterpret_cast<bool *>(&settings.hit_ao_enabled));
                 ImGui::SetItemTooltip("Same short range AO as the RTGI coarse hit shading: hit PGI radiance x (min(t, range) / range)^2.\nPGI leaks at short hit distances.");
@@ -1871,13 +1874,13 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 ImGui::SeparatorText("Ray Filter");
                 ImGui::PushID("ray filter");
-                char const * const ray_filter_modes[] = {"Off", "Variance Clamp", "Perceptual Clamp (RTGI style)"};
+                char const * const ray_filter_modes[] = {"Off", "Absolute Clamp", "Perceptual Clamp (RTGI style)"};
                 ImGui::Combo("Mode", &settings.ray_filter_mode, ray_filter_modes, 3);
                 ImGui::SameLine();
                 ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "RAY_FILTER">())) * 0.001f);
                 ImGui::SetItemTooltip("One thread per ray after the trace: statistics of all rays of the neighbor pixels on the same surface\n"
                                       "(the ray itself excluded), the ray clamped against them, hue preserving.\n"
-                                      "Variance: luminance mean + sigmas x std (optionally also mean - sigmas x std).\n"
+                                      "Absolute: per channel ceiling = neighbors' linear mean x factor, the worst channel decides.\n"
                                       "Perceptual: like the RTGI firefly clamp, per channel exp(mean of log rgb + tolerance), the worst channel decides.\n"
                                       "Pixel means, temporal SH and coarse clamp use the filtered rays, the temporal gradient the raw ones.");
                 ImGui::BeginDisabled(settings.ray_filter_mode == RT_LAB_RAY_FILTER_OFF);
@@ -1890,15 +1893,9 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 else
                 {
-                    ImGui::SliderFloat("Sigmas", &settings.ray_filter_sigmas, 0.25f, 8.0f);
-                    ImGui::Checkbox("Clamp Low Too", reinterpret_cast<bool *>(&settings.ray_filter_clamp_low));
-                    ImGui::SetItemTooltip("Also raise rays below mean - sigmas x std (adds energy to dark rays: biased brighter).");
+                    ImGui::SliderFloat("Factor", &settings.ray_filter_factor, 1.0f, 1024.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Ceiling = neighbors' linear mean x this per channel (default 2^6 = 64).");
                 }
-                ImGui::Checkbox("Firefly Energy Weighting", reinterpret_cast<bool *>(&settings.firefly_weight_enabled));
-                ImGui::SetItemTooltip("RTGI pre-blur style energy compensation, applied in the first fine and the first coarse spatial pass\n"
-                                      "(post temporal, no pre-blur): every tap's color weight x its accumulated raw / filtered energy (>= 1).\n"
-                                      "The clipped energy spreads over the footprint as a bounded blob instead of being lost.\n"
-                                      "Sample counts are not scaled. Needs temporal + a spatial filter.");
                 ImGui::EndDisabled();
                 ImGui::PopID();
                 ImGui::TreePop();
@@ -1926,15 +1923,17 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::SetItemTooltip("Reproject the history with a 12-tap Catmull-Rom when all 12 taps lie on this surface (else bilinear).\nBilinear blurs the history a little every frame under motion.");
                 ImGui::Checkbox("Split History (A/B Error Estimate)", reinterpret_cast<bool *>(&settings.split_history_enabled));
                 ImGui::SetItemTooltip("Two extra histories, A takes even frames, B odd frames. |A - B| / 2 estimates the error of the accumulated mean.\nSee the RT_LAB_SPLIT_* debug views.");
+                ImGui::Checkbox("Perceptual Moments", reinterpret_cast<bool *>(&settings.luma_moments_enabled));
+                ImGui::SetItemTooltip("Accumulate the center + distance weighted 3x3 moments m1, m2 of log(1 + luma / floor) (>= 0) with the color's blend. The per sample variance\n"
+                                      "for the variance guides (and the gradient cap) is m2 - m1^2, converted to linear with (luma + floor)^2 and spread\n"
+                                      "over rgb like the color, instead of the 5x5 spatial estimate. Graph shape.");
                 ImGui::SeparatorText("Temporal Gradient");
                 ImGui::PushID("temporal gradient");
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.temporal_gradient_enabled));
                 ImGui::SameLine();
                 ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_TRACE">()) +
                                                                   render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_H">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_DILATE_H">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_DILATE_V">())) * 0.001f);
+                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">())) * 0.001f);
                 ImGui::SetItemTooltip("A-SVGF style: one ray per 4x4 pixels is re-traced next frame with the exact same launch data.\n"
                                       "The luminance changes, blurred in screen space (edge aware, coarse plane + normal tests), give lambda = |sum delta| / sum max(old, new).\n"
                                       "Reprojected history lengths are scaled by 1 - lambda before the ray redistribution and in the temporal pass.\n"
@@ -1945,22 +1944,20 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::Checkbox("Re-trace Base Rays", reinterpret_cast<bool *>(&settings.temporal_gradient_all_base_rays));
                 ImGui::SetItemTooltip("On: the base rays (ray 0 of the guaranteed base share, rate Min Ray Budget, 0.125 = 2 per 4x4 cell) are recorded\n"
                                       "and re-traced next frame, the samples summed per 4x4 cell. Off: one ray per 4x4 cell. Graph shape.");
-                ImGui::SliderInt("Dilation Radius (cells)", &settings.temporal_gradient_dilation_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
-                ImGui::SetItemTooltip("0 = off. Weighted max dilation of lambda after the blur: lambda = max over taps of lambda_tap x gauss(d), sigma = radius / 2,\n"
-                                      "same distance + normal edge stopping. Strong at the origin, fans out with distance (the blur alone dilutes\n"
-                                      "a local change when widened). Keep the blur for noise, the dilation for reach.");
                 {
                     char const * relative_modes[] = {"Samples (A-SVGF)", "Pixel", "Min (Samples, Pixel)"};
                     ImGui::Combo("Lambda Relative To", &settings.temporal_gradient_pixel_relative, relative_modes, 3);
                     ImGui::SetItemTooltip("Samples: A-SVGF, lambda = |sum w delta| / sum w max of the re-traced samples.\n"
-                                          "Pixel: blur + dilation carry the ABSOLUTE luminance change (mean delta of the re-traced samples), made relative\n"
+                                          "Pixel: the blur carries the ABSOLUTE luminance change (mean delta of the re-traced samples), made relative\n"
                                           "only at each pixel against its own previous history luminance L: lambda = |delta| / max(old, new) of the pixel,\n"
                                           "rescale ratio = (L + delta) / L. A small change in the dark no longer cuts a bright pixel's history.\n"
                                           "Min: the smaller of both (a bright change no longer cuts dark neighbors fully either).");
                 }
                 ImGui::SliderFloat("Temporal Alpha", &settings.temporal_gradient_history_alpha, 0.05f, 1.0f);
-                ImGui::SetItemTooltip("1 = off. Temporal EMA of the blurred gradient sums per cell (reprojected), before lambda:\n"
-                                      "the re-trace's frame to frame noise averages over ~1 / alpha frames, a real step still shows alpha x lambda at once.");
+                ImGui::SetItemTooltip("1 = off. Settle / scale modes: temporal EMA of the blurred gradient sums per cell (reprojected), before lambda:\n"
+                                      "the re-trace's frame to frame noise averages over ~1 / alpha frames, a real step still shows alpha x lambda at once.\n"
+                                      "Kalman mode: GLIDE, the fraction of the correction applied per frame (the rest stays pending in the cell), ramping\n"
+                                      "to 1 for big changes (ratio 2x .. 5x): shocks stay instant, moderate changes glide in over ~1 / alpha frames.");
                 if (settings.temporal_gradient_history_alpha < 1.0f)
                 {
                     ImGui::SliderFloat("Temporal Shock Lambda", &settings.temporal_gradient_history_shock, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
@@ -2010,7 +2007,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                         ImGui::SliderFloat("Cap Min (samples)", &settings.temporal_gradient_cap_min, 0.0f, 32.0f, "%.1f");
                     }
                     ImGui::Checkbox("History Rescale", reinterpret_cast<bool *>(&settings.temporal_gradient_rescale));
-                    ImGui::SetItemTooltip("Multiplies the reprojected histories by the gradient's luminance ratio sum new / sum old (signed, undilated\n"
+                    ImGui::SetItemTooltip("Multiplies the reprojected histories by the gradient's luminance ratio sum new / sum old (signed\n"
                                           "lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening): jumps to the new lighting without losing samples.");
                     if (settings.temporal_gradient_rescale)
                     {
@@ -2096,61 +2093,11 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     RenderTimes::index<"RT_LAB", "ATROUS0">(), RenderTimes::index<"RT_LAB", "ATROUS1">(),
                     RenderTimes::index<"RT_LAB", "ATROUS2">(), RenderTimes::index<"RT_LAB", "ATROUS3">(),
                     RenderTimes::index<"RT_LAB", "ATROUS4">(), RenderTimes::index<"RT_LAB", "ATROUS5">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">(),
-                    RenderTimes::index<"RT_LAB", "COARSE0">(), RenderTimes::index<"RT_LAB", "COARSE1">(),
-                    RenderTimes::index<"RT_LAB", "COARSE2">(), RenderTimes::index<"RT_LAB", "COARSE3">(),
-                    RenderTimes::index<"RT_LAB", "COARSE4">(), RenderTimes::index<"RT_LAB", "COARSE5">(),
-                    RenderTimes::index<"RT_LAB", "COARSE6">(), RenderTimes::index<"RT_LAB", "COARSE7">() }))
+                    RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">() }))
             {
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.spatial_enabled));
                 char const * const spatial_modes[] = {"Separable Gaussian", "A-Trous 5x5"};
                 ImGui::Combo("Mode", &settings.spatial_mode, spatial_modes, 2);
-                ImGui::Checkbox("Variance Guide", reinterpret_cast<bool *>(&settings.variance_guide_enabled));
-                ImGui::SetItemTooltip("Fine filter only. The temporal pass estimates the per sample rgb variance (5x5 raw samples on this surface,\n"
-                                      "accumulated like the color). Center and tap are estimates of their means, N(mean, variance / effective samples);\n"
-                                      "the tap weight is the likelihood both share a mean: exp(-z^2 / (2 k^2)), z^2 = mean over rgb of\n"
-                                      "(mean_c - mean_t)^2 / (var_c / n_c + var_t / n_t). Few samples = loose test, many samples = tight test.\n"
-                                      "Rejected taps also do not count into the effective sample count. Debug view RT_LAB_VARIANCE.");
-                ImGui::BeginDisabled(settings.variance_guide_enabled == 0);
-                ImGui::SliderFloat("Tolerance (sigmas)", &settings.variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                ImGui::Checkbox("Gradient Aware", reinterpret_cast<bool *>(&settings.variance_guide_gradient));
-                ImGui::SetItemTooltip("Fine filter. The first pass fits the local rgb gradient per screen axis (5x5 weighted least squares, geometric\n"
-                                      "weights only) for the next pass and filters without it itself; the later passes use the incoming gradient and\n"
-                                      "do not refit but filter it on with the color's own weights (rejected taps,\n"
-                                      "e.g. across an edge, do not feed in). Every tap is compared with center mean + gradient x offset instead of the\n"
-                                      "plain center mean, plus the gradient's variance; the gradient is shrunk toward 0 where not significant.\n"
-                                      "Graph shape. Debug view RT_LAB_COLOR_GRADIENT.");
-                ImGui::EndDisabled();
-                char const * const ray_length_guide_modes[] = {"Off", "Radius Scale", "Radius Weighting"};
-                ImGui::Combo("Ray Length Guide", &settings.ray_length_guide_mode, ray_length_guide_modes, 3);
-                ImGui::SetItemTooltip("Fine filter. RTGI AO guide: per ray shortness 1 - min(1, (t / R)^2), R = Ray Length Max RTGI half res pixel widths,\n"
-                                      "5x5 mean on this surface, guide = 1 - sqrt(mean), accumulated. Guide radius r = guide x R.\n"
-                                      "Radius Scale: donors farther than r (world distance) fade, weight x exp(-(max(d / r - 1, 0) / falloff)^2)\n"
-                                      "(short rays at contacts / corners = small footprint).\n"
-                                      "Radius Weighting: donor weight x exp(-(log2(r_center / r_donor) / tolerance)^2), more similar = higher.\n"
-                                      "Graph shape (off vs on). Debug RT_LAB_RAY_LENGTH_GUIDE.");
-                ImGui::BeginDisabled(settings.ray_length_guide_mode == 0);
-                ImGui::SliderFloat("Ray Length Max (px)", &settings.ray_length_guide_radius_px, 1.0f, 256.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-                ImGui::SetItemTooltip("RTGI max_visibility_pixel_range: ray lengths are scaled and clamped to this many RTGI half res pixel widths.");
-                ImGui::SliderFloat("Radius Falloff", &settings.ray_length_guide_distance_falloff, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                ImGui::SliderFloat("Similarity Tolerance (stops)", &settings.ray_length_guide_similarity_tolerance, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                ImGui::EndDisabled();
-                ImGui::BeginDisabled(settings.variance_guide_enabled == 0 && settings.coarse_variance_guide_enabled == 0);
-                ImGui::Checkbox("Heavy Tail (Student-t)", reinterpret_cast<bool *>(&settings.variance_guide_heavy_tail));
-                ImGui::SetItemTooltip("Fine AND coarse variance guide. Weight (1 + z^2 / (nu k^2))^(-(nu + 1) / 2) instead of exp(-z^2 / (2 k^2)):\n"
-                                      "polynomial tail, a noisy z no longer flips a tap between fully in and gone (less splotchy).\n"
-                                      "nu -> infinity = gaussian, 1 = Cauchy. Real edges (z >> 10) stay strongly suppressed.");
-                ImGui::BeginDisabled(settings.variance_guide_heavy_tail == 0);
-                ImGui::InputFloat("Tail nu", &settings.variance_guide_tail_nu, 0.5f, 1.0f, "%.2f");
-                ImGui::EndDisabled();
-                ImGui::Checkbox("Cap Sample Count", reinterpret_cast<bool *>(&settings.variance_guide_count_cap_enabled));
-                ImGui::SetItemTooltip("Fine AND coarse variance guide. The effective sample count n in the standard error var / n is capped:\n"
-                                      "the spatially compounded count (about x7 per a-trous pass, reused samples counted again) overstates the\n"
-                                      "independent samples, so z inflates and later passes reject hard. Looser test = slightly more blur bias.");
-                ImGui::BeginDisabled(settings.variance_guide_count_cap_enabled == 0);
-                ImGui::InputFloat("Count Cap", &settings.variance_guide_count_cap, 8.0f, 64.0f, "%.0f");
-                ImGui::EndDisabled();
-                ImGui::EndDisabled();
                 ImGui::SetItemTooltip("Separable gaussian: horizontal + vertical pass, Blur Radius taps per side.\nA-trous: passes of a 5x5 B3 spline kernel, tap spacing 1, 2, 4, 8, ... px.\nBoth use the same geometric edge stopping (plane tolerance, normal power).");
                 if (settings.spatial_mode == 0)
                 {
@@ -2165,35 +2112,89 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     ImGui::TextDisabled("Tap spacing 1 .. %i px, reach +-%i px", 1 << (passes - 1), 2 * ((1 << passes) - 1));
                     ImGui::Unindent();
                 }
-                ImGui::SliderFloat("Plane Tolerance (px)", &settings.blur_plane_tolerance, 0.1f, 8.0f);
-                ImGui::SliderFloat("Normal Power", &settings.blur_normal_power, 0.0f, 64.0f);
-                ImGui::SliderFloat("Target Samples", &settings.fine_target_samples, 0.0f, 100000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat("Target Samples", &settings.fine_target_samples, 0.0f, 1000000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
                 ImGui::SetItemTooltip("Fine filter sample count budget (0 = off). Each pass accepts taps ring by ring from the center outwards;\n"
                                       "the ring that would exceed this effective sample count is weighted down so the pass reaches it exactly,\n"
-                                      "further taps are dropped. Fine filter only. Also caps the coarse blend's Fully Fine Above.");
-                ImGui::SeparatorText("Coarse Fallback");
-                ImGui::PushID("coarse");
-                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.coarse_enabled));
-                ImGui::SetItemTooltip("Second, sloppy a-trous filter on the same input, blended in where the fine filter gathered few\neffective samples (edges, thin geometry, disocclusions). See RT_LAB_COARSE_BLEND.");
-                ImGui::BeginDisabled(settings.coarse_enabled == 0);
-                ImGui::SliderInt("Passes", &settings.coarse_atrous_passes, 1, RT_LAB_ATROUS_MAX_PASSES);
-                ImGui::SliderFloat("Distance Tolerance", &settings.coarse_distance_tolerance, 0.1f, 32.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                ImGui::SetItemTooltip("Smooth distance test, no plane test: weight = exp(-(max(d_rel - 1, 0) / tolerance)^2), d_rel = world distance\nrelative to what a camera facing surface at that screen offset would give. Higher = sloppier.");
-                ImGui::SliderFloat("Normal Power##coarse", &settings.coarse_normal_power, 0.0f, 16.0f);
-                ImGui::SetItemTooltip("Smooth normal test: weight = ((1 + dot) / 2)^power, 0 at 180 degrees.");
-                ImGui::Checkbox("Variance Guide", reinterpret_cast<bool *>(&settings.coarse_variance_guide_enabled));
-                ImGui::SetItemTooltip("Same likelihood test as the fine filter's variance guide, on the mean rgb of the SH-Y + CoCg\n"
-                                      "(independent of the fine filter's toggle), with its own, usually wider, tolerance.");
-                ImGui::BeginDisabled(settings.coarse_variance_guide_enabled == 0);
-                ImGui::SliderFloat("Tolerance (sigmas)", &settings.coarse_variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                                      "further taps are dropped. Fine filter only.");
+                ImGui::Checkbox("Early Out At Target", reinterpret_cast<bool *>(&settings.fine_target_early_out));
+                ImGui::SetItemTooltip("Pixels whose center already holds the target sample count skip the rest of the spatial pass (guides, taps)\n"
+                                      "and return the center. Same result as without, cheaper.");
+
+                // Guides weight the fine filter's taps, three families: what the pixels look like (radiance), how the light
+                // reaches them / how far the rays went (ray length), where the surfaces are (geometry).
+                ImGui::SeparatorText("Radiance Guides");
+                ImGui::Checkbox("Variance Guide", reinterpret_cast<bool *>(&settings.variance_guide_enabled));
+                ImGui::SetItemTooltip("Fine filter only. The temporal pass estimates the per sample rgb variance (5x5 raw samples on this surface,\n"
+                                      "accumulated like the color). Center and tap are estimates of their means, N(mean, variance / effective samples);\n"
+                                      "the tap weight is the likelihood both share a mean: exp(-z^2 / (2 k^2)), z^2 = mean over rgb of\n"
+                                      "(mean_c - mean_t)^2 / (var_c / n_c + var_t / n_t). Few samples = loose test, many samples = tight test.\n"
+                                      "Rejected taps also do not count into the effective sample count. Debug view RT_LAB_VARIANCE.");
+                ImGui::BeginDisabled(settings.variance_guide_enabled == 0);
+                ImGui::SliderFloat("Tolerance (sigmas)", &settings.variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
                 ImGui::EndDisabled();
-                ImGui::SliderFloat("Top Up To (samples)", &settings.coarse_target_samples, 1.0f, 1000000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-                ImGui::SetItemTooltip("Blends in just enough of the coarse result to top the effective sample count up to this.\n"
-                                      "Fine / coarse treated as estimates with variance 1 / N: N_eff = 1 / ((1 - t)^2 / N_fine + t^2 / N_coarse),\n"
-                                      "t = smallest root of N_eff = target; unreachable target: minimum variance mix. Capped by Max Blend.");
-                ImGui::SliderFloat("Max Blend", &settings.coarse_max_blend, 0.0f, 1.0f);
+                ImGui::BeginDisabled(settings.temporal_enabled == 0);
+                // Combo entries -> distribution_guide_mode values (the skew-normal schemes 2 / 4 were removed).
+                char const * const distribution_modes[] = {"Off", "Lognormal Body + Bright Tail", "Dark Tail + Lognormal Body + Bright Tail"};
+                i32 distribution_index = settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_OFF ? 0 : (settings.distribution_guide_mode >= RT_LAB_DISTRIBUTION_LOGNORMAL_3 ? 2 : 1);
+                if (ImGui::Combo("Distribution Guide", &distribution_index, distribution_modes, 3))
+                {
+                    settings.distribution_guide_mode = distribution_index == 0 ? RT_LAB_DISTRIBUTION_OFF : (distribution_index == 1 ? RT_LAB_DISTRIBUTION_LOGNORMAL : RT_LAB_DISTRIBUTION_LOGNORMAL_3);
+                }
+                ImGui::SetItemTooltip("Fine filter. Every pixel tracks its incoming light as a lognormal body / tail mixture of y = ln(1 + luma / floor):\n"
+                                      "the pixel's perceptual mean (the mean of y over ALL samples, independent of the split) sets the tail thresholds: bright tail =\n"
+                                      "the 3x3 samples above mean + 2, body = the pixel's own sample between the thresholds. No threshold depends on the tail estimates,\n"
+                                      "so there is no feedback loop.\n"
+                                      "Tap weight = exp(-|mu_c - mu_t| / (k sqrt(var_c + var_t) + eps)) of the BODY log means (variances with one prior sample).\n"
+                                      "Rejected taps do not count into the effective sample count. Multiplies with the variance guide. Graph shape.\n"
+                                      "Dark Tail adds a DARK tail below mean - 2 (the mirror of the bright tail); the tap weight then compares all components of both\n"
+                                      "pixels: sum over pairs of w_a w_b exp(-|mu_a - mu_b| / (k sqrt(var_a + var_b) + eps)), normalized by the self overlaps.\n"
+                                      "Inspect the tracked state of single pixels in RT Lab -> Live Pixel Probes.");
+                if (settings.distribution_guide_mode != RT_LAB_DISTRIBUTION_OFF)
+                {
+                    ImGui::SliderFloat("Distribution Tolerance (k)", &settings.distribution_guide_sigmas, 0.1f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("k in the weights above (sigmas of the test). Larger = looser.");
+                    if (settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_LOGNORMAL)
+                    {
+                        char const * const compare_modes[] = {"Body + Tail + Energy", "Membership + Energy", "Perceptual Mean + Energy", "Body + Tail (no energy)"};
+                        settings.distribution_guide_compare = std::clamp(settings.distribution_guide_compare, 0, RT_LAB_DISTRIBUTION_COMPARE_COUNT - 1);
+                        ImGui::Combo("Comparison", &settings.distribution_guide_compare, compare_modes, RT_LAB_DISTRIBUTION_COMPARE_COUNT);
+                        ImGui::SetItemTooltip("Does the DONOR (the tap) match the receiver's distribution, not just its body? The tap weights show in the live pixel probes.\n"
+                                              "Every comparison but the last also has to pass the TOTAL ENERGY test: the energy each distribution stands for (the mean of exp(y) over body +\n"
+                                              "  tails, with the uncertainty of the tail estimates) must match. Tails are rare and carry the energy, a shadowed pixel and a lit one with the same body\n"
+                                              "  can only be told apart by it.\n"
+                                              "Body + Tail + Energy (default): the body test and the tail test (Welch of the tail means; a tail only one pixel has costs that tail's energy share),\n"
+                                              "  blended by the share of the mean energy the tails carry, AND the energy test.\n"
+                                              "Membership + Energy: does the donor's body AND tail (by mass) lie where the receiver's mixture has mass, and the other way around.\n"
+                                              "Perceptual Mean + Energy: Welch style test of the tracked perceptual means (the mean of ALL samples) x the body + tail test.\n"
+                                              "Body + Tail (no energy): the cheap shape test alone.");
+                    }
+                }
                 ImGui::EndDisabled();
-                ImGui::PopID();
+                char const * const sh_guide_modes[] = {"Off", "Dominant Direction", "Cross Evaluation", "Direction z-Test", "Directional Variance"};
+                i32 sh_guide_mode = settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK;
+                ImGui::Combo("SH Guide", &sh_guide_mode, sh_guide_modes, 5);
+                ImGui::SetItemTooltip("Fine filter. Compares where the light of center and tap comes from (SH-Y of the temporal pass, read only).\n"
+                                      "Each mode has a base weight in 0..1, the tap weight is multiplied by pow(base, strength): strength 0 = no effect.\n"
+                                      "Dominant Direction: base = cosine between the dominant directions, only as far as both have a clear dominant direction.\n"
+                                      "Cross Evaluation: the tap's SH resolved at the center's normal vs the center's own, base = exp(-(relative difference / 0.5)^2).\n"
+                                      "Direction z-Test: mean light vector difference vs its noise (1 - R^2, history lengths), base = exp(-z^2 / 8).\n"
+                                      "Directional Variance: the temporal pass also accumulates the second moments of the light direction distribution (3x3 center +\n"
+                                      "distance weighted per frame, m1 = the SH-Y): the Y weighted direction covariance (anisotropic) and the luma variance.\n"
+                                      "Mahalanobis distance of the mean light direction difference under C_c / n_c + C_t / n_t, plus a z test of Y; base = exp(-(z^2 per\n"
+                                      "degree of freedom) / 8).\n"
+                                      "Rejected taps are not counted. Graph shape (off vs on).");
+                settings.sh_guide_mode = sh_guide_mode;
+                ImGui::BeginDisabled(sh_guide_mode == 0);
+                f32 & sh_guide_strength = sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTION ? settings.sh_guide_direction_strength :
+                                          (sh_guide_mode == RT_LAB_SH_GUIDE_CROSS ? settings.sh_guide_cross_strength :
+                                          (sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE ? settings.sh_guide_directional_variance_strength : settings.sh_guide_statistical_strength));
+                ImGui::SliderFloat("SH Guide Strength", &sh_guide_strength, 0.0f, 16.0f, "%.2f");
+                ImGui::SetItemTooltip("Exponent of the mode's base weight. 0 = the guide does nothing, higher = stronger. Every mode keeps its own value.");
+                ImGui::EndDisabled();
+
+                ImGui::SeparatorText("Geometry Guides");
+                ImGui::SliderFloat("Plane Tolerance (px)", &settings.blur_plane_tolerance, 0.1f, 8.0f);
+                ImGui::SliderFloat("Normal Power", &settings.blur_normal_power, 0.0f, 64.0f);
                 ImGui::TreePop();
             }
             if (lab_section("Resolve", { RenderTimes::index<"RT_LAB", "RESOLVE">() }))
@@ -2240,11 +2241,42 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::Checkbox("Force Full PGI Update", &lab.force_full_pgi_update);
             ImGui::SetItemTooltip("While RT Lab runs (also during its tests), PGI updates every probe every frame (update rate FULL).\n"
                                   "Unchecked: the PGI settings' own update rate (restored when this turns off).");
-            char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
+            // Neural affinity (rendering/rtgi/rt_lab/neural): the settings tab of a preset (the weights are shared).
+            auto lab_neural_settings = [&](RtLabSettings & settings)
+            {
+                ImGui::PushID("neural affinity");
+                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.neural_enabled));
+                ImGui::SetItemTooltip("The a-trous passes weight every tap with exp(-|f_center - f_tap|^2), f = a latent feature vector\n"
+                                      "a small network predicts per pixel (temporal output, raw samples, ray length, geometry), times the geometric\n"
+                                      "edge stopping (plane distance, normal). None of the lab's guides applies. Needs temporal + a-trous (smart history) and trained weights. Graph shape.\n"
+                                      "Everything lives in src/rendering/rtgi/rt_lab/neural (train/ = the SlangPy trainer).");
+                ImGui::Checkbox("Tensor Cores (CoopVec)", reinterpret_cast<bool *>(&settings.neural_use_coopvec));
+                ImGui::SetItemTooltip(rt_lab_neural_coopvec_supported(render_context.gpu_context->device) ? "Latent MLP on the tensor cores (VK_NV_cooperative_vector, f16)." : "Not supported by this GPU / driver: the plain shader loops run.");
+                ImGui::SliderFloat("Target Samples", &settings.neural_target_samples, 1000.0f, 10000000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SetItemTooltip("Ring budget of the neural a-trous passes: taps are accepted ring by ring until this many effective samples are gathered.");
+                ImGui::Checkbox("F16 Network Math", reinterpret_cast<bool *>(&settings.neural_use_half));
+                ImGui::SetItemTooltip("MLP, latents, distance and weighting functions in half precision (radiometric work stays f32).");
+                char path_buffer[260] = {};
+                std::string const path_text = lab.neural.weights_path.string();
+                std::strncpy(path_buffer, path_text.c_str(), sizeof(path_buffer) - 1);
+                if (ImGui::InputText("Weights", path_buffer, sizeof(path_buffer), ImGuiInputTextFlags_EnterReturnsTrue))
+                {
+                    lab.neural.weights_path = path_buffer;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Reload"))
+                {
+                    lab.neural.weights_loaded = false;
+                    lab.neural.loaded_path = std::filesystem::path{};
+                }
+                ImGui::TextDisabled(lab.neural.weights_loaded ? "%u parameters loaded." : "No weights loaded.", lab.neural.param_count);
+                ImGui::PopID();
+            };
+            char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom", "Neural"};
             ImGui::BeginDisabled(testing);
             ImGui::Combo("Active Preset", &lab.active_preset, preset_names, RT_LAB_PRESET_COUNT);
             ImGui::EndDisabled();
-            ImGui::SetItemTooltip("Progressive: reference (full res, fp32 long history, 2 tight a-trous passes, no coarse fallback by default).\nCustom: the settings under test.");
+            ImGui::SetItemTooltip("Progressive: reference (full res, fp32 long history, 2 tight a-trous passes).\nCustom: the settings under test.\nNeural: like Custom, with the learned neural affinity a-trous (its Neural Affinity tab).");
 
             // Both presets, each editable with its own reset.
             for (i32 p = 0; p < RT_LAB_PRESET_COUNT; ++p)
@@ -2257,7 +2289,20 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     {
                         lab.presets[p] = rt_lab_default_settings(static_cast<RtLabPreset>(p));
                     }
-                    lab_preset_settings(lab.presets[p]);
+                    if (ImGui::BeginTabBar("##preset tabs"))
+                    {
+                        if (ImGui::BeginTabItem("Settings"))
+                        {
+                            lab_preset_settings(lab.presets[p]);
+                            ImGui::EndTabItem();
+                        }
+                        if (ImGui::BeginTabItem("Neural Affinity"))
+                        {
+                            lab_neural_settings(lab.presets[p]);
+                            ImGui::EndTabItem();
+                        }
+                        ImGui::EndTabBar();
+                    }
                     ImGui::TreePop();
                 }
                 ImGui::PopID();
@@ -2266,6 +2311,8 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
         if (ImGui::CollapsingHeader("Debug Views", ImGuiTreeNodeFlags_DefaultOpen))
         {
             debug_mode_sub_selector("rt lab debug visualization", &rt_lab_debug_visualization, {
+                DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_SHOT,
+                DEBUG_DRAW_MODE_RTGI_DIFFUSE_RAYS_SHOT,
                 DEBUG_DRAW_MODE_RT_LAB_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_HISTORY_CUTS,
                 DEBUG_DRAW_MODE_RT_LAB_TEMPORAL_GRADIENT,
@@ -2275,11 +2322,27 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_RELATIVE_STD,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_RELATIVE_STD,
                 DEBUG_DRAW_MODE_RT_LAB_VARIANCE,
-                DEBUG_DRAW_MODE_RT_LAB_COLOR_GRADIENT,
-                DEBUG_DRAW_MODE_RT_LAB_RAY_LENGTH_GUIDE,
+                DEBUG_DRAW_MODE_RT_LAB_SH_DIRECTION,
+                DEBUG_DRAW_MODE_RT_LAB_SH_DIRECTION_SCALED,
+                DEBUG_DRAW_MODE_RT_LAB_SH_CONCENTRATION,
+                DEBUG_DRAW_MODE_RT_LAB_SH_VARIANCE,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_BODY_MEAN,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_BODY_STD,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_TAIL_FRACTION,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_TAIL_HEIGHT,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_BODY_COUNT,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_TAIL_COUNT,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_TAIL_ENERGY_SHARE,
+                DEBUG_DRAW_MODE_RT_LAB_DIST_MODEL_ERROR,
+                DEBUG_DRAW_MODE_RT_LAB2_CELLS,
+                DEBUG_DRAW_MODE_RT_LAB2_CELL_SAMPLES,
+                DEBUG_DRAW_MODE_RT_LAB2_CELL_EXPOSURE,
+                DEBUG_DRAW_MODE_RT_LAB2_LOOKUP,
+                DEBUG_DRAW_MODE_RT_LAB2_VARIANCE,
+                DEBUG_DRAW_MODE_RT_LAB2_HISTORY,
+                DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT,
+                DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT_LOSS,
                 DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT,
-                DEBUG_DRAW_MODE_RT_LAB_COARSE_BLEND,
-                DEBUG_DRAW_MODE_RT_LAB_COARSE_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_SPLIT_ERROR,
                 DEBUG_DRAW_MODE_RT_LAB_SPLIT_RELATIVE_ERROR,
                 DEBUG_DRAW_MODE_RT_LAB_CONVERGENCE_PROGRESSIVE,
@@ -2295,9 +2358,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 "Temporal gradient: lambda (scaled), 0 = history kept (cold) .. 1 = history dropped (hot), magenta = off.\n"
                 "Variance: relative std of the temporal mean, sqrt(per sample variance / history length) / mean, log heatmap 0.1%% .. 100%%.\n"
                 "Spatial sample count: effective samples after the spatial passes, sum(weight / center weight * temporal count),\n"
-                "heatmap up to Sample Count Max (after the fine / coarse blend).\n"
-                "Coarse blend: t of the coarse spatial fallback top up, 0 = fine (cold) .. 1 = coarse (hot).\n"
-                "Coarse sample count: the coarse fallback's own effective sample count, heatmap up to Sample Count Max.\n"
+                "heatmap up to Sample Count Max.\n"
                 "Split error: POST-SPATIAL |A - B| / 2 luminance (the difference goes through blur + upsample with the diffuse's\n"
                 "weights), exposed irradiance, heatmap x debug visualization scale.\n"
                 "Split relative error: |A - B| / min(A, B) (post-spatial), log heatmap 0.1%% (cold) .. 1%% .. 10%% .. 100%% (hot).\n"
@@ -2313,10 +2374,29 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::SliderFloat("Temporal Count Clamp", &lab.sample_count_input_clamp, 0.0f, 512.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
             ImGui::SetItemTooltip("The temporal history length is clamped to this before the spatial passes accumulate it.\n0 = off, 1 = count only the spatial samples. Metric only, the filtering is unchanged.");
         }
+        // Live pixel probes: a viewport click while a probe is picking sets its pixel (read every frame, also with the header collapsed).
+        bool const viewport_click = window->button_pressed(0 /* left */) && !window->is_cursor_captured() && !ImGui::GetIO().WantCaptureMouse;
+        bool const probe_consumed = rt_lab_probe_input(render_context, viewport_click, window->get_cursor_x(), window->get_cursor_y(),
+            static_cast<i32>(window->get_width()), static_cast<i32>(window->get_height()));
+        rt_lab2_ui(render_context);
+        if (ImGui::CollapsingHeader("Live Pixel Probes"))
+        {
+            rt_lab_probe_ui(render_context);
+        }
+        // RT Lab 2 cell probes: same, a viewport click while one is picking sets its pixel.
+        bool const cell_probe_consumed = rt_lab2_probe_input(render_context, viewport_click && !probe_consumed && render_context.rt_lab.probe.picking < 0,
+            window->get_cursor_x(), window->get_cursor_y(), static_cast<i32>(window->get_width()), static_cast<i32>(window->get_height()));
+        // Pixel telemetry: the mouse input is read every frame (also with the header collapsed).
+        rt_lab_telemetry_input(render_context, viewport_click && !probe_consumed && !cell_probe_consumed && render_context.rt_lab.probe.picking < 0 && render_context.rt_lab.lab2.probe.picking < 0,
+            window->get_cursor_x(), window->get_cursor_y(), static_cast<i32>(window->get_width()), static_cast<i32>(window->get_height()));
+        if (ImGui::CollapsingHeader("Pixel Telemetry"))
+        {
+            rt_lab_telemetry_ui(render_context);
+        }
         if (ImGui::CollapsingHeader("Test", ImGuiTreeNodeFlags_DefaultOpen))
         {
             RtLabTestSetup & setup = lab.test;
-            char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom"};
+            char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom", "Neural"};
             ImGui::BeginDisabled(testing);
             ImGui::TextDisabled("Tests the active preset (%s) from a reset, camera locked.", preset_names[std::clamp(lab.active_preset, 0, RT_LAB_PRESET_COUNT - 1)]);
             ImGui::SliderInt("Frames", &setup.frames, 16, 4096);

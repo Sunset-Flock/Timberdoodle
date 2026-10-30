@@ -10,24 +10,6 @@
 
 [[vk::push_constant]] RtLabDemandPush rt_lab_demand_push;
 
-// Variance laziness (RtLabSettings::variance_laziness_*): factor on the reprojected history length = convergence target /
-// samples needed for the perceptual target error, >= 1. Per sample perceptual variance = luma variance / (mean + floor)^2
-// (log space derivative), from last frame's variance guide estimate and history mean at the nearest previous pixel (the
-// history length already carries the surface test).
-func rt_lab_variance_laziness(Texture2D<float4> history, Texture2D<float4> variance, CameraInfo* prev_camera, RtLabSettings settings,
-    uint2 size, float3 position, float exposure) -> float
-{
-    const float perceptual_variance = rt_lab_previous_perceptual_variance(history, variance, prev_camera, settings, size, position, exposure);
-    if (perceptual_variance < 0.0f)
-    {
-        return 1.0f;
-    }
-    const float target = max(settings.fast_convergence_samples, 1.0f);
-    const float needed = clamp(perceptual_variance / square(max(settings.variance_laziness_target_error, 1e-3f)),
-        min(max(settings.variance_laziness_min_samples, 1.0f), target), target);
-    return target / needed;
-}
-
 // Writes the lab geometry, then the pixel's desired ray count (RTGI curve: calc_desired_extra_rays over the reprojected
 // history length, amplitude = the extras up to max_rays_per_pixel) and totals the demand.
 [shader("compute")]
@@ -113,15 +95,9 @@ func entry_rt_lab_demand(uint2 dtid : SV_DispatchThreadID)
                 ? rt_lab_reproject_history_length(push.attach.history.get(), push.attach.lab_depth_history.get(), push.attach.lab_face_normal_history.get(),
                       &push.attach.globals.view_camera_prev_frame, &push.attach.globals.rt_lab_settings, int2(push.size), position, normal, rcp_pixel_width_ws)
                 : 0.0f;
-            // Variance laziness BEFORE the gradient cut: a cut history still asks for the full extras.
-            if (settings.variance_laziness_enabled != 0 && push.history_bound != 0u && history_length > 0.0f)
-            {
-                history_length *= rt_lab_variance_laziness(push.attach.history.get(), push.attach.variance_history.get(),
-                    &push.attach.globals.view_camera_prev_frame, settings, push.size, position, push.attach.globals.exposure);
-            }
             if (gradient_cap)
             {
-                // Same cap as the temporal pass (same inputs), after the laziness: a capped history still asks for extras.
+                // Same cap as the temporal pass (same inputs).
                 if (push.history_bound != 0u && history_length > 0.0f)
                 {
                     const float perceptual_variance = rt_lab_previous_perceptual_variance(push.attach.history.get(), push.attach.variance_history.get(),
@@ -387,7 +363,7 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
         return;
     }
     const float3 center_normal = uncompress_normal_octahedral_32(center_packed_normal);
-    // Distance weight in lab pixel widths at the center's depth (rt_lab_gradient_distance_weight).
+    // Distance weight in lab pixel widths (rt_lab_gradient_distance_weight: the smaller of center and tap).
     const float rcp_pixel_width_ws = rcp(rt_lab_pixel_width_ws(camera, float(push.lab_size.y), center_depth));
 
     const int radius = clamp(settings.temporal_gradient_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
@@ -408,12 +384,14 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
         {
             float3 tap_position;
             uint tap_packed_normal;
-            if (rt_lab_gradient_cell_geometry(push, camera, uint2(cell), tap_position, tap_packed_normal) == 0.0f)
+            const float tap_depth = rt_lab_gradient_cell_geometry(push, camera, uint2(cell), tap_position, tap_packed_normal);
+            if (tap_depth == 0.0f)
             {
                 continue;
             }
             weight *= rt_lab_gradient_distance_weight(camera.position, center_position, center_normal, tap_position,
-                uncompress_normal_octahedral_32(tap_packed_normal), rcp_pixel_width_ws, float(abs(d) * RT_LAB_GRADIENT_CELL));
+                uncompress_normal_octahedral_32(tap_packed_normal), rcp_pixel_width_ws,
+                rcp(rt_lab_pixel_width_ws(camera, float(push.lab_size.y), tap_depth)), float(abs(d) * RT_LAB_GRADIENT_CELL));
             if (weight <= 0.0f)
             {
                 continue;
@@ -471,8 +449,10 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
         float x = z;
         float p = max(measurement_variance, 0.0f);
         float4 previous;
+        float pending = 0.0f; // shock + glide: correction not applied yet
         if (settings.reset_history == 0 && rt_lab_gradient_previous_cell(push, center_position, center_normal, rcp_pixel_width_ws, previous))
         {
+            pending = previous.z;
             const float p_predicted = previous.y + max(settings.temporal_gradient_kalman_q, 0.0f);
             if (measurement_variance < 0.0f)
             {
@@ -492,12 +472,17 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
                 }
             }
         }
-        push.attach.gradient_history_dst.get()[dtid] = float4(x, p, 0.0f, center_depth);
         // Wiener shrunk correction, information loss = uncertainty + the change the clamp could not correct.
         const float shrink = square(x) / max(square(x) + p, 1e-12f);
         const float correction = clamp(shrink * x, -RT_LAB_GRADIENT_KALMAN_MAX_LOG, RT_LAB_GRADIENT_KALMAN_MAX_LOG);
         const float loss = p + square(x - correction);
-        push.attach.temporal_gradient.get()[dtid] = uint4(asuint(loss), asuint(center_depth), center_packed_normal, asuint(correction));
+        // Shock + glide: apply a fraction of this frame's correction + the pending rest, keep the remainder pending.
+        const float total = clamp(correction + (isfinite(pending) ? pending : 0.0f), -RT_LAB_GRADIENT_KALMAN_MAX_LOG, RT_LAB_GRADIENT_KALMAN_MAX_LOG);
+        const float fraction = lerp(saturate(settings.temporal_gradient_history_alpha), 1.0f,
+            smoothstep(RT_LAB_GRADIENT_KALMAN_SHOCK_LOG_MIN, RT_LAB_GRADIENT_KALMAN_SHOCK_LOG_MAX, abs(total)));
+        const float applied = total * fraction;
+        push.attach.gradient_history_dst.get()[dtid] = float4(x, p, total - applied, center_depth);
+        push.attach.temporal_gradient.get()[dtid] = uint4(asuint(loss), asuint(center_depth), center_packed_normal, asuint(applied));
         return;
     }
     // This frame's sums: the signed values (history rescale) never use the smoothed ones, the rescale is applied once
@@ -519,7 +504,7 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
     }
     // Denominator floor: RT_LAB_RELATIVE_DIFFERENCE_FLOOR exposed, so changes in the dark do not reset the history.
     const float lambda = sums.y > 0.0f ? saturate(abs(sums.x) / max(sums.y, RT_LAB_RELATIVE_DIFFERENCE_FLOOR)) : 0.0f;
-    // .w = signed lambda of THIS frame (sign of the summed change), kept undilated for the history rescale.
+    // .w = signed lambda of THIS frame (sign of the summed change), for the history rescale.
     const float current_lambda_abs = current_sums.y > 0.0f ? saturate(abs(current_sums.x) / max(current_sums.y, RT_LAB_RELATIVE_DIFFERENCE_FLOOR)) : 0.0f;
     const float signed_lambda = current_sums.x < 0.0f ? -current_lambda_abs : current_lambda_abs;
     if (rt_lab_gradient_packed(settings))
@@ -532,68 +517,6 @@ func entry_rt_lab_gradient_blur(uint2 dtid : SV_DispatchThreadID)
         return;
     }
     push.attach.temporal_gradient.get()[dtid] = uint4(asuint(lambda), asuint(center_depth), center_packed_normal, asuint(signed_lambda));
-}
-
-// == Temporal gradient dilation (rt_lab_rays.inl) ======================================================================
-
-[[vk::push_constant]] RtLabGradientDilatePush rt_lab_gradient_dilate_push;
-
-[shader("compute")]
-[numthreads(RT_LAB_RAYS_X, RT_LAB_RAYS_Y, 1)]
-func entry_rt_lab_gradient_dilate(uint2 dtid : SV_DispatchThreadID)
-{
-    let push = rt_lab_gradient_dilate_push;
-    if (any(dtid >= push.size))
-    {
-        return;
-    }
-    let settings = push.attach.globals.rt_lab_settings;
-    const CameraInfo camera = push.attach.globals.view_camera;
-    const uint4 center = push.attach.src.get()[dtid];
-    const float center_depth = asfloat(center.y);
-    if (!(center_depth > 0.0f))
-    {
-        push.attach.dst.get()[dtid] = center; // sky: nothing to dilate into
-        return;
-    }
-    const float2 inv_lab_size = rcp(float2(push.lab_size));
-    const float3 center_position = linear_depth_to_world_space(camera, rt_lab_ndc(rt_lab_gradient_cell_pixel(dtid, push.lab_size), inv_lab_size), center_depth);
-    const float3 center_normal = uncompress_normal_octahedral_32(center.z);
-    const float rcp_pixel_width_ws = rcp(rt_lab_pixel_width_ws(camera, float(push.lab_size.y), center_depth));
-
-    const int radius = clamp(settings.temporal_gradient_dilation_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
-    const float sigma = max(float(radius) * 0.5f, 0.5f);
-    const float rcp_two_sigma_sq = rcp(2.0f * sigma * sigma);
-    const int2 direction = push.vertical != 0u ? int2(0, 1) : int2(1, 0);
-    // temporal_gradient_pixel_relative: lambda and |mean delta| (f16 pair) dilated separately.
-    const bool packed = rt_lab_gradient_packed(settings);
-    float2 lambda = packed ? rt_lab_gradient_unpack_pair(center.x) : float2(asfloat(center.x), 0.0f);
-    for (int d = -radius; d <= radius; ++d)
-    {
-        if (d == 0)
-        {
-            continue;
-        }
-        const int2 cell = int2(dtid) + direction * d;
-        if (any(cell < 0) || any(cell >= int2(push.size)))
-        {
-            continue;
-        }
-        const uint4 tap = push.attach.src.get()[cell];
-        const float2 tap_lambda = packed ? rt_lab_gradient_unpack_pair(tap.x) : float2(asfloat(tap.x), 0.0f);
-        const float tap_depth = asfloat(tap.y);
-        if (!any(tap_lambda > lambda) || !(tap_depth > 0.0f))
-        {
-            continue; // cannot raise the max
-        }
-        const float3 tap_position = linear_depth_to_world_space(camera, rt_lab_ndc(rt_lab_gradient_cell_pixel(uint2(cell), push.lab_size), inv_lab_size), tap_depth);
-        const float weight = exp(-float(d * d) * rcp_two_sigma_sq) *
-            rt_lab_gradient_distance_weight(camera.position, center_position, center_normal, tap_position, uncompress_normal_octahedral_32(tap.z),
-                rcp_pixel_width_ws, float(abs(d) * RT_LAB_GRADIENT_CELL));
-        lambda = max(lambda, tap_lambda * weight);
-    }
-    // .w: undilated signed lambda (+ signed mean delta when packed).
-    push.attach.dst.get()[dtid] = uint4(packed ? rt_lab_gradient_pack_pair(lambda.x, lambda.y) : asuint(lambda.x), center.y, center.z, center.w);
 }
 
 // == Gather ===========================================================================================================
@@ -663,21 +586,15 @@ func entry_rt_lab_gather(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     let push = rt_lab_gather_push;
     const bool in_bounds = all(dtid < push.size);
     const uint2 alloc = in_bounds ? push.attach.ray_alloc.get()[dtid] : uint2(0u, 0u);
-    float3 sum = float3(0.0f, 0.0f, 0.0f);        // raw rays (the gradient selection works on them)
-    float3 output_sum = float3(0.0f, 0.0f, 0.0f); // the rays of the pixel mean (ray filter output when bound)
+    float3 sum = float3(0.0f, 0.0f, 0.0f); // the rays of the pixel mean (ray filter output when bound)
     for (uint k = 0u; k < alloc.y; ++k)
     {
-        sum += push.attach.rays[alloc.x + k].radiance;
-        output_sum += push.filtered_bound != 0u ? push.attach.filtered_rays[alloc.x + k].radiance : push.attach.rays[alloc.x + k].radiance;
+        sum += push.filtered_bound != 0u ? push.attach.filtered_rays[alloc.x + k].radiance : push.attach.rays[alloc.x + k].radiance;
     }
     if (in_bounds)
     {
         const float count = float(alloc.y);
-        push.attach.lab_raw_diffuse.get()[dtid] = alloc.y > 0u ? float4(output_sum / count, count) : float4(0.0f, 0.0f, 0.0f, 0.0f);
-        if (push.raw_luminance_bound != 0u)
-        {
-            push.attach.lab_raw_luminance.get()[dtid] = alloc.y > 0u ? rt_lab_luminance(sum / count) : 0.0f;
-        }
+        push.attach.lab_raw_diffuse.get()[dtid] = alloc.y > 0u ? float4(sum / count, count) : float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
     // Base rays (temporal_gradient_all_base_rays): the pixels of the guaranteed base share (min_ray_budget of the tile:
@@ -725,8 +642,8 @@ func entry_rt_lab_gather(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 // One thread per ray list entry: statistics of all rays of the (2r + 1)^2 neighbor pixels (pixel distance is the only
 // acceptance test, no plane / normal test; the pixel's own OTHER rays included, the ray itself never), then the ray is
 // clamped against them, hue preserving (all channels scaled by one factor):
-//   RT_LAB_RAY_FILTER_VARIANCE:   luminance mean / std -> ray luminance clamped to mean + sigmas x std (and, with
-//                                 ray_filter_clamp_low, raised to mean - sigmas x std)
+//   RT_LAB_RAY_FILTER_ABSOLUTE:   per channel ceiling = linear mean rgb x ray_filter_factor (floored at the RTGI perceptual
+//                                 floor); the channel most over its ceiling decides the factor
 //   RT_LAB_RAY_FILTER_PERCEPTUAL: like the RTGI firefly clamp (rgb mode): per channel ceiling = exp(mean of log rgb +
 //                                 ray_filter_tolerance), log with the RTGI perceptual floor; the channel most over its
 //                                 ceiling decides the factor
@@ -749,8 +666,7 @@ func entry_rt_lab_ray_filter(uint ray_index : SV_DispatchThreadID)
     const float log_floor = RTGI_RADIANCE_SCALE * 1e-3f / max(push.attach.globals.exposure, 1e-12f);
     const int radius = clamp(settings.ray_filter_radius, 0, RT_LAB_RAY_FILTER_MAX_RADIUS);
 
-    float3 sum = float3(0.0f, 0.0f, 0.0f); // variance: (lum, lum^2, -); perceptual: sum of log rgb
-    float sum_squared = 0.0f;
+    float3 sum = float3(0.0f, 0.0f, 0.0f); // absolute: sum of rgb; perceptual: sum of log rgb
     float count = 0.0f;
     for (int y = -radius; y <= radius; ++y)
     {
@@ -774,16 +690,7 @@ func entry_rt_lab_ray_filter(uint ray_index : SV_DispatchThreadID)
                     continue; // the ray itself is never part of its own distribution
                 }
                 const float3 radiance = push.attach.rays[index].radiance;
-                if (perceptual)
-                {
-                    sum += log(max(radiance, log_floor));
-                }
-                else
-                {
-                    const float luminance = rt_lab_luminance(radiance);
-                    sum.x += luminance;
-                    sum_squared += luminance * luminance;
-                }
+                sum += perceptual ? log(max(radiance, log_floor)) : radiance;
                 count += 1.0f;
             }
         }
@@ -792,28 +699,11 @@ func entry_rt_lab_ray_filter(uint ray_index : SV_DispatchThreadID)
     float factor = 1.0f;
     if (count > 0.0f)
     {
-        if (perceptual)
-        {
-            const float3 ceiling = exp(sum / count + max(settings.ray_filter_tolerance, 0.0f));
-            const float3 over = ray.radiance / max(ceiling, 1e-12f);
-            factor = 1.0f / max(max(over.x, max(over.y, over.z)), 1.0f);
-        }
-        else
-        {
-            const float mean = sum.x / count;
-            const float std = sqrt(max(sum_squared / count - mean * mean, 0.0f));
-            const float luminance = rt_lab_luminance(ray.radiance);
-            const float ceiling = mean + settings.ray_filter_sigmas * std;
-            const float floor_value = mean - settings.ray_filter_sigmas * std;
-            if (luminance > ceiling)
-            {
-                factor = ceiling / luminance;
-            }
-            else if (settings.ray_filter_clamp_low != 0 && luminance < floor_value && luminance > 0.0f)
-            {
-                factor = floor_value / luminance;
-            }
-        }
+        const float3 ceiling = perceptual
+            ? exp(sum / count + max(settings.ray_filter_tolerance, 0.0f))
+            : max(sum / count, log_floor) * max(settings.ray_filter_factor, 1.0f);
+        const float3 over = ray.radiance / max(ceiling, 1e-12f);
+        factor = 1.0f / max(max(over.x, max(over.y, over.z)), 1.0f);
     }
     RtLabRay filtered = ray;
     filtered.radiance = ray.radiance * (isfinite(factor) ? max(factor, 0.0f) : 1.0f);

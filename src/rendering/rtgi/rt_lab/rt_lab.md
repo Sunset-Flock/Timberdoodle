@@ -107,7 +107,7 @@
     smallest t with `N_eff = target` (unreachable: the minimum variance mix `N_coarse / (N_fine + N_coarse)`). A linear
     lerp of the counts fails: the a-trous count compounds (~7x per pass), N_coarse ~1M gives t ~0. With the variance
     form a huge N_coarse just means `t ~ 1 - sqrt(N_fine / target)`. Ignores that fine and coarse share samples.
-  - Settings `coarse_*` (Spatial > Coarse Fallback), debug view `RT_LAB_COARSE_BLEND`.
+  - REMOVED 2026-10 (cleanup): the coarse filter, its settings `coarse_*` and debug views are gone from the code.
 - **Being tried: variance guide (fine filter).** The temporal pass estimates the per sample rgb variance from the 5x5
   raw samples on the same surface and accumulates it like the color. Center and tap are treated as estimates of their
   means, `N(mean, variance / n)` with n = the effective sample count, and the tap is weighted by how likely both share a

@@ -16,6 +16,12 @@ func rt_lab_ndc(uint2 pixel, float2 inv_size) -> float2
     return (float2(pixel) + 0.5f) * inv_size * 2.0f - 1.0f;
 }
 
+// World space width of one pixel of an image of height size_y at linear depth.
+func rt_lab_pixel_width_ws(CameraInfo camera, float size_y, float linear_depth) -> float
+{
+    return 2.0f * linear_depth / (abs(camera.proj[1][1]) * size_y);
+}
+
 // Hard ray budget of one frame (ray list entries the trace may use, rt_lab_rays.inl): ray_budget rays per lab pixel,
 // 1 ray per pixel without redistribution, never more than the ray list capacity.
 func rt_lab_ray_budget(uint2 size, RtLabSettings settings, uint ray_capacity) -> uint
@@ -79,55 +85,35 @@ func rt_lab_cell_geometry(Texture2D<float> view_cam_depth, Texture2D<uint> view_
     return depth;
 }
 
-// 1 = alpha (the cut) is the MAX over the matching 2x2 cells instead of interpolated (a cut cell, e.g. at a moving shadow
-// edge, is not diluted by uncut neighbors); the mean stays interpolated. Measured 2026-10 bistro sun sweeps: lag p50 about
-// -10 frames (street) / -7 (wall), static scene unchanged. 0 = interpolated alpha.
-#define RT_LAB_ANTI_LAG_MAX_ALPHA_UPSCALE 1
-
 // TAA style anti-lag history clip (rt_lab_anti_lag.hlsl): the slow coarse mean is clipped into the fast mean's noise band
 // fast x (1 +- RT_LAB_ANTI_LAG_CLIP_SIGMAS x sigma), sigma = relative std of the fast mean (floored), BEFORE the MSE cut
 // is decided; the temporal pass multiplies the pixel histories by the same ratio clipped / slow (edge aware upscale).
 // The color jumps to the noise band edge, no samples are dropped, the cut only handles what stays inside the band.
 // The ratio rides in the coarse history's frames channel (.z): f16 frames (low bits) | f16 ratio (high bits).
-// Shader only (hot reload safe); 0 = old behaviour.
-#define RT_LAB_ANTI_LAG_CLIP 1
 #define RT_LAB_ANTI_LAG_CLIP_SIGMAS 2.0f
 #define RT_LAB_ANTI_LAG_CLIP_MIN_RELATIVE_STD 0.02f
 
 func rt_lab_anti_lag_pack_frames(float frames, float ratio) -> float
 {
-#if RT_LAB_ANTI_LAG_CLIP
     // Positive f16 ratio in the high bits: the f32 exponent stays far below inf / NaN, the value stays > 0 when frames > 0.
     return asfloat((f32tof16(clamp(ratio, 0.01f, 100.0f)) << 16u) | f32tof16(max(frames, 0.0f)));
-#else
-    return frames;
-#endif
 }
 
 func rt_lab_anti_lag_unpack_frames(float packed) -> float
 {
-#if RT_LAB_ANTI_LAG_CLIP
     return f16tof32(asuint(packed) & 0xFFFFu);
-#else
-    return packed;
-#endif
 }
 
 func rt_lab_anti_lag_unpack_ratio(float packed) -> float
 {
-#if RT_LAB_ANTI_LAG_CLIP
     return f16tof32(asuint(packed) >> 16u);
-#else
-    return 1.0f;
-#endif
 }
 
-// Clip ratio of the coarse anti-lag at a lab pixel (RT_LAB_ANTI_LAG_CLIP): same edge aware 2x2 upscale as
+// Clip ratio of the coarse anti-lag at a lab pixel: same edge aware 2x2 upscale as
 // rt_lab_coarse_anti_lag_stats, cells without statistics skipped, 1 = nothing to rescale.
 func rt_lab_coarse_anti_lag_ratio(Texture2D<float4> coarse, CameraInfo camera, uint2 lab_size, uint2 pixel, float3 position, float3 normal,
     float rcp_pixel_width_ws) -> float
 {
-#if RT_LAB_ANTI_LAG_CLIP
     uint2 cells;
     coarse.GetDimensions(cells.x, cells.y);
     const float2 inv_lab_size = rcp(float2(lab_size));
@@ -152,14 +138,12 @@ func rt_lab_coarse_anti_lag_ratio(Texture2D<float4> coarse, CameraInfo camera, u
         weight_sum += weight;
     }
     return weight_sum > 1e-3f ? sum / weight_sum : 1.0f;
-#else
-    return 1.0f;
-#endif
 }
 
 // Coarse temporal anti-lag statistics (rt_lab_anti_lag.inl) at a lab pixel: (coarse temporal mean luminance, clamp alpha) of
-// the coarse history, edge aware 2x2 bilinear upscale like rt_lab_temporal_gradient (alpha interpolates linearly, a
-// length cap would not). Returns false when no cell holds statistics.
+// the coarse history, edge aware 2x2 bilinear upscale like rt_lab_temporal_gradient. Alpha (the cut) is the MAX over the
+// matching cells (a cut cell, e.g. at a moving shadow edge, is not diluted by uncut neighbors; measured 2026-10 bistro sun
+// sweeps: lag p50 about -10 frames), the mean stays interpolated. Returns false when no cell holds statistics.
 func rt_lab_coarse_anti_lag_stats(Texture2D<float4> coarse, CameraInfo camera, uint2 lab_size, uint2 pixel, float3 position, float3 normal,
     float rcp_pixel_width_ws, out float2 moments) -> bool
 {
@@ -199,9 +183,7 @@ func rt_lab_coarse_anti_lag_stats(Texture2D<float4> coarse, CameraInfo camera, u
     if (weight_sum > 1e-3f)
     {
         moments = sum / weight_sum;
-#if RT_LAB_ANTI_LAG_MAX_ALPHA_UPSCALE
         moments.y = max_alpha;
-#endif
         return true;
     }
     moments = plain_weight > 1e-3f ? plain / plain_weight : float2(0.0f, 0.0f);
@@ -256,8 +238,7 @@ func rt_lab_gradient_cell_values(uint4 data, bool packed) -> float4
     return float4(asfloat(data.x), 0.0f, asfloat(data.w), 0.0f);
 }
 
-// Temporal gradient at a lab pixel: (lambda (dilated, unscaled), |mean delta| (dilated), signed undilated lambda, signed
-// undilated mean delta), deltas only with packed (temporal_gradient_pixel_relative != 0). Edge aware 2x2 bilinear
+// Temporal gradient at a lab pixel: (lambda (unscaled), |mean delta|, signed lambda, signed mean delta), deltas only with packed (temporal_gradient_pixel_relative != 0). Edge aware 2x2 bilinear
 // upscale of the cells: bilinear weight x the pixel vs cell distance + loose normal weight (rt_lab_gradient_distance_weight,
 // no plane test), renormalized; no matching cell -> plain bilinear.
 func rt_lab_temporal_gradient_full(Texture2D<uint4> temporal_gradient, CameraInfo camera, uint2 lab_size, uint2 pixel, float3 position,
@@ -286,7 +267,8 @@ func rt_lab_temporal_gradient_full(Texture2D<uint4> temporal_gradient, CameraInf
             const uint2 cell_pixel = rt_lab_gradient_cell_pixel(cell, lab_size);
             const float3 cell_world = linear_depth_to_world_space(camera, rt_lab_ndc(cell_pixel, inv_lab_size), cell_depth);
             const float weight = bilinear_weight * rt_lab_gradient_distance_weight(camera.position, position, normal, cell_world,
-                uncompress_normal_octahedral_32(data.z), rcp_pixel_width_ws, length(float2(cell_pixel) - float2(pixel)));
+                uncompress_normal_octahedral_32(data.z), rcp_pixel_width_ws, rcp(rt_lab_pixel_width_ws(camera, float(lab_size.y), cell_depth)),
+                length(float2(cell_pixel) - float2(pixel)));
             lambda_sum += lambda * weight;
             weight_sum += weight;
         }
@@ -302,8 +284,9 @@ func rt_lab_temporal_gradient(Texture2D<uint4> temporal_gradient, CameraInfo cam
 }
 
 // Per sample perceptual variance luma var / (mean + floor)^2 (std of log(L + floor)) from last frame's variance guide
-// estimate and history mean at the nearest previous pixel; floor = variance_laziness_perceptual_floor x display white.
+// estimate and history mean at the nearest previous pixel; floor = RT_LAB_PERCEPTUAL_VARIANCE_FLOOR x display white.
 // < 0 = unknown (off screen last frame / broken).
+#define RT_LAB_PERCEPTUAL_VARIANCE_FLOOR 0.05f
 func rt_lab_previous_perceptual_variance(Texture2D<float4> history, Texture2D<float4> variance, CameraInfo* prev_camera,
     RtLabSettings settings, uint2 size, float3 position, float exposure) -> float
 {
@@ -316,7 +299,7 @@ func rt_lab_previous_perceptual_variance(Texture2D<float4> history, Texture2D<fl
     const uint2 pixel = min(uint2(prev_uv * float2(size)), size - 1u);
     const float3 sample_variance = variance[pixel].rgb;
     const float mean = rt_lab_luminance(history[pixel].rgb);
-    const float perceptual_floor = max(settings.variance_laziness_perceptual_floor, 1e-4f) * RTGI_RADIANCE_SCALE / (PI * exposure);
+    const float perceptual_floor = RT_LAB_PERCEPTUAL_VARIANCE_FLOOR * RTGI_RADIANCE_SCALE / (PI * exposure);
     const float perceptual_variance = dot(max(sample_variance, 0.0f), square(float3(0.2126f, 0.7152f, 0.0722f))) / square(max(mean, 0.0f) + perceptual_floor);
     return isfinite(perceptual_variance) ? perceptual_variance : -1.0f;
 }
@@ -354,7 +337,7 @@ func rt_lab_gradient_history_cap(RtLabSettings settings, float lambda, float per
     return cap;
 }
 
-// History rescale factor (temporal_gradient_rescale) from the signed undilated lambda: sum new / sum old of the re-traced
+// History rescale factor (temporal_gradient_rescale) from the signed lambda: sum new / sum old of the re-traced
 // rays assuming one change direction in the footprint.
 func rt_lab_gradient_rescale(RtLabSettings settings, float signed_lambda) -> float
 {
@@ -366,12 +349,6 @@ func rt_lab_gradient_rescale(RtLabSettings settings, float signed_lambda) -> flo
     const float s = clamp(signed_lambda, -RT_LAB_GRADIENT_RESCALE_MAX_LAMBDA, RT_LAB_GRADIENT_RESCALE_MAX_LAMBDA);
     const float ratio = s >= 0.0f ? 1.0f / (1.0f - s) : 1.0f + s;
     return pow(ratio, clamp(settings.temporal_gradient_rescale_strength, 0.0f, 1.0f));
-}
-
-// World space width of one pixel of an image of height size_y at linear depth.
-func rt_lab_pixel_width_ws(CameraInfo camera, float size_y, float linear_depth) -> float
-{
-    return 2.0f * linear_depth / (abs(camera.proj[1][1]) * size_y);
 }
 
 // Half res lab: lab_depth carries the index (0..3, x + 2y) of the full res sub-pixel the gen_gbuffer representative
@@ -475,32 +452,12 @@ func rt_lab_gradient_pixel_relative(RtLabSettings settings, float4 gradient, Tex
 // Variance guide (fine + coarse spatial filters): likelihood that center and tap estimate the same mean. Both are
 // N(mean, variance / n) (mean_variance = per sample variance / effective sample count n), their difference is
 // N(0, var_c / n_c + var_t / n_t). z^2 averaged over rgb, weight exp(-z^2 / (2 k^2)), k = tolerance in sigmas.
-// tail_nu > 0: Student-t weight (1 + z^2 / (nu k^2))^(-(nu + 1) / 2) instead (RtLabSettings::variance_guide_heavy_tail).
 func rt_lab_variance_guide_likelihood(float3 mean_c, float3 mean_variance_c, float3 mean_t, float3 mean_variance_t,
-    float3 variance_floor, float rcp_two_k_sq, float tail_nu) -> float
+    float3 variance_floor, float rcp_two_k_sq) -> float
 {
     const float3 difference = mean_c - mean_t;
     const float3 z_sq = difference * difference / (mean_variance_c + mean_variance_t + variance_floor);
-    const float z_sq_mean = dot(z_sq, 1.0f / 3.0f);
-    if (tail_nu > 0.0f)
-    {
-        // z^2 / (nu k^2) = z^2 x 2 rcp_two_k_sq / nu
-        return pow(1.0f + z_sq_mean * 2.0f * rcp_two_k_sq / tail_nu, -0.5f * (tail_nu + 1.0f));
-    }
-    return exp(-z_sq_mean * rcp_two_k_sq);
-}
-
-// Student-t nu of the variance guide, 0 = gaussian (RtLabSettings::variance_guide_heavy_tail).
-func rt_lab_variance_guide_tail_nu(RtLabSettings* settings) -> float
-{
-    return settings->variance_guide_heavy_tail != 0 ? max(settings->variance_guide_tail_nu, 0.1f) : 0.0f;
-}
-
-// Effective sample count used in the variance guide's standard error (RtLabSettings::variance_guide_count_cap_enabled).
-func rt_lab_variance_guide_count(RtLabSettings* settings, float count) -> float
-{
-    const float n = max(count, 1e-3f);
-    return settings->variance_guide_count_cap_enabled != 0 ? min(n, max(settings->variance_guide_count_cap, 1.0f)) : n;
+    return exp(-dot(z_sq, 1.0f / 3.0f) * rcp_two_k_sq);
 }
 
 // Variance floor of the guide: 0.1 % of display white per channel, so black / unlit channels (variance 0) do not
@@ -529,71 +486,23 @@ func rt_lab_spatial_read_count(float alpha, bool first_pass, float clamp_value) 
     return first_pass ? ((clamp_value > 0.0f) ? min(alpha, clamp_value) : alpha) : alpha * RT_LAB_SPATIAL_COUNT_SCALE;
 }
 
-// Coarse spatial fallback top up: the blend t of lerp(fine, coarse, t) that tops the effective sample count up to
-// target. Fine / coarse are treated as estimates with variance 1 / N, so the blend has
-//   N_eff(t) = 1 / ((1 - t)^2 / N_fine + t^2 / N_coarse),
-// and t is the smaller root of N_eff(t) = target. A linear lerp of the counts would not work: the a-trous count compounds
-// (~7x per pass, overcounts reused samples), N_coarse ~1M would give t ~0; here a huge N_coarse just means
-// t ~ 1 - sqrt(N_fine / target). Unreachable target: the minimum variance mix t = N_coarse / (N_fine + N_coarse). Fine
-// already at target: 0. Capped by max_blend. Ignores that fine and coarse share samples (N_eff a bit optimistic).
-func rt_lab_coarse_top_up(float fine_count, float coarse_count, float target, float max_blend, out float effective_count) -> float
-{
-    const float n_fine = max(fine_count, 1e-3f);
-    const float n_coarse = max(coarse_count, 1e-3f);
-    effective_count = n_fine;
-    if (!(target > n_fine) || !(max_blend > 0.0f))
-    {
-        return 0.0f;
-    }
-    // (1/n_f + 1/n_c) t^2 - 2/n_f t + (1/n_f - 1/target) = 0
-    const float a = 1.0f / n_fine + 1.0f / n_coarse;
-    const float b = -2.0f / n_fine;
-    const float c = 1.0f / n_fine - 1.0f / target;
-    const float discriminant = b * b - 4.0f * a * c;
-    const float t_minimum_variance = n_coarse / (n_fine + n_coarse);
-    float t = discriminant >= 0.0f ? (-b - sqrt(discriminant)) / (2.0f * a) : t_minimum_variance;
-    t = min(clamp(t, 0.0f, t_minimum_variance), saturate(max_blend));
-    effective_count = 1.0f / (square(1.0f - t) / n_fine + square(t) / n_coarse);
-    return t;
-}
-
-// Ray length guide (RtLabSettings::ray_length_guide_*): the RTGI max visibility distance of a lab pixel at linear depth,
-// R = ray_length_guide_radius_px x the RTGI half res pixel width (rtgi_half_res_pixel_width_ws, = what RTGI's
-// calc_ray_shortness gets with max_visibility_pixel_range; same at full and half res lab).
-func rt_lab_ray_length_max_distance(RenderGlobalData* globals, float linear_depth) -> float
-{
-    return globals.rt_lab_settings.ray_length_guide_radius_px *
-           rtgi_half_res_pixel_width_ws(globals.settings.render_target_size_inv * 2.0f, globals.view_camera.near_plane, linear_depth);
-}
-
-// Firefly energy weighting (RtLabSettings::firefly_weight_enabled): accumulated raw (unclamped) luminance / accumulated
-// filtered luminance of a pixel, >= 1, capped (a history with ~0 filtered energy but some raw energy would explode).
-#define RT_LAB_FIREFLY_WEIGHT_MAX 1024.0f
-func rt_lab_firefly_factor(float raw_luminance, float filtered_luminance) -> float
-{
-    if (!(raw_luminance > 0.0f) || !(filtered_luminance > 0.0f))
-    {
-        return 1.0f;
-    }
-    return clamp(raw_luminance / filtered_luminance, 1.0f, RT_LAB_FIREFLY_WEIGHT_MAX);
-}
-
 // Most the expected tap distance may grow over the camera facing one on slanted surfaces (= 1 / sin(view angle), 16 = ~3.6
 // degrees grazing): beyond, the tangent plane says little and a far depth jump would pass.
 #define RT_LAB_EDGE_MAX_FORESHORTENING 16.0f
 
-// Coarse fallback edge stopping (RtLabSettings::coarse_*): no plane test. World distance relative to the distance the tap
+// Coarse edge stopping (temporal gradient + anti-lag): no plane test. World distance relative to the distance the tap
 // would have on the center's TANGENT PLANE (where the tap's camera ray meets it; ~1 on the same surface at any view angle,
 // depth jumps are larger), smooth falloff exp(-(max(d_rel - 1, 0) / tolerance)^2), times a smooth normal test
-// ((1 + dot) / 2)^power (0 at 180 degrees). The expected distance never goes below the camera facing one
-// (offset_px pixel widths).
+// ((1 + dot) / 2)^power (0 at 180 degrees). The expected distance never goes below the camera facing one: offset_px pixel
+// widths, the pixel width = the SMALLER of center and tap (a far tap next to a near center has the larger pixel width,
+// which would let depth jumps toward the background pass).
 // BUG FIXED 2026-10: the expected distance used to be the camera facing one in every direction. On a slanted surface a
 // screen step along the slope covers 1 / sin(view angle) more world distance -> those taps read as far, the ones across the
 // slope did not -> the footprint squashed along the slope (blob -> stripe at <= ~45 degrees), compounding over a-trous passes.
 func rt_lab_coarse_edge_weight(float3 camera_position, float3 position, float3 normal, float3 tap_position, float3 tap_normal,
-    float rcp_pixel_width_ws, float offset_px, float distance_tolerance, float normal_power) -> float
+    float rcp_pixel_width_ws, float tap_rcp_pixel_width_ws, float offset_px, float distance_tolerance, float normal_power) -> float
 {
-    const float facing_distance = offset_px / rcp_pixel_width_ws;
+    const float facing_distance = offset_px / max(rcp_pixel_width_ws, tap_rcp_pixel_width_ws);
     const float3 tap_ray = tap_position - camera_position;
     const float ray_dot = dot(normal, tap_ray);
     const float plane_dot = dot(normal, position - camera_position);
@@ -612,22 +521,33 @@ func rt_lab_coarse_edge_weight(float3 camera_position, float3 position, float3 n
            pow(saturate(0.5f + 0.5f * dot(normal, tap_normal)), normal_power);
 }
 
-// Temporal gradient blur + upscale edge stopping: the coarse fallback's relative world distance (no plane test; offset_px =
-// screen distance of the two points in lab pixels) x a somewhat loose normal weight.
-func rt_lab_gradient_distance_weight(float3 camera_position, float3 position, float3 normal, float3 tap_position, float3 tap_normal, float rcp_pixel_width_ws, float offset_px) -> float
+// Temporal gradient blur + upscale edge stopping: the coarse relative world distance (no plane test; offset_px =
+// screen distance of the two points in lab pixels, pixel width = the smaller of both) x a somewhat loose normal weight.
+func rt_lab_gradient_distance_weight(float3 camera_position, float3 position, float3 normal, float3 tap_position, float3 tap_normal,
+    float rcp_pixel_width_ws, float tap_rcp_pixel_width_ws, float offset_px) -> float
 {
-    return rt_lab_coarse_edge_weight(camera_position, position, normal, tap_position, tap_normal, rcp_pixel_width_ws, max(offset_px, 1.0f),
+    return rt_lab_coarse_edge_weight(camera_position, position, normal, tap_position, tap_normal, rcp_pixel_width_ws, tap_rcp_pixel_width_ws,
+        max(offset_px, 1.0f),
         RT_LAB_GRADIENT_DISTANCE_TOLERANCE, RT_LAB_GRADIENT_DISTANCE_NORMAL_POWER);
 }
 
 // RTGI SH-Y + CoCg (rtgi_shared.hlsl) of one cosine distributed ray: sh_y = (direction * Y, Y).
 // sh_resolve_diffuse evaluates dot(n, sh.xyz) + 0.5 * sh.w. For cosine distributed rays around n under uniform radiance
-// E[direction] = 2/3 n, so it returns 7/6 Y: RT_LAB_SH_RESOLVE_NORMALIZATION scales that back to Y, so the coarse result
+// E[direction] = 2/3 n, so it returns 7/6 Y: RT_LAB_SH_RESOLVE_NORMALIZATION scales that back to Y, so the SH result
 // matches the plain rgb mean the fine path carries where both see the same surface.
 #define RT_LAB_SH_RESOLVE_NORMALIZATION (6.0f / 7.0f)
 func rt_lab_sh_resolve(float4 sh_y, float2 cocg, float3 normal) -> float3
 {
     return sh_resolve_diffuse(sh_y, cocg, normal) * RT_LAB_SH_RESOLVE_NORMALIZATION;
+}
+
+// |sum(dir x Y)| / sum(Y), debiased: R^2 of n unit directions is biased high, E[R^2] = 1 / n for isotropic light
+// (a single ray is perfectly directional). Debiased R^2 = (n R^2 - 1) / (n - 1).
+func rt_lab_sh_concentration(float4 sh_y, float history) -> float
+{
+    const float r_sq = dot(sh_y.xyz, sh_y.xyz) / max(sh_y.w * sh_y.w, 1e-12f);
+    const float n = max(history, 1.0f);
+    return n > 1.0f ? sqrt(saturate((n * r_sq - 1.0f) / (n - 1.0f))) : 0.0f;
 }
 
 // 1 on the same plane, falls linearly to 0 at tolerance_px pixel widths of distance to EITHER surface's plane.

@@ -28,33 +28,6 @@ func rt_lab_resolve_sample_count_debug(uint2 dtid, float count, bool sky)
         float4(color, 1.0f + push.attach.globals.settings.debug_visualization_blend));
 }
 
-// Coarse fallback's own effective sample count (its a-trous chain), same scale as the spatial sample count view.
-func rt_lab_resolve_coarse_count_debug(uint2 dtid, float count, bool sky)
-{
-    let push = rt_lab_resolve_push;
-    if (push.attach.globals.settings.debug_draw_mode != DEBUG_DRAW_MODE_RT_LAB_COARSE_SAMPLE_COUNT)
-    {
-        return;
-    }
-    const float maximum = max(push.attach.globals.rt_lab_settings.sample_count_debug_max, 1e-3f);
-    const float3 color = sky ? float3(0.0f, 0.0f, 0.0f) : (push.coarse_enabled == 0u ? float3(1.0f, 0.0f, 1.0f) * 0.25f : Heatmap(saturate(count / maximum)));
-    write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid,
-        float4(color, 1.0f + push.attach.globals.settings.debug_visualization_blend));
-}
-
-// Coarse fallback blend view: heatmap of t (0 = fine, 1 = coarse).
-func rt_lab_resolve_coarse_debug(uint2 dtid, float blend, bool sky)
-{
-    let push = rt_lab_resolve_push;
-    if (push.attach.globals.settings.debug_draw_mode != DEBUG_DRAW_MODE_RT_LAB_COARSE_BLEND)
-    {
-        return;
-    }
-    const float3 color = sky ? float3(0.0f, 0.0f, 0.0f) : (push.coarse_enabled == 0u ? float3(1.0f, 0.0f, 1.0f) * 0.25f : Heatmap(blend));
-    write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid,
-        float4(color, 1.0f + push.attach.globals.settings.debug_visualization_blend));
-}
-
 func rt_lab_resolve_split_debug(uint2 dtid, float3 resolved_radiance, float2 split_difference, bool sky)
 {
     let push = rt_lab_resolve_push;
@@ -97,7 +70,7 @@ func rt_lab_resolve_split_debug(uint2 dtid, float3 resolved_radiance, float2 spl
 }
 
 // Resolve of one full res pixel (no writes): the diffuse the opaque shading reads (mean incoming radiance,
-// RTGI_RADIANCE_SCALE divided out), the split difference, the effective sample counts and the coarse blend.
+// RTGI_RADIANCE_SCALE divided out), the split difference, the effective sample counts.
 // Full res lab: a copy. Half res lab: the RTGI upscale weights (3x3 wide gaussian footprint x plane x normal, see below).
 // The split difference (split history on) takes the same path with the same weights (still RTGI_RADIANCE_SCALE scaled).
 #define RT_LAB_UPSCALE_SIGMA 1.0f           // = RTGI_UPSCALE_WIDE_FOOTPRINT_SIGMA
@@ -108,9 +81,6 @@ struct RtLabResolved
     float3 radiance;
     float2 split_difference;
     float count;         // effective sample count of the output
-    float blend;         // coarse fallback blend
-    float coarse_count;  // coarse chain's own count (coarse_ran)
-    bool coarse_ran;
     bool sky;
 };
 
@@ -121,9 +91,6 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
     r.radiance = float3(0.0f, 0.0f, 0.0f);
     r.split_difference = float2(0.0f, 0.0f);
     r.count = 0.0f;
-    r.blend = 0.0f;
-    r.coarse_count = 0.0f;
-    r.coarse_ran = false;
     r.sky = false;
     const CameraInfo camera = push.attach.globals.view_camera;
     const bool split = push.split_enabled != 0u;
@@ -134,8 +101,6 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
         r.sky = true;
         return r;
     }
-    let settings = push.attach.globals.rt_lab_settings;
-    const bool coarse = push.coarse_enabled != 0u;
     const bool clamp_count = push.clamp_input_count != 0u;
     const float count_clamp = push.attach.globals.rt_lab_settings.sample_count_input_clamp;
 
@@ -144,24 +109,9 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
     if (all(lab_size == push.size))
     {
         const float4 lab_value = push.attach.lab_diffuse.get()[dtid];
-        const float fine_count = rt_lab_spatial_read_count(lab_value.a, clamp_count, count_clamp);
         float3 value = lab_value.rgb;
-        r.count = fine_count;
+        r.count = rt_lab_spatial_read_count(lab_value.a, clamp_count, count_clamp);
         r.split_difference = split ? push.attach.lab_split_difference.get()[dtid] : float2(0.0f, 0.0f);
-        if (coarse)
-        {
-            const float4 coarse_cocg_count = push.attach.lab_coarse_cocg_count.get()[dtid];
-            r.coarse_count = coarse_cocg_count.z * RT_LAB_SPATIAL_COUNT_SCALE;
-            r.coarse_ran = true;
-            const float3 lab_normal = uncompress_normal_octahedral_32(push.attach.lab_face_normal.get()[dtid]);
-            const float3 coarse_value = rt_lab_sh_resolve(push.attach.lab_coarse_sh_y.get()[dtid], coarse_cocg_count.xy, lab_normal);
-            r.blend = rt_lab_coarse_top_up(fine_count, r.coarse_count, settings.coarse_target_samples, settings.coarse_max_blend, r.count);
-            value = lerp(value, coarse_value, r.blend);
-            if (split)
-            {
-                r.split_difference = lerp(r.split_difference, push.attach.lab_coarse_split_difference.get()[dtid], r.blend);
-            }
-        }
         r.radiance = value / RTGI_RADIANCE_SCALE;
         return r;
     }
@@ -188,16 +138,10 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
     float3 acc = float3(0.0f, 0.0f, 0.0f);
     float2 acc_split = float2(0.0f, 0.0f);
     float acc_count = 0.0f;
-    float3 acc_coarse = float3(0.0f, 0.0f, 0.0f);
-    float2 acc_coarse_split = float2(0.0f, 0.0f);
-    float acc_coarse_count = 0.0f;
     float acc_weight = 0.0f;
     float3 fallback_acc = float3(0.0f, 0.0f, 0.0f);
     float2 fallback_acc_split = float2(0.0f, 0.0f);
     float fallback_acc_count = 0.0f;
-    float3 fallback_acc_coarse = float3(0.0f, 0.0f, 0.0f);
-    float2 fallback_acc_coarse_split = float2(0.0f, 0.0f);
-    float fallback_acc_coarse_count = 0.0f;
     float fallback_acc_weight = 0.0f;
     for (int y = 0; y < 3; ++y)
     {
@@ -233,23 +177,6 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
                 acc_split += weight * split_value;
                 fallback_acc_split += fallback_weight * split_value;
             }
-            if (coarse)
-            {
-                // Each tap's SH resolved for this full res pixel's normal, then interpolated.
-                const float4 coarse_cocg_count = push.attach.lab_coarse_cocg_count.get()[tap];
-                const float3 coarse_value = rt_lab_sh_resolve(push.attach.lab_coarse_sh_y.get()[tap], coarse_cocg_count.xy, normal);
-                const float coarse_count = coarse_cocg_count.z * RT_LAB_SPATIAL_COUNT_SCALE;
-                acc_coarse += weight * coarse_value;
-                acc_coarse_count += weight * coarse_count;
-                fallback_acc_coarse += fallback_weight * coarse_value;
-                fallback_acc_coarse_count += fallback_weight * coarse_count;
-                if (split)
-                {
-                    const float2 coarse_split = push.attach.lab_coarse_split_difference.get()[tap];
-                    acc_coarse_split += weight * coarse_split;
-                    fallback_acc_coarse_split += fallback_weight * coarse_split;
-                }
-            }
             acc_weight += weight;
             fallback_acc_weight += fallback_weight;
         }
@@ -260,9 +187,6 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
         acc = fallback_acc;
         acc_split = fallback_acc_split;
         acc_count = fallback_acc_count;
-        acc_coarse = fallback_acc_coarse;
-        acc_coarse_split = fallback_acc_coarse_split;
-        acc_coarse_count = fallback_acc_coarse_count;
         acc_weight = fallback_acc_weight;
     }
     if (!(acc_weight > 0.0f))
@@ -272,22 +196,10 @@ func rt_lab_resolve_pixel(uint2 dtid) -> RtLabResolved
     // Normalized weights: upsampling interpolates the counts, no new samples.
     const float rcp_weight = rcp(acc_weight);
     float3 result = acc * rcp_weight;
-    const float fine_count = acc_count * rcp_weight;
-    r.count = fine_count;
+    r.count = acc_count * rcp_weight;
     if (split)
     {
         r.split_difference = acc_split * rcp_weight;
-    }
-    if (coarse)
-    {
-        r.coarse_count = acc_coarse_count * rcp_weight;
-        r.coarse_ran = true;
-        r.blend = rt_lab_coarse_top_up(fine_count, r.coarse_count, settings.coarse_target_samples, settings.coarse_max_blend, r.count);
-        result = lerp(result, acc_coarse * rcp_weight, r.blend);
-        if (split)
-        {
-            r.split_difference = lerp(r.split_difference, acc_coarse_split * rcp_weight, r.blend);
-        }
     }
     r.radiance = result / RTGI_RADIANCE_SCALE;
     return r;
@@ -470,7 +382,12 @@ func rt_lab_stabilize(uint2 dtid, uint2 gtid, float3 current) -> float3
     {
         const float3 history_ycocg = rt_lab_rgb_to_ycocg(history / weight_sum);
         const float3 clamped = push.stabilize_disable_clamp != 0u ? history_ycocg : clamp(history_ycocg, box_min, box_max);
-        result = max(rt_lab_ycocg_to_rgb(lerp(clamped, current_ycocg, saturate(push.stabilize_alpha))), 0.0f);
+        // The bilinear weights sum to 1 over the full footprint, so weight_sum is the share of it that is the same surface
+        // (the plane test removed the rest: disocclusion, silhouettes). The history is normalized by it, so trust it
+        // only in that proportion, else a single surviving tap at an edge carries full history weight (ghosting).
+        const float history_trust = saturate(weight_sum);
+        const float alpha = lerp(1.0f, saturate(push.stabilize_alpha), history_trust);
+        result = max(rt_lab_ycocg_to_rgb(lerp(clamped, current_ycocg, alpha)), 0.0f);
     }
     push.attach.stabilize_history_out.get()[dtid] = float4(result, linear_depth);
     return result;
@@ -488,9 +405,6 @@ func entry_rt_lab_resolve(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Grou
     r.radiance = float3(0.0f, 0.0f, 0.0f);
     r.split_difference = float2(0.0f, 0.0f);
     r.count = 0.0f;
-    r.blend = 0.0f;
-    r.coarse_count = 0.0f;
-    r.coarse_ran = false;
     r.sky = true;
     if (in_bounds)
     {
@@ -546,9 +460,4 @@ func entry_rt_lab_resolve(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Grou
     }
     rt_lab_resolve_split_debug(dtid, r.radiance, r.split_difference, r.sky);
     rt_lab_resolve_sample_count_debug(dtid, r.count, r.sky);
-    rt_lab_resolve_coarse_debug(dtid, r.blend, r.sky);
-    if (r.sky || r.coarse_ran)
-    {
-        rt_lab_resolve_coarse_count_debug(dtid, r.coarse_count, r.sky);
-    }
 }
