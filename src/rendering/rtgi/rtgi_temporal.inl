@@ -34,10 +34,10 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, specular_frames_hist
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, specular_sample_count)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_albedo_metalness) // ray demand visual impact
 // Ray demand diffuse / specular share (rtgi_calc_ray_share): last frame's accumulated diffuse (SH-Y, .w luma) /
-// specular history, nearest reprojected, times the material; written to ray_impact (.x diffuse, .y specular factor).
+// specular history, nearest reprojected, times the material; written to ray_impact (.x diffuse, .y specular factor, .z specular factor without gloss scaling).
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_diffuse_history)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_specular_history)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, ray_impact)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, ray_impact)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, half_res_normal_roughness) // pack_normal_roughness
 // Bilinear coverage of OCCLUDER taps in the reprojection footprint (failed taps in front of the expected point),
 // read by the specular accumulate's surface-motion footprint quality (RTGI_REPROJECT_OCCLUDER_AWARE_COUNT).

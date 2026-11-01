@@ -148,7 +148,7 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
         // corner/weights are left unwritten since accumulation returns before reading them.
         push.attach.half_res_sample_count.get()[halfres_pixel_index] = rtgi_pack_sample_counts_sky();
         push.attach.specular_sample_count.get()[halfres_pixel_index] = 0.0f;
-        push.attach.ray_impact.get()[halfres_pixel_index] = float2(1.0f, 1.0f);
+        push.attach.ray_impact.get()[halfres_pixel_index] = float4(rtgi_pack_ray_impact_factor(1.0f).xxx, 0.0f);
         push.attach.revive_cell.get()[halfres_pixel_index] = RTGI_HASH_GRID_INVALID_CELL;
     }
     else
@@ -394,13 +394,15 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
         unpack_normal_roughness_roughness(packed_normal_roughness), NoV, rtgi_settings);
     impact.diffuse *= material_factors.x;
     impact.specular *= material_factors.y;
+    impact.specular_ungloss = impact.specular;
+    impact.specular *= rtgi_calc_ray_gloss_factor(unpack_normal_roughness_roughness(packed_normal_roughness), rtgi_settings);
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_RAY_MATERIAL)
     {
         // Red = diffuse material factor, green = specular material factor (yellow = both 1).
         write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, halfres_pixel_index,
             float4(material_factors.x, material_factors.y, 0.0f, 1.0f + push.attach.globals.settings.debug_visualization_blend), 2);
     }
-    push.attach.ray_impact.get()[halfres_pixel_index] = float2(impact.diffuse, impact.specular);
+    push.attach.ray_impact.get()[halfres_pixel_index] = float4(rtgi_pack_ray_impact_factor(impact.diffuse), rtgi_pack_ray_impact_factor(impact.specular), rtgi_pack_ray_impact_factor(impact.specular_ungloss), 0.0f);
     const RtgiRayDemand demand = rtgi_calc_ray_demand(reprojected_history_count, reprojected_specular_count, impact, rtgi_settings);
     thread_desired_total = demand.diffuse + demand.specular;
     thread_desired_specular = demand.specular;
@@ -497,6 +499,10 @@ func rtgi_calc_ray_share(float2 incoming_luma, float4 albedo_metalness, float ro
 // Specular (roughness): 1 - smoothstep(start, end, roughness). Near roughness 1 the lobe is as wide as the
 // cosine lobe, the specular signal is low frequency and dim (env BRDF), so extra rays buy almost nothing visible.
 #define RTGI_RAY_MATERIAL 1
+// Roughness at and above which the gloss ray scaling gives the full extra ray rate.
+#define RTGI_RAY_GLOSS_FULL_ROUGHNESS 0.6f
+// Curve exponent of the ramp: 1 = linear, > 1 = fewer extra rays for glossy surfaces, < 1 (e.g. 0.5 = sqrt) = more.
+#define RTGI_RAY_GLOSS_CURVE_POWER 2.0f
 
 func rtgi_calc_ray_material_factors(float4 albedo_metalness, float roughness, float NoV, RtgiSettings settings) -> float2
 {
@@ -517,6 +523,15 @@ func rtgi_calc_ray_material_factors(float4 albedo_metalness, float roughness, fl
     }
 #endif
     return factors;
+}
+
+// Gloss ray scaling, multiplies the specular extra ray factor. The variance of
+// one specular ray scales with the lobe width: a mirror has none, so extra rays buy nothing. Roughness from
+// RTGI_RAY_GLOSS_FULL_ROUGHNESS up wants the full rate, the curve power sets how aggressive the falloff is.
+func rtgi_calc_ray_gloss_factor(float roughness, RtgiSettings settings) -> float
+{
+    // The curve is the gloss scaling, the min rate is only a clamp under it (not scaled by gloss).
+    return pow(saturate(roughness * rcp(RTGI_RAY_GLOSS_FULL_ROUGHNESS)), RTGI_RAY_GLOSS_CURVE_POWER);
 }
 
 // Draws the temporal-accumulate debug overlays. Called on every geometry pixel — including the

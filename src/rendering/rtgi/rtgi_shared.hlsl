@@ -307,7 +307,20 @@ struct RtgiRayImpact
 {
     float diffuse;
     float specular;
+    float specular_ungloss; // specular factor without the gloss ray scaling: the scaled extras never drop below min(1, extras * this)
 };
+
+// The ray impact image is 8 bit UNORM: factors live in [0, 2] (the share factors sum to 2), stored linearly as factor / 2.
+// The step (~0.008) is far below what matters, the factor only scales a ray count that gets rounded.
+func rtgi_pack_ray_impact_factor(float factor) -> float
+{
+    return saturate(factor * 0.5f);
+}
+
+func rtgi_unpack_ray_impact_factor(float packed) -> float
+{
+    return packed * 2.0f;
+}
 
 // Max rays (diffuse + specular, base included) one pixel may request per frame (settings.max_rays_per_pixel, never
 // below the base rays). Many rays in ONE frame share the
@@ -326,7 +339,10 @@ func rtgi_calc_ray_demand(float diffuse_sample_count, float specular_sample_coun
     const float diffuse_extra = calc_desired_extra_rays(diffuse_sample_count, settings.fast_convergence_samples, amplitude) * impact.diffuse;
     // The specular history is capped at specular_max_temporal_frames samples, so never ask for more than that.
     const float specular_target = min(settings.specular_fast_convergence_samples, settings.specular_max_temporal_frames);
-    const float specular_extra = specular_on ? calc_desired_extra_rays(specular_sample_count, specular_target, amplitude) * impact.specular : 0.0f;
+    const float specular_curve = specular_on ? calc_desired_extra_rays(specular_sample_count, specular_target, amplitude) : 0.0f;
+    // Gloss ray scaling shrinks the extras, but a pixel that wants extras keeps at least one of them
+    // (or what it wanted without the scaling, if that is less).
+    const float specular_extra = max(specular_curve * impact.specular, min(1.0f, specular_curve * impact.specular_ungloss));
     const float extra_scale = min(1.0f, extra_cap / max(diffuse_extra + specular_extra, 1e-6f));
     RtgiRayDemand d;
     d.diffuse = 1u + uint(diffuse_extra * extra_scale + 0.5f);

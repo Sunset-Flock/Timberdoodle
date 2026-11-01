@@ -1377,6 +1377,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("Perceptual Radiance Tolerance", &render_data.rtgi_settings.pre_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
                     rtgi_sub_end();
                     rtgi_sub_begin("Specular");
+                    ImGui::Checkbox("BRDF Weighting", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_brdf_weighting));
+                    ImGui::SetItemTooltip("Each donor's hit point (reflection direction x hit distance) is reconnected to the drain pixel. The drain's GGX lobe evaluated towards it (relative to its peak) weights the donor.");
                     ImGui::SliderFloat("Blur Scale", &render_data.rtgi_settings.specular_pre_blur_scale, 0.0f, 4.0f);
                     ImGui::SetItemTooltip("Scales the specular lobe-footprint radius; taps outside it are dropped (0 = no specular pre blur).");
                     rtgi_sub_end();
@@ -1492,6 +1494,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
                     ImGui::Checkbox("Wide 3x3 Footprint", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_wide_footprint));
                     ImGui::SetItemTooltip("Weight all 9 half-res taps by a Gaussian of their distance to the full-res pixel. Off = classic tent, far-side taps get ~nothing (~2x2 footprint).");
+                    ImGui::Checkbox("Sharp Weights", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_sharp_weights));
+                    ImGui::SetItemTooltip("Sharper upscale: squared spatial kernel (nearest taps dominate), soft plane distance falloff instead of a hard 3 px cutoff, and diffuse also compares the full-res detail normal against the tap's half-res detail normal.");
                     rtgi_sub_end();
                     rtgi_sub_begin("Diffuse");
                     ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));

@@ -22,6 +22,7 @@ struct RtgiSettings
     daxa_i32 pre_blur_ao_guiding;
     daxa_i32 pre_blur_perceptual_difference_guiding;
     daxa_i32 pre_blur_ray_count_sample_weighting;
+    daxa_i32 pre_blur_brdf_weighting; // specular only: donor tap weight = drain BRDF eval towards the donor's reconnected hit point
     daxa_f32 pre_blur_perceptual_radiance_guide_tolerance;
     daxa_f32 pre_blur_base_width;
     daxa_i32 pre_blur_sample_count;
@@ -61,6 +62,9 @@ struct RtgiSettings
     daxa_i32 upscale_enabled;
     // 1 = upscale weights all 9 half-res taps of the 3x3 footprint (distance Gaussian), 0 = classic tent (~2x2).
     daxa_i32 upscale_wide_footprint;
+    // 1 = sharper upscale weights: squared spatial kernel, soft (gaussian) plane distance falloff instead of a binary 3 px
+    // test, and the full-res detail normal against the tap's half-res detail normal for diffuse too.
+    daxa_i32 upscale_sharp_weights;
     daxa_i32 sh_resolve_enabled;
     daxa_i32 pre_blur_firefly_energy_compensation_enabled;
     daxa_i32 animate_noise;

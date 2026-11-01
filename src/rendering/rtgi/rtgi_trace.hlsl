@@ -347,8 +347,8 @@ void ray_gen()
         const uint max_extra_rays = (push.attach.globals.settings.render_target_size.x * push.attach.globals.settings.render_target_size.y) / 4;
         const float relative_allowed_rays = min(1.0f, float(max_extra_rays) / (float(total_extra_ray_demands) + 0.0001f));
         const float reproj_sample_count = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[dtid.xy]);
-        const float2 impact_factors = push.attach.ray_impact.get()[dtid.xy];
-        const RtgiRayImpact impact = { impact_factors.x, impact_factors.y };
+        const float4 impact_factors = push.attach.ray_impact.get()[dtid.xy];
+        const RtgiRayImpact impact = { rtgi_unpack_ray_impact_factor(impact_factors.x), rtgi_unpack_ray_impact_factor(impact_factors.y), rtgi_unpack_ray_impact_factor(impact_factors.z) };
         const RtgiRayDemand demand = rtgi_calc_ray_demand(reproj_sample_count, push.attach.specular_sample_count.get()[dtid.xy], impact, rtgi_settings);
         const uint base = rtgi_ray_demand_base(demand);
         const uint allowed_extra_samples = uint(float(demand.diffuse + demand.specular - base) * relative_allowed_rays);

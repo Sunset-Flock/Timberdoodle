@@ -57,7 +57,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec2>, ray_impact) // classic path ray demand (reproject: extra ray factor per signal)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, ray_impact) // classic path ray demand (reproject: extra ray factor per signal)
 // Pioneer-resolution guide picks (vertical resample output: hit position + brightness), read by the stochastic
 // guide fetch (rtgi_settings.guide_stochastic_fetch). Unused by the pioneer trace itself.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, pioneer_guide_hit_y)

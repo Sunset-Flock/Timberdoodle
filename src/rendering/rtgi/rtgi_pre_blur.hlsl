@@ -5,6 +5,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 #include "shader_lib/debug.glsl"
+#include "shader_lib/brdf.hlsl"
 #include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiPreBlurPush rtgi_pre_blur_push;
@@ -157,6 +158,13 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const float center_spec_weight =
         (firefly_energy_compensation_allowed ? push.attach.specular_firefly_factor_image.get()[dtid.xy] : 1.0f) *
         (ray_count_sample_weighting ? max(1.0f, float(push.attach.specular_ray_count_image.get()[dtid.xy])) : 1.0f);
+    // BRDF weighting: drain = this pixel. Its lobe peak is the mirror direction; donors are judged against it.
+    const bool brdf_weighting = spec_blur_enabled && rtgi_settings.pre_blur_brdf_weighting != 0;
+    const float3 drain_view = normalize(camera.position - pixel.position_ws);
+    const float3 drain_peak_dir = reflect(-drain_view, spec_normal);
+    const float drain_peak_response = brdf_weighting
+        ? max(brdf_ggx_specular_nol(spec_normal, drain_view, drain_peak_dir, float3(1, 1, 1), spec_roughness).x, 1e-8f)
+        : 1.0f;
     float  spec_weight_acc = center_spec_weight;
     float4 spec_acc = center_spec * center_spec_weight;
 
@@ -247,16 +255,31 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // Specular: this tap counts only while it lies inside the specular radius (1 px soft edge, so a radius
         // that changes over time fades taps in / out instead of popping).
         const float tap_distance_px = length(disc_noise) * blur_radius;
-        const float spec_coverage = saturate(spec_radius + 0.5f - tap_distance_px);
+        // With BRDF weighting the lobe footprint radius no longer drops taps, the BRDF weight does that per tap.
+        const float spec_coverage = brdf_weighting ? 1.0f : saturate(spec_radius + 0.5f - tap_distance_px);
         if (spec_coverage > 0.0f && !is_sky && !out_of_bounds)
         {
             const uint sample_normal_roughness = push.attach.specular_normal_roughness.get()[sample_index];
             const float spec_firefly_power = firefly_energy_compensation_allowed ? push.attach.specular_firefly_factor_image.get()[sample_index] : 1.0f;
             const float spec_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.specular_ray_count_image.get()[sample_index])) : 1.0f;
-            const float w = spec_coverage * geometric_weight * spec_firefly_power * spec_ray_count_weight *
+            const float4 sample_spec = push.attach.rtgi_specular_before.get()[sample_index];
+            float brdf_weight = 1.0f;
+            if (brdf_weighting)
+            {
+                // Donor hit point: its mirror direction (about its own detail normal) x its mean hit distance.
+                const float3 donor_normal = unpack_normal_roughness_normal(sample_normal_roughness);
+                const float3 donor_view = normalize(camera.position - sample.position_ws);
+                const float3 donor_dir = reflect(-donor_view, donor_normal);
+                const float3 hit_ws = sample.position_ws + donor_dir * min(sample_spec.a, RTGI_SPECULAR_MAX_HIT_DISTANCE);
+                // Reconnect to the drain and evaluate its lobe, relative to its peak.
+                const float3 reconnect_dir = normalize(hit_ws - pixel.position_ws);
+                const float response = brdf_ggx_specular_nol(spec_normal, drain_view, reconnect_dir, float3(1, 1, 1), spec_roughness).x;
+                brdf_weight = saturate(response * rcp(drain_peak_response));
+            }
+            const float w = spec_coverage * geometric_weight * spec_firefly_power * spec_ray_count_weight * brdf_weight *
                 rtgi_specular_normal_weight(spec_normal, unpack_normal_roughness_normal(sample_normal_roughness), spec_roughness) *
                 rtgi_specular_roughness_weight(spec_roughness, unpack_normal_roughness_roughness(sample_normal_roughness));
-            spec_acc += push.attach.rtgi_specular_before.get()[sample_index] * w;
+            spec_acc += sample_spec * w;
             spec_weight_acc += w;
         }
     }

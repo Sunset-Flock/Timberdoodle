@@ -18,6 +18,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .pre_blur_ao_guiding           = 1,
         .pre_blur_perceptual_difference_guiding               = 1,
         .pre_blur_ray_count_sample_weighting                  = 1,
+        .pre_blur_brdf_weighting                              = 0,
         .pre_blur_perceptual_radiance_guide_tolerance        = 0.8f,
         .pre_blur_base_width                  = 20.0f,
         .pre_blur_sample_count                = 8,
@@ -46,6 +47,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .post_blur_atrous_iterations          = 4,
         .upscale_enabled                      = 1,
         .upscale_wide_footprint               = 1,
+        .upscale_sharp_weights                = 0,
         .sh_resolve_enabled                   = 1,
         .pre_blur_firefly_energy_compensation_enabled  = 1,
         .animate_noise                        = 1,
@@ -88,7 +90,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .specular_firefly_filter_enabled       = 1,
         .specular_firefly_clamp_mode           = 0,
         .specular_guide_concentration          = 0.92f,
-        .specular_max_gloss                    = 0.9f,
+        .specular_max_gloss                    = 1.0f,
         .hash_grid_enabled                     = 1,
         .hash_grid_cell_size_px                = 4.0f,
         .hash_grid_min_cell_size               = 0.05f,
@@ -532,9 +534,10 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "rtgi_reproject_occluder_coverage_image",
     });
 
-    // Ray demand: extra ray factor per signal (.x diffuse, .y specular), written by reproject (rtgi_calc_ray_share).
+    // Ray demand: extra ray factor per signal (.x diffuse, .y specular, .z specular without the gloss scaling), written by reproject (rtgi_calc_ray_share).
+    // 8 bit, factors in [0, 2] stored as factor / 2 (rtgi_pack_ray_impact_factor).
     auto ray_impact_image = info.tg.create_task_image({
-        .format = daxa::Format::R16G16_SFLOAT,
+        .format = daxa::Format::R8G8B8A8_UNORM,
         .size = half_res_image_size,
         .name = "rtgi_ray_impact_image",
     });

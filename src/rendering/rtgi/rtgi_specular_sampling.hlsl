@@ -56,7 +56,7 @@ func rtgi_sample_specular_dir(
     float guide_mix,
     out float weight) -> float3
 {
-    const float a = brdf_ggx_alpha(roughness);
+    const float a = roughness * roughness; // TEMP: no BRDF_MIN_GGX_ALPHA clamp, roughness 0 = exact mirror
     const float p_guide = rtgi_specular_guide_probability(roughness, guide_mix, guide_valid);
 
     float3x3 guide_basis = (float3x3)0;

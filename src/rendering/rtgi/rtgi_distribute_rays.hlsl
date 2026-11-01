@@ -66,8 +66,8 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
     RtgiRayDemand demand = { 0u, 0u };
     if (is_geo)
     {
-        const float2 impact_factors = push.attach.ray_impact.get()[pixel_xy];
-        const RtgiRayImpact impact = { impact_factors.x, impact_factors.y };
+        const float4 impact_factors = push.attach.ray_impact.get()[pixel_xy];
+        const RtgiRayImpact impact = { rtgi_unpack_ray_impact_factor(impact_factors.x), rtgi_unpack_ray_impact_factor(impact_factors.y), rtgi_unpack_ray_impact_factor(impact_factors.z) };
         demand = rtgi_calc_ray_demand(reprojected_sample_count, push.attach.specular_sample_count.get()[pixel_xy], impact, rtgi_settings);
     }
     gs_desired[slot] = demand.diffuse + demand.specular;

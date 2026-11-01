@@ -187,9 +187,19 @@ func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
 
                 // Calculate weights
                 const float tent_weight = tent_weights_x[row] * tent_weights_y[col];
-                const float geometry_weight = (abs(calc_plane_distance(position_vs, pixel_face_normal_vs, sample_vs)) * pixel_width_ws_rcp) < 3.0f;
-                const float normal_weight = square(square(max(0.0f, dot(sample_face_normal, pixel_face_normal))));
-                const float weight = tent_weight * geometry_weight * normal_weight;
+                const float plane_distance_px = abs(calc_plane_distance(position_vs, pixel_face_normal_vs, sample_vs)) * pixel_width_ws_rcp;
+                float geometry_weight = plane_distance_px < 3.0f;
+                float normal_weight = square(square(max(0.0f, dot(sample_face_normal, pixel_face_normal))));
+                float kernel_weight = tent_weight;
+                if (rtgi_settings.upscale_sharp_weights != 0)
+                {
+                    // Nearest taps dominate, mismatching planes fade out smoothly, normal map detail separates texels.
+                    kernel_weight = square(tent_weight);
+                    geometry_weight = geometry_weight * exp(-0.5f * square(plane_distance_px));
+                    const float3 sample_detail_normal = gs_half_specular_normal_roughness[sample_gs_index.x][sample_gs_index.y].xyz;
+                    normal_weight *= square(square(saturate(dot(sample_detail_normal, pixel_detail_normal))));
+                }
+                const float weight = kernel_weight * geometry_weight * normal_weight;
 
                 if (sample_depth != 0.0f)
                 {
@@ -198,7 +208,7 @@ func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
                     const float4 sample_specular = gs_half_specular_preload[sample_gs_index.x][sample_gs_index.y];
                     acc_specular += weight * sample_specular;
                     const float3 sample_specular_normal = gs_half_specular_normal_roughness[sample_gs_index.x][sample_gs_index.y].xyz;
-                    const float specular_weight = tent_weight * geometry_weight *
+                    const float specular_weight = kernel_weight * geometry_weight *
                         rtgi_specular_normal_weight(pixel_detail_normal, sample_specular_normal, pixel_specular_roughness);
                     acc_specular_detail += specular_weight * sample_specular;
                     acc_specular_detail_weight += specular_weight;
