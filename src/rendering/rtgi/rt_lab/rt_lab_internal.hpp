@@ -29,9 +29,12 @@ void rt_lab_distribute_callback(daxa::TaskInterface ti, RenderContext * render_c
 void rt_lab_trace_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 ray_capacity, bool ray_lengths_bound);
 void rt_lab_ray_filter_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 ray_capacity);
 void rt_lab_gather_callback(daxa::TaskInterface ti, RenderContext * render_context, bool gradient_enabled, bool filtered_bound, bool gradient_per_pixel);
-void rt_lab_resolve_callback(daxa::TaskInterface ti, RenderContext * render_context, bool split_enabled, bool spatial_ran, bool stabilize);
+void rt_lab_resolve_callback(daxa::TaskInterface ti, RenderContext * render_context, bool split_enabled, bool spatial_ran);
 void rt_lab_convergence_capture_callback(daxa::TaskInterface ti, RenderContext * render_context, bool split_enabled);
 void rt_lab_convergence_analyze_callback(daxa::TaskInterface ti, RenderContext * render_context);
 void rt_lab_measure_accumulate_callback(daxa::TaskInterface ti, RenderContext * render_context);
 void rt_lab_measure_lag_callback(daxa::TaskInterface ti, RenderContext * render_context);
 void rt_lab_measure_store_callback(daxa::TaskInterface ti, RenderContext * render_context);
+
+// Measurement + reference comparison passes of the tests on the resolved image (rt_lab.cpp), for the labs without a split history (RT Lab 2 / 3 / 4).
+void rt_lab_add_test_passes(TasksRtgiInfo const & info, daxa::TaskImageView resolved, daxa::Extent3D size);

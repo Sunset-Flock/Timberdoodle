@@ -647,8 +647,6 @@ struct RtgiSplitPayload
 };
 #define RTGI_SPLIT_DIFFUSE_RAY -1.0f
 
-// Coarse specular: the GGX cone footprint at the hit must cover at least this many PGI probe spacings.
-#define RTGI_SPLIT_COARSE_SPECULAR_FOOTPRINT_PROBES 1.0f
 
 // Sharp hits get full material + light shading, coarse hits only the PGI radiance. Matches the full shading
 // pipeline's closest hit: specular rays need sharp hits (mirror reflections), diffuse rays take the PGI radiance cache
@@ -661,6 +659,7 @@ func rtgi_split_hit_is_sharp(float cone_per_t, float3 hit_position, float t) -> 
     if (cone_per_t == RTGI_SPLIT_DIFFUSE_RAY) { return false; }
     if (cone_per_t <= 0.0f) { return true; }
     let push = rtgi_trace_push;
+    const float footprint_probes = push.attach.globals.rtgi_settings.specular_coarse_footprint;
     // By POINTER: the cascade lookup below indexes dynamically. On a local copy of PGISettings that pulls all
     // PGI_MAX_CASCADES cascades into registers (measured 255 + spills); through the pointer it is one load.
     PGISettings* pgi = &push.attach.globals.pgi_settings;
@@ -668,7 +667,7 @@ func rtgi_split_hit_is_sharp(float cone_per_t, float3 hit_position, float t) -> 
     if (cascade >= float(pgi->cascade_count)) { return true; } // outside PGI: coarse shading would be black
     const float3 spacing = pgi->cascades[uint(cascade)].probe_spacing;
     const float probe_spacing = max(spacing.x, max(spacing.y, spacing.z));
-    return cone_per_t * t < probe_spacing * RTGI_SPLIT_COARSE_SPECULAR_FOOTPRINT_PROBES;
+    return cone_per_t * t < probe_spacing * footprint_probes;
 }
 
 // Appends this ray to its shade list (RTGI_SHADE_*, see RtgiShadeCounters). Per-thread atomics on purpose: a
@@ -735,11 +734,23 @@ void ray_gen_split()
     // A miss leaves the payload untouched: same t as the shading pipelines' miss shader (specular clamped like there).
     payload.t = list_ray.specular ? RTGI_SPECULAR_MAX_HIT_DISTANCE : RTGI_RAY_MISS_T;
     payload.instance_id = RTGI_RAY_HIT_MISS;
-    const bool coarse_wide_specular = push.attach.globals.rtgi_settings.split_coarse_wide_specular != 0 && push.attach.globals.pgi_settings.enabled;
-    payload.sharp = !list_ray.specular ? RTGI_SPLIT_DIFFUSE_RAY : (coarse_wide_specular ? 2.0f * rtgi_specular_lobe_tan(list_ray.roughness) : 0.0f);
-    if (push.attach.globals.rtgi_settings.force_fine_hit_shading != 0)
+    // payload.sharp is the hit shading class input of rtgi_split_hit_is_sharp: 0 = fine, RTGI_SPLIT_DIFFUSE_RAY = coarse, > 0 = fine unless the cone is wide.
+    const RtgiSettings hit_settings = push.attach.globals.rtgi_settings;
+    if (!list_ray.specular)
     {
-        payload.sharp = 0.0f; // cone 0 = always sharp (rtgi_split_hit_is_sharp)
+        payload.sharp = hit_settings.diffuse_hit_shading == RTGI_HIT_SHADING_DIFFUSE_FINE ? 0.0f : RTGI_SPLIT_DIFFUSE_RAY;
+    }
+    else if (hit_settings.specular_hit_shading == RTGI_HIT_SHADING_SPECULAR_COARSE)
+    {
+        payload.sharp = RTGI_SPLIT_DIFFUSE_RAY;
+    }
+    else if (hit_settings.specular_hit_shading == RTGI_HIT_SHADING_SPECULAR_WIDE_COARSE && push.attach.globals.pgi_settings.enabled)
+    {
+        payload.sharp = 2.0f * rtgi_specular_lobe_tan(list_ray.roughness);
+    }
+    else
+    {
+        payload.sharp = 0.0f;
     }
     TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), 0, ~0, 0, 0, 0, list_ray.ray, payload);
 

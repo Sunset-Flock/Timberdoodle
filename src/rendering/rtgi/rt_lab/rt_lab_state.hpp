@@ -14,9 +14,13 @@
 #include "rt_lab_settings.inl"
 #include "rt_lab_measure_layout.inl"
 #include "neural/rt_lab_neural_state.hpp"
+#include "rt_lab_analysis.hpp"
 #include "rt_lab_probe.hpp"
 #include "rt_lab_telemetry.hpp"
 #include "rt_lab2_state.hpp"
+#include "rt_lab3_state.hpp"
+#include "rt_lab4_state.hpp"
+#include "rt_lab_integrator_state.hpp"
 
 using namespace tido::types;
 
@@ -189,11 +193,53 @@ struct RtLabResult
     RtLabMeasurement measurement = {};
 };
 
+// == Pipeline ==
+// Which stages run is part of the preset (RtLabSettings::restir_enabled / denoiser). The RT Lab always runs
+//   reproject + ray redistribution -> trace -> [ReSTIR] -> ONE denoiser (classic temporal + spatial, OR the hash grid) -> temporal resolve -> resolve
+// The four lab versions are combinations (rt_lab_pipeline_set_version). The stage implementations are still the per version task graphs (tasks_rt_lab_main,
+// tasks_rt_lab2_main, tasks_rt_lab3_main, tasks_rt_lab4_main, tasks_rt_lab_restir_main); rt_lab_pipeline_resolve derives which one runs from the active preset.
+
+// 1 = classic, 2 = hash grid, 3 = ReSTIR only, 4 = ReSTIR -> hash grid; 0 = another combination (ReSTIR -> classic).
+inline auto rt_lab_pipeline_version(RtLabSettings const & s) -> i32
+{
+    if (s.restir_enabled == 0)
+    {
+        return s.denoiser == RT_LAB_DENOISER_CLASSIC ? 1 : (s.denoiser == RT_LAB_DENOISER_HASH_GRID ? 2 : 0);
+    }
+    return s.denoiser == RT_LAB_DENOISER_NONE ? 3 : (s.denoiser == RT_LAB_DENOISER_HASH_GRID ? 4 : 0);
+}
+
+inline void rt_lab_pipeline_set_version(RtLabSettings & s, i32 version)
+{
+    switch (version)
+    {
+        case 1: s.restir_enabled = 0; s.denoiser = RT_LAB_DENOISER_CLASSIC; break;
+        case 2: s.restir_enabled = 0; s.denoiser = RT_LAB_DENOISER_HASH_GRID; break;
+        case 3: s.restir_enabled = 1; s.denoiser = RT_LAB_DENOISER_NONE; break;
+        case 4: s.restir_enabled = 1; s.denoiser = RT_LAB_DENOISER_HASH_GRID; break;
+        default: break;
+    }
+}
+
+// Everything of the lab that is not in RtLabSettings (the GPU shared part of a preset) but belongs to a preset: the settings of the ReSTIR stage, the hash grid,
+// the glue between them and the denoiser behind, and the temporal resolve. RtLabState::preset_configs[preset]; the live states (lab2 / lab3 / lab4 / integrator)
+// hold the active preset's copy (rt_lab_config_apply every frame), the UI edits the preset's.
+struct RtLabPresetConfig
+{
+    RtLab2Config lab2 = {};
+    RtLab3Config lab3 = {};
+    RtLab4Config lab4 = {};
+    RtLabIntegratorConfig integrator = {};
+};
+
 struct RtLabState
 {
+    // The pipeline of the active preset as the task graph was last built for it (rt_lab_pipeline_resolve). The "enabled" flags of lab2 / lab3 / lab4 are derived.
+    i32 built_pipeline = -1;
     // Presets. The active one drives the lab (and is the tested one); both are editable in the UI.
     i32 active_preset = RT_LAB_PRESET_CUSTOM;
     std::array<RtLabSettings, RT_LAB_PRESET_COUNT> presets = {};
+    std::array<RtLabPresetConfig, RT_LAB_PRESET_COUNT> preset_configs = {};
 
     // Effective sample count metric (RT_LAB_SPATIAL_SAMPLE_COUNT debug view), applied to rt_lab_settings every frame.
     f32 sample_count_input_clamp = 0.0f; // 0 = off
@@ -281,25 +327,23 @@ struct RtLabState
     bool shock_active = false;
     bool shock_saved_cull_point_lights = true;
 
-    // Post stabilization (inside the resolve, rt_lab_resolve.hlsl): TAA style variance clipped temporal step on the final
-    // output. Not part of the presets (its settings go through the resolve's push constant). Graph shape: enabled.
-    bool post_stabilization_enabled = false;
-    f32 post_stabilization_alpha = 0.1f; // blend factor of the current output
-    f32 post_stabilization_gamma = 1.0f; // neighborhood box half width in standard deviations
-    i32 post_stabilization_radius = 1;   // variance estimator neighborhood (2r + 1)^2, 1..RT_LAB_STABILIZE_MAX_RADIUS
-    bool post_stabilization_clamp = true; // false = no variance clamp (plain exponential history)
-    bool post_stabilization_temporal_variance = true; // short (<= 4 frame) temporal input variance widens the clamp box
-    bool post_stabilization_built = false; // graph built with the pass (rebuild trigger)
-
     // Pixel telemetry (rt_lab_telemetry.hpp): rays + surface detail of the pixel under the held mouse button.
     RtLabTelemetryState telemetry = {};
     // Live pixel probes (rt_lab_probe.hpp): the accumulated denoiser state of two followed pixels.
     RtLabProbeState probe = {};
+    // Analysis on the resolved output (rt_lab_analysis.hpp): statistics + pixel picker.
+    RtLabAnalysisState analysis = {};
 
     // Neural affinity (neural/rt_lab_neural.hpp): learned similarity of the a-trous taps, training data dump.
     RtLabNeuralState neural = {};
     // RT Lab 2 (rt_lab2.hpp): the hash grid denoiser, an alternative to everything above that denoises (the trace and the tests are shared).
     RtLab2State lab2 = {};
+    // RT Lab 3 (rt_lab3.hpp): ReSTIR GI on the same trace, an alternative to the denoisers above.
+    RtLab3State lab3 = {};
+    // RT Lab 4 (rt_lab4.hpp): the ReSTIR stage of lab 3 feeding the cells of lab 2.
+    RtLab4State lab4 = {};
+    // Temporal resolve of the original lab (rt_lab_integrator.hpp), runs on the final lab image right before the resolve. Not part of the presets.
+    RtLabIntegratorState integrator = {};
     bool pgi_update_rate_overridden = false;
     i32 saved_pgi_update_rate = 0;
 };
@@ -307,4 +351,18 @@ struct RtLabState
 inline auto rt_lab_test_running(RtLabState const & lab) -> bool
 {
     return lab.phase != RtLabTestPhase::IDLE;
+}
+
+// The live config (what the passes read) as a preset config / the other way round.
+inline auto rt_lab_config_gather(RtLabState const & lab) -> RtLabPresetConfig
+{
+    return RtLabPresetConfig{lab.lab2, lab.lab3, lab.lab4, lab.integrator};
+}
+
+inline void rt_lab_config_apply(RtLabState & lab, RtLabPresetConfig const & config)
+{
+    static_cast<RtLab2Config &>(lab.lab2) = config.lab2;
+    static_cast<RtLab3Config &>(lab.lab3) = config.lab3;
+    static_cast<RtLab4Config &>(lab.lab4) = config.lab4;
+    static_cast<RtLabIntegratorConfig &>(lab.integrator) = config.integrator;
 }

@@ -240,7 +240,9 @@ func rtgi_closest_hit_coarse(RtgiShadeContext ctx, float2 barycentrics) -> float
 void closest_hit(inout RtgiRayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     let ctx = RTGI_SHADE_CONTEXT(rtgi_trace_push.attach);
-    if (payload.specular || rtgi_trace_push.attach.globals.rtgi_settings.force_fine_hit_shading != 0)
+    const RtgiSettings hit_settings = rtgi_trace_push.attach.globals.rtgi_settings;
+    const bool fine = payload.specular ? hit_settings.specular_hit_shading != RTGI_HIT_SHADING_SPECULAR_COARSE : hit_settings.diffuse_hit_shading == RTGI_HIT_SHADING_DIFFUSE_FINE;
+    if (fine)
     {
         TriangleGeometry tri_geo;
         TriangleGeometryPoint tri_point;

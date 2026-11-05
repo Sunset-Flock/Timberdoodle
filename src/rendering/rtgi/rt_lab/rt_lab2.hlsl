@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rt_lab2.inl"
+#include "rt_lab_integrator.hlsl"
 
 #include "rt_lab_shared.hlsl"
 #include "shader_lib/debug.glsl"
@@ -258,8 +259,10 @@ func entry_rt_lab2_reset(uint dtid : SV_DispatchThreadID)
 }
 
 // Pixels of one wave mostly share a cell: one atomic per distinct cell instead of one per pixel. Every lane must call it (wave ops).
-func rt_lab2_count_pixel(RtLab2Cell* cells, uint cell_index)
+// Returns true on exactly ONE lane per cell and frame: the lane that raised the cell's pixel count from 0 (the debug box draw uses it).
+func rt_lab2_count_pixel(RtLab2Cell* cells, uint cell_index) -> bool
 {
+    bool first_in_cell = false;
     bool pending = cell_index != RT_LAB2_INVALID_CELL;
     while (WaveActiveAnyTrue(pending))
     {
@@ -268,10 +271,25 @@ func rt_lab2_count_pixel(RtLab2Cell* cells, uint cell_index)
         const uint count = WaveActiveCountBits(mine);
         if (mine && WavePrefixCountBits(mine) == 0u)
         {
-            InterlockedAdd(cells[current].pixel_count, count);
+            uint previous_count = 0u;
+            InterlockedAdd(cells[current].pixel_count, count, previous_count);
+            first_in_cell = previous_count == 0u;
         }
         pending = pending && !mine;
     }
+    return first_in_cell;
+}
+
+// Debug: the world space box of a queried cell (same toggle as the RTGI hash grid: rtgi_settings.hash_grid_debug_draw_cells).
+func rt_lab2_debug_cell_box(RtLab2Key key, uint cell_index, RtLab2Settings s) -> ShaderDebugAABBDraw
+{
+    const float cell_size = rt_lab2_cell_size(key.level, s);
+    ShaderDebugAABBDraw aabb;
+    aabb.position = (float3(key.coord) + 0.5f) * cell_size;
+    aabb.size = cell_size.xxx;
+    aabb.color = hsv2rgb(float3(IdFloatScramble(cell_index & 0xFFFFu), 0.8f, 1.0f));
+    aabb.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    return aabb;
 }
 
 // == Query ============================================================================================================
@@ -285,6 +303,12 @@ func entry_rt_lab2_query(uint2 dtid : SV_DispatchThreadID)
     const bool in_bounds = all(dtid < push.size);
     uint cell_index = RT_LAB2_INVALID_CELL;
     uint cell_index2 = RT_LAB2_INVALID_CELL;
+    RtLab2Key key;
+    RtLab2Key key2;
+    key.level = 0u;
+    key.coord = int3(0, 0, 0);
+    key.normal_bucket = 0u;
+    key2 = key;
     if (in_bounds)
     {
         const RtLab2Settings s = *push.settings;
@@ -295,19 +319,33 @@ func entry_rt_lab2_query(uint2 dtid : SV_DispatchThreadID)
             const float3 position = linear_depth_to_world_space(camera, rt_lab_ndc(dtid, rcp(float2(push.size))), depth);
             const float3 normal = uncompress_normal_octahedral_32(push.attach.lab_face_normal.get()[dtid]);
             const RtLab2LevelBlend blend = rt_lab2_level_blend(length(position - camera.position), rt_lab2_pixel_width_per_distance(camera, float(push.size.y)), s);
-            cell_index = rt_lab2_find_or_insert(push.attach.cells, rt_lab2_make_key_at_level(position, normal, blend.primary, s), rt_lab2_capacity(s) - 1u);
+            key = rt_lab2_make_key_at_level(position, normal, blend.primary, s);
+            cell_index = rt_lab2_find_or_insert(push.attach.cells, key, rt_lab2_capacity(s) - 1u);
             if (blend.p_other > 0.0f)
             {
                 // Inside the cascade blend region the neighbor cascade's cell is fed by this pixel too.
-                cell_index2 = rt_lab2_find_or_insert(push.attach.cells, rt_lab2_make_key_at_level(position, normal, blend.other, s), rt_lab2_capacity(s) - 1u);
+                key2 = rt_lab2_make_key_at_level(position, normal, blend.other, s);
+                cell_index2 = rt_lab2_find_or_insert(push.attach.cells, key2, rt_lab2_capacity(s) - 1u);
             }
         }
         push.attach.pixel_cell.get()[dtid] = cell_index;
         push.attach.pixel_cell2.get()[dtid] = cell_index2;
     }
 
-    rt_lab2_count_pixel(push.attach.cells, cell_index);
-    rt_lab2_count_pixel(push.attach.cells, cell_index2);
+    const bool first = rt_lab2_count_pixel(push.attach.cells, cell_index);
+    const bool first2 = rt_lab2_count_pixel(push.attach.cells, cell_index2);
+    if (push.attach.globals.rtgi_settings.hash_grid_debug_draw_cells != 0 && (first || first2))
+    {
+        const RtLab2Settings s = *push.settings;
+        if (first)
+        {
+            debug_draw_aabb(push.attach.globals.debug, rt_lab2_debug_cell_box(key, cell_index, s));
+        }
+        if (first2)
+        {
+            debug_draw_aabb(push.attach.globals.debug, rt_lab2_debug_cell_box(key2, cell_index2, s));
+        }
+    }
 }
 
 // == Cell prepare =====================================================================================================
@@ -805,7 +843,7 @@ func entry_rt_lab2_cell_integrate(uint dtid : SV_DispatchThreadID)
     {
         const float inverse = 1.0f / (float(rays) * RT_LAB2_RADIANCE_FIXED_SCALE);
         const float3 mean = float3(float(cell.sum_r), float(cell.sum_g), float(cell.sum_b)) * inverse;
-        const float n_new = float(rays);
+        const float n_new = s.max_frame_samples > 0.0f ? min(float(rays), s.max_frame_samples) : float(rays); // the mean stays, only the weight of the frame is capped
         const float cap = rt_lab2_history_cap(cell, s);
         float3 radiance = mean;
         float sample_count = min(n_new, cap);
@@ -1270,66 +1308,6 @@ func entry_rt_lab2_lookup(uint2 dtid : SV_DispatchThreadID)
 // kept: a quiet window means the lookup is already accurate (trust it, small history), a noisy window keeps more history
 // and moves the new value toward the window mean. The history is clamped into mean +- gamma sigma of the window.
 
-// Reprojected history (bilinear, surface tested). weight (out) = valid footprint weight, 0 = disocclusion.
-func rt_lab2_reproject(Texture2D<float4> history, Texture2D<float> depth_history, Texture2D<uint> normal_history, CameraInfo* prev_camera,
-    int2 size, float3 position, float3 normal, float rcp_pixel_width_ws, RtLab2Settings s, out float weight) -> float4
-{
-    weight = 0.0f;
-    const float2 size_f = float2(size);
-    const float2 inv_size = rcp(size_f);
-    const float4 prev_clip = mul(prev_camera.view_proj, float4(position, 1.0f));
-    if (prev_clip.w <= 0.0f)
-    {
-        return float4(0.0f, 0.0f, 0.0f, 0.0f);
-    }
-    const float2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5f + 0.5f;
-    const Bilinear bilinear = get_bilinear_filter(prev_uv, size_f);
-    float4 tap_weights = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float4 values[4];
-    const float4 bilinear_only = get_bilinear_custom_weights(bilinear, float4(1.0f, 1.0f, 1.0f, 1.0f));
-    [unroll] for (uint i = 0u; i < 4u; ++i)
-    {
-        values[i] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        const int2 tap = int2(bilinear.origin) + int2(i & 1u, i >> 1u);
-        if (bilinear_only[i] <= 0.0f || any(tap < 0) || any(tap >= size))
-        {
-            continue; // zero bilinear weight: cannot contribute (static camera: 3 of the 4 taps), no fetch, no unprojection
-        }
-        const float tap_depth = depth_history[tap];
-        if (tap_depth <= 0.0f)
-        {
-            continue;
-        }
-        const float3 tap_normal = uncompress_normal_octahedral_32(normal_history[tap]);
-        if (dot(normal, tap_normal) < s.normal_threshold)
-        {
-            continue;
-        }
-        const float3 tap_position = linear_depth_to_world_space(*prev_camera, rt_lab_ndc(uint2(tap), inv_size), tap_depth);
-        const float plane = rt_lab_plane_weight(position, normal, tap_position, tap_normal, rcp_pixel_width_ws, s.plane_tolerance);
-        const float4 value = history[tap];
-        if (plane <= 0.0f || any(!isfinite(value)) || value.a <= 0.0f)
-        {
-            continue;
-        }
-        values[i] = value;
-        tap_weights[i] = plane;
-    }
-    const float4 weights = get_bilinear_custom_weights(bilinear, tap_weights);
-    weight = dot(weights, 1.0f);
-    if (weight <= 1e-3f)
-    {
-        weight = 0.0f;
-        return float4(0.0f, 0.0f, 0.0f, 0.0f);
-    }
-    float4 sum = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    [unroll] for (uint i = 0u; i < 4u; ++i)
-    {
-        sum += values[i] * weights[i];
-    }
-    return sum / weight;
-}
-
 [shader("compute")]
 [numthreads(RT_LAB2_PASS_X, RT_LAB2_PASS_Y, 1)]
 func entry_rt_lab2_integrator(uint2 dtid : SV_DispatchThreadID)
@@ -1355,116 +1333,32 @@ func entry_rt_lab2_integrator(uint2 dtid : SV_DispatchThreadID)
         push.attach.integrated.get()[dtid] = float4(center.rgb, center.a > 0.5f ? 1.0f : 0.0f);
         return;
     }
-    const float2 inv_size = rcp(float2(push.size));
-    const float3 position = linear_depth_to_world_space(camera, rt_lab_ndc(dtid, inv_size), depth);
-    const float3 normal = uncompress_normal_octahedral_32(push.attach.lab_face_normal.get()[dtid]);
-    const float rcp_pixel_width_ws = rcp(rt_lab_pixel_width_ws(camera, float(push.size.y), depth));
-    const float exposure_floor = 0.01f * RTGI_RADIANCE_SCALE / (PI * max(push.attach.globals.exposure, 1e-6f));
-
-    // Window statistics of this frame's lookup on the pixel's surface.
-    const int radius = clamp(s.window_radius, 0, RT_LAB2_MAX_WINDOW_RADIUS);
-    float3 sum = float3(0.0f, 0.0f, 0.0f);
-    float3 sum_squared = float3(0.0f, 0.0f, 0.0f);
-    float luma_sum = 0.0f;
-    float luma_squared_sum = 0.0f;
-    float count = 0.0f;
-    for (int dy = -radius; dy <= radius; ++dy)
+    // The shared temporal resolve core (rt_lab_integrator.hlsl) with this lab's settings; the temporal gradient's applied correction scales the history.
+    RtLabIntegratorSettings p;
+    p.window_radius = s.window_radius;
+    p.variance_gamma = s.variance_gamma;
+    p.alpha_min = s.alpha_min;
+    p.alpha_max = s.alpha_max;
+    p.variance_reference = s.variance_reference;
+    p.spatial_strength = s.spatial_strength;
+    p.max_frames = s.max_frames;
+    p.plane_tolerance = s.plane_tolerance;
+    p.normal_threshold = s.normal_threshold;
+    p.reset = s.reset;
+    float history_scale = 1.0f;
+    if (s.gradient_enabled != 0 && s.gradient_correct_integrator != 0)
     {
-        for (int dx = -radius; dx <= radius; ++dx)
+        const uint history_cell = push.attach.pixel_cell.get()[dtid];
+        if (history_cell != RT_LAB2_INVALID_CELL)
         {
-            const int2 tap = int2(dtid) + int2(dx, dy);
-            if (any(tap < 0) || any(tap >= int2(push.size)))
-            {
-                continue;
-            }
-            const float4 value = push.attach.lookup.get()[tap];
-            if (value.a < 0.5f)
-            {
-                continue;
-            }
-            if (dx != 0 || dy != 0)
-            {
-                const float tap_depth = push.attach.lab_depth.get()[tap];
-                if (tap_depth <= 0.0f)
-                {
-                    continue;
-                }
-                const float3 tap_normal = uncompress_normal_octahedral_32(push.attach.lab_face_normal.get()[tap]);
-                if (dot(normal, tap_normal) < s.normal_threshold)
-                {
-                    continue;
-                }
-                const float3 tap_position = linear_depth_to_world_space(camera, rt_lab_ndc(uint2(tap), inv_size), tap_depth);
-                if (rt_lab_plane_weight(position, normal, tap_position, tap_normal, rcp_pixel_width_ws, s.plane_tolerance) <= 0.0f)
-                {
-                    continue;
-                }
-            }
-            const float luma = rt_lab_luminance(value.rgb);
-            sum += value.rgb;
-            sum_squared += value.rgb * value.rgb;
-            luma_sum += luma;
-            luma_squared_sum += luma * luma;
-            count += 1.0f;
+            history_scale = exp(push.attach.cells[history_cell].gk_pending);
         }
     }
-    float3 window_mean = center.rgb;
-    float3 window_std = float3(0.0f, 0.0f, 0.0f);
-    float relative_std = 0.0f;
-    if (count > 0.0f)
-    {
-        window_mean = sum / count;
-        window_std = sqrt(max(sum_squared / count - window_mean * window_mean, 0.0f));
-        const float luma_mean = luma_sum / count;
-        relative_std = sqrt(max(luma_squared_sum / count - luma_mean * luma_mean, 0.0f)) / (luma_mean + exposure_floor);
-    }
-    const float noise = saturate(relative_std / max(s.variance_reference, 1e-4f));
-
-    // The new value: the lookup, moved toward the window mean when the window is noisy.
-    float3 new_value = center.a > 0.5f ? lerp(center.rgb, window_mean, saturate(s.spatial_strength) * noise) : window_mean;
-    const bool new_valid = center.a > 0.5f || count > 0.0f;
-
-    float reprojection_weight = 0.0f;
-    float4 reprojected = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    if (s.reset == 0)
-    {
-        reprojected = rt_lab2_reproject(push.attach.history.get(), push.attach.lab_depth_history.get(), push.attach.lab_face_normal_history.get(),
-            prev_camera, int2(push.size), position, normal, rcp_pixel_width_ws, s, reprojection_weight);
-    }
-
-    float3 result_value = new_value;
-    float frames = new_valid ? 1.0f : 0.0f;
-    if (reprojection_weight > 0.0f && new_valid)
-    {
-        float3 history = any(!isfinite(reprojected.rgb)) ? new_value : reprojected.rgb;
-        if (s.gradient_enabled != 0 && s.gradient_correct_integrator != 0)
-        {
-            const uint history_cell = push.attach.pixel_cell.get()[dtid];
-            if (history_cell != RT_LAB2_INVALID_CELL)
-            {
-                history *= exp(push.attach.cells[history_cell].gk_pending);
-            }
-        }
-        if (s.variance_gamma > 0.0f && count > 0.0f)
-        {
-            history = clamp(history, window_mean - window_std * s.variance_gamma, window_mean + window_std * s.variance_gamma);
-        }
-        const float history_frames = min(reprojected.a + 1.0f, float(max(s.max_frames, 1)));
-        const float alpha = max(lerp(s.alpha_max, s.alpha_min, noise), 1.0f / history_frames);
-        result_value = lerp(history, new_value, saturate(alpha));
-        frames = history_frames;
-    }
-    else if (reprojection_weight > 0.0f)
-    {
-        result_value = reprojected.rgb; // no new data: keep the history
-        frames = reprojected.a;
-    }
-    if (any(!isfinite(result_value)))
-    {
-        result_value = new_valid ? new_value : float3(0.0f, 0.0f, 0.0f);
-        frames = new_valid ? 1.0f : 0.0f;
-    }
-    push.attach.integrated.get()[dtid] = float4(result_value, frames);
+    float noise;
+    const float4 integrated = rt_lab_integrate(push.attach.lookup.get(), push.attach.history.get(), push.attach.lab_depth.get(), push.attach.lab_face_normal.get(),
+        push.attach.lab_depth_history.get(), push.attach.lab_face_normal_history.get(), push.attach.globals, dtid, push.size, p, 0.5f, history_scale, noise);
+    const float frames = integrated.a;
+    push.attach.integrated.get()[dtid] = integrated;
 
     if (debug_mode == DEBUG_DRAW_MODE_RT_LAB2_VARIANCE || debug_mode == DEBUG_DRAW_MODE_RT_LAB2_HISTORY)
     {

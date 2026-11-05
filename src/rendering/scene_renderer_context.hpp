@@ -168,6 +168,11 @@ namespace RenderTimes
                 "LAB2_GRADIENT_TRACE",
                 "LAB2_GRADIENT_SPATIAL",
                 "LAB2_GRADIENT_RECORD",
+                "LAB3_TEMPORAL",
+                "LAB3_SPATIAL",
+                "LAB3_SHADE",
+                "LAB3_FILTER",
+                "INTEGRATOR",
             },
         },
         GroupNames{

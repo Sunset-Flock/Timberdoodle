@@ -76,7 +76,7 @@ auto rt_lab_neural_active(RtLabSettings const & settings, RtLabNeuralState const
 // built. Also loads the weights, allocates the dump buffer and flushes a finished dump to its file.
 auto rt_lab_neural_frame_update(RenderContext & render_context) -> bool;
 
-// Every graph build records the neural graph shape (like post_stabilization_built).
+// Every graph build records the neural graph shape.
 void rt_lab_neural_record_built(RtLabSettings const & settings, RtLabNeuralState & state);
 
 // Arms a dump of `frames` frames starting at RUN frame `first_frame` (crop = square at (x, y), clamped to the lab size)

@@ -27,6 +27,7 @@ auto rt_lab2_default_settings() -> RtLab2Settings
         .history_samples_per_pixel = 48.0f,
         .min_history_samples = 16.0f,
         .max_history_samples = 65536.0f,
+        .max_frame_samples = 0.0f,
         .cell_capacity_log2 = static_cast<f32>(RT_LAB2_CELL_CAPACITY_LOG2_DEFAULT),
         .exposure_alpha = 0.25f,
         .exposure_strength = 1.0f,
@@ -131,6 +132,22 @@ static auto rt_lab2_settings_address(daxa::TaskInterface ti, RenderContext * ren
     RtLab2Settings settings = lab2.settings;
     settings.reset = lab2.frame_reset ? 1 : 0;
     settings.animate_noise = 1;
+    // The temporal resolve is the shared one (RtLabState::integrator, part of the preset): its settings drive the integrator pass of the cells too.
+    auto const & integrator = render_context->rt_lab.integrator;
+    settings.integrator_enabled = integrator.enabled ? 1 : 0;
+    settings.window_radius = integrator.settings.window_radius;
+    settings.variance_gamma = integrator.settings.variance_gamma;
+    settings.alpha_min = integrator.settings.alpha_min;
+    settings.alpha_max = integrator.settings.alpha_max;
+    settings.variance_reference = integrator.settings.variance_reference;
+    settings.spatial_strength = integrator.settings.spatial_strength;
+    settings.max_frames = integrator.settings.max_frames;
+    settings.plane_tolerance = integrator.settings.plane_tolerance;
+    settings.normal_threshold = integrator.settings.normal_threshold;
+    if (render_context->rt_lab.lab4.active)
+    {
+        settings.gradient_enabled = 0; // RT Lab 4 feeds the cells from the ReSTIR stage: no ray records for the temporal gradient
+    }
     auto alloc = ti.allocator->allocate(sizeof(RtLab2Settings)).value();
     std::memcpy(alloc.host_address, &settings, sizeof(RtLab2Settings));
     return alloc.device_address;
@@ -679,98 +696,11 @@ auto tasks_rt_lab2_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .resolved = resolved,
             .lab_split_difference = daxa::NullTaskImage,
             .split_difference_resolved = daxa::NullTaskImage,
-            .stabilize_history = daxa::NullTaskImage,
-            .stabilize_history_out = daxa::NullTaskImage,
-            .stabilize_variance = daxa::NullTaskImage,
-            .stabilize_variance_out = daxa::NullTaskImage,
         })
-        .executes(rt_lab_resolve_callback, &render_context, false, true, false));
+        .executes(rt_lab_resolve_callback, &render_context, false, true));
+    rt_lab_add_analysis(info, resolved);
 
-    // == Test passes (the old lab's measurement + reference comparison, unchanged) ==
-    // RT Lab 2 has no split history: the error prediction image is empty (no valid samples), the convergence metric of the
-    // measurement reads "above range" and the reference comparison skips its prediction part.
-    auto split_difference_resolved = info.tg.create_task_image({
-        .format = daxa::Format::R16G16_SFLOAT,
-        .size = size,
-        .name = "rt_lab_split_difference_resolved",
-    });
-    info.tg.clear_image({.view = split_difference_resolved, .name = "rt_lab2_split_difference_clear"});
-
-    if (!lab_state.measure_frame_histogram.id().is_empty())
-    {
-        info.tg.register_buffer(lab_state.measure_frame_histogram);
-        info.tg.register_buffer(lab_state.measure_run_histograms);
-        info.tg.register_buffer(lab_state.measure_lag_run);
-        auto luma_statistics = info.tg.create_task_image({
-            .format = daxa::Format::R32G32B32A32_SFLOAT,
-            .size = size,
-            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
-            .name = "rt_lab_measure_luma_statistics_persistent",
-        });
-        auto jitter_state = info.tg.create_task_image({
-            .format = daxa::Format::R32G32B32A32_SFLOAT,
-            .size = size,
-            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
-            .name = "rt_lab_measure_jitter_persistent",
-        });
-        info.tg.clear_buffer({.buffer = lab_state.measure_frame_histogram.view(), .name = "rt_lab_measure_frame_histogram_clear"});
-        info.tg.add_task(daxa::HeadTask<RtLabMeasureAccumulateH::Info>()
-            .head_views(RtLabMeasureAccumulateH::Info::Views{
-                .globals = render_context.tgpu_render_data.view(),
-                .view_cam_depth = info.view_cam_depth,
-                .view_cam_face_normals = info.view_cam_face_normals,
-                .resolved = resolved,
-                .split_difference_resolved = split_difference_resolved,
-                .luma_statistics_history = luma_statistics.previous(),
-                .luma_statistics = luma_statistics.current(),
-                .jitter_history = jitter_state.previous(),
-                .jitter_state = jitter_state.current(),
-                .frame_histogram = lab_state.measure_frame_histogram.view(),
-            })
-            .executes(rt_lab_measure_accumulate_callback, &render_context));
-        info.tg.add_task(daxa::HeadTask<RtLabMeasureStoreH::Info>()
-            .head_views(RtLabMeasureStoreH::Info::Views{
-                .globals = render_context.tgpu_render_data.view(),
-                .frame_histogram = lab_state.measure_frame_histogram.view(),
-                .run_histograms = lab_state.measure_run_histograms.view(),
-            })
-            .executes(rt_lab_measure_store_callback, &render_context));
-        info.tg.add_task(daxa::HeadTask<RtLabMeasureLagH::Info>()
-            .head_views(RtLabMeasureLagH::Info::Views{
-                .globals = render_context.tgpu_render_data.view(),
-                .view_cam_depth = info.view_cam_depth,
-                .resolved = resolved,
-                .lag_run = lab_state.measure_lag_run.view(),
-            })
-            .executes(rt_lab_measure_lag_callback, &render_context));
-    }
-
-    if (!lab_state.progressive_image.id().is_empty())
-    {
-        info.tg.register_image(lab_state.progressive_image);
-        info.tg.register_image(lab_state.custom_image);
-        info.tg.register_image(lab_state.predicted_error_image);
-        info.tg.add_task(daxa::HeadTask<RtLabConvergenceCaptureH::Info>()
-            .head_views(RtLabConvergenceCaptureH::Info::Views{
-                .globals = render_context.tgpu_render_data.view(),
-                .resolved = resolved,
-                .progressive = lab_state.progressive_image.view(),
-                .custom = lab_state.custom_image.view(),
-                .split_difference = split_difference_resolved,
-                .predicted_error = lab_state.predicted_error_image.view(),
-            })
-            .executes(rt_lab_convergence_capture_callback, &render_context, false));
-        info.tg.add_task(daxa::HeadTask<RtLabConvergenceAnalyzeH::Info>()
-            .head_views(RtLabConvergenceAnalyzeH::Info::Views{
-                .globals = render_context.tgpu_render_data.view(),
-                .debug_image = info.debug_image,
-                .view_cam_depth = info.view_cam_depth,
-                .progressive = lab_state.progressive_image.view(),
-                .custom = lab_state.custom_image.view(),
-                .predicted_error = lab_state.predicted_error_image.view(),
-            })
-            .executes(rt_lab_convergence_analyze_callback, &render_context));
-    }
+    rt_lab_add_test_passes(info, resolved, size);
 
     return TasksRtgiMainResult{
         .opaque_diffuse = resolved,
@@ -779,8 +709,197 @@ auto tasks_rt_lab2_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 }
 
 ///
+/// === Cell stage (RT Lab 4) ===
+///
+
+// The cell grid half of RT Lab 2 on a per pixel input (lab_raw_diffuse: .rgb radiance in RTGI_RADIANCE_SCALE units, .a = the pixel's sample weight): exposure
+// (query, prepare), accumulate, cell integrate, lookup and the temporal resolve (integrator) at the end. No rays, no temporal gradient. Returns the
+// integrator output (the resolve's lab_diffuse). lab_depth / lab_face_normal are the lab's PERSISTENT_DOUBLE_BUFFER geometry images.
+auto rt_lab2_add_cell_stage(TasksRtgiInfo const & info, daxa::TaskImageView lab_depth, daxa::TaskImageView lab_face_normal, daxa::TaskImageView lab_raw_diffuse, daxa::Extent3D size) -> daxa::TaskImageView
+{
+    auto & render_context = info.render_context;
+    auto & lab_state = render_context.rt_lab;
+    lab_state.lab2.clear_requested = true; // the graph's persistent resources are undefined after a rebuild
+    auto cells = info.tg.create_task_buffer({
+        .size = sizeof(RtLab2Cell) * static_cast<u64>(rt_lab2_cell_capacity(lab_state.lab2.settings)),
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "rt_lab2_cells_persistent",
+    });
+    auto pixel_cell = info.tg.create_task_image({.format = daxa::Format::R32_UINT, .size = size, .name = "rt_lab2_pixel_cell"});
+    auto pixel_cell2 = info.tg.create_task_image({.format = daxa::Format::R32_UINT, .size = size, .name = "rt_lab2_pixel_cell2"});
+    auto lookup = info.tg.create_task_image({.format = daxa::Format::R32G32B32A32_SFLOAT, .size = size, .name = "rt_lab2_lookup"});
+    auto integrator_history = info.tg.create_task_image({
+        .format = daxa::Format::R32G32B32A32_SFLOAT,
+        .size = size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "rt_lab2_integrator_persistent",
+    });
+
+    info.tg.add_task(daxa::HeadTask<RtLab2CellPassH::Info>("RtLab2Reset")
+        .head_views(RtLab2CellPassH::Info::Views{.globals = render_context.tgpu_render_data.view(), .cells = cells})
+        .executes(rt_lab2_reset_callback, &render_context));
+    info.tg.add_task(daxa::HeadTask<RtLab2QueryH::Info>()
+        .head_views(RtLab2QueryH::Info::Views{
+            .globals = render_context.tgpu_render_data.view(),
+            .lab_depth = lab_depth.current(),
+            .lab_face_normal = lab_face_normal.current(),
+            .cells = cells,
+            .pixel_cell = pixel_cell,
+            .pixel_cell2 = pixel_cell2,
+        })
+        .executes(rt_lab2_query_callback, &render_context));
+    info.tg.add_task(daxa::HeadTask<RtLab2CellPassH::Info>("RtLab2Prepare")
+        .head_views(RtLab2CellPassH::Info::Views{.globals = render_context.tgpu_render_data.view(), .cells = cells})
+        .executes(rt_lab2_prepare_callback, &render_context));
+    info.tg.add_task(daxa::HeadTask<RtLab2AccumulateH::Info>()
+        .head_views(RtLab2AccumulateH::Info::Views{
+            .globals = render_context.tgpu_render_data.view(),
+            .lab_raw_diffuse = lab_raw_diffuse,
+            .pixel_cell = pixel_cell,
+            .pixel_cell2 = pixel_cell2,
+            .cells = cells,
+        })
+        .executes(rt_lab2_accumulate_callback, &render_context));
+    info.tg.add_task(daxa::HeadTask<RtLab2CellPassH::Info>("RtLab2CellIntegrate")
+        .head_views(RtLab2CellPassH::Info::Views{.globals = render_context.tgpu_render_data.view(), .cells = cells})
+        .executes(rt_lab2_cell_integrate_callback, &render_context));
+    info.tg.add_task(daxa::HeadTask<RtLab2LookupH::Info>()
+        .head_views(RtLab2LookupH::Info::Views{
+            .globals = render_context.tgpu_render_data.view(),
+            .debug_image = info.debug_image,
+            .lab_depth = lab_depth.current(),
+            .lab_face_normal = lab_face_normal.current(),
+            .cells = cells,
+            .lookup = lookup,
+        })
+        .executes(rt_lab2_lookup_callback, &render_context));
+    info.tg.add_task(daxa::HeadTask<RtLab2IntegratorH::Info>()
+        .head_views(RtLab2IntegratorH::Info::Views{
+            .globals = render_context.tgpu_render_data.view(),
+            .debug_image = info.debug_image,
+            .lab_depth = lab_depth.current(),
+            .lab_face_normal = lab_face_normal.current(),
+            .lab_depth_history = lab_depth.previous(),
+            .lab_face_normal_history = lab_face_normal.previous(),
+            .lookup = lookup,
+            .history = integrator_history.previous(),
+            .integrated = integrator_history.current(),
+            .pixel_cell = pixel_cell,
+            .cells = cells,
+        })
+        .executes(rt_lab2_integrator_callback, &render_context));
+
+    if (lab_state.lab2.stats.enabled && !lab_state.lab2.stats.buffer.id().is_empty())
+    {
+        info.tg.register_buffer(lab_state.lab2.stats.buffer);
+        info.tg.add_task(daxa::HeadTask<RtLab2StatsH::Info>()
+            .head_views(RtLab2StatsH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .cells = cells,
+                .stats = lab_state.lab2.stats.buffer.view(),
+            })
+            .executes(rt_lab2_stats_callback, &render_context));
+    }
+    if (lab_state.lab2.probe.enabled && !lab_state.lab2.probe.buffer.id().is_empty())
+    {
+        info.tg.register_buffer(lab_state.lab2.probe.buffer);
+        info.tg.add_task(daxa::HeadTask<RtLab2ProbeH::Info>()
+            .head_views(RtLab2ProbeH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .lab_depth = lab_depth.current(),
+                .lab_face_normal = lab_face_normal.current(),
+                .cells = cells,
+                .lookup = lookup,
+                .integrated = integrator_history.current(),
+                .probe = lab_state.lab2.probe.buffer.view(),
+            })
+            .executes(rt_lab2_probe_callback, &render_context));
+    }
+    return integrator_history.current();
+}
+
+///
 /// === UI ===
 ///
+
+
+// The grid, exposure, lookup and integrator settings (RT Lab 2 section; RT Lab 4 shows them too).
+void rt_lab2_cells_ui(RenderContext & render_context)
+{
+    auto & lab2 = render_context.rt_lab.lab2;
+    auto & s = lab2.settings;
+    auto timing = [&](std::initializer_list<u32> indices)
+    {
+        u64 sum = 0;
+        for (u32 i : indices)
+        {
+            sum += render_context.render_times.get_average(i);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%8.1f us", static_cast<f32>(sum) * 0.001f);
+    };
+    ImGui::SeparatorText("Cells");
+    timing({RenderTimes::index<"RT_LAB", "LAB2_QUERY">(), RenderTimes::index<"RT_LAB", "LAB2_CELL_PREPARE">(), RenderTimes::index<"RT_LAB", "LAB2_ACCUMULATE">(), RenderTimes::index<"RT_LAB", "LAB2_CELL_INTEGRATE">()});
+    // The slider only edits the pending value, the (graph rebuilding, grid clearing) change is applied when it is released.
+    if (!ImGui::IsMouseDown(0))
+    {
+        lab2.capacity_ui = rt_lab2_cell_capacity_log2(s);
+    }
+    ImGui::SliderInt("Cell Capacity (2^n)", &lab2.capacity_ui, 16, 24, "2^%d");
+    if (ImGui::IsItemDeactivatedAfterEdit())
+    {
+        s.cell_capacity_log2 = static_cast<f32>(lab2.capacity_ui);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%u cells, %.0f MB", 1u << static_cast<u32>(lab2.capacity_ui), static_cast<f64>(sizeof(RtLab2Cell)) * static_cast<f64>(1u << static_cast<u32>(lab2.capacity_ui)) / (1024.0 * 1024.0));
+    ImGui::SetItemTooltip("Number of hash grid cell slots = the grid's memory (the number next to the slider; plus the gradient's ray records when it is on). Raise it when the Statistics show a high load\n"
+                          "(queries fail when the probe windows overflow). Applied when you release the slider: the graph rebuilds and the grid starts empty.");
+    ImGui::SliderFloat("Cell Size (px)", &s.cell_size_px, 2.0f, 64.0f, "%.1f");
+    ImGui::SetItemTooltip("Target cell size in pixels at the cell's distance: the cascade level is the smallest power of two multiple of\nMin Cell Size that reaches it (cells are between 1x and 2x this).");
+    ImGui::SliderFloat("Min Cell Size (m)", &s.min_cell_size, 0.001f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat("History Samples / Pixel", &s.history_samples_per_pixel, 0.0f, 64.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SetItemTooltip("Temporal adaption speed, normalized by the pixel coverage. A cell's history window (cap of its effective sample count) =\nthis x the cell's smoothed visible pixel count. Fewer pixels see the cell -> proportionally fewer rays AND a proportionally smaller window,\nso the adaption speed in frames is the same for every cell: about this / (rays per pixel) frames. 0 = off (cap = Max History Samples).");
+    ImGui::SliderFloat("Min History Samples", &s.min_history_samples, 1.0f, 1024.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SetItemTooltip("Lower limit of the window, so a tiny cell still averages a few rays.");
+    ImGui::SliderFloat("Max History Samples", &s.max_history_samples, 1.0f, 65536.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SetItemTooltip("Upper limit of the window (the cap itself when History Samples / Pixel is 0).");
+    ImGui::SliderFloat("Max Frame Samples", &s.max_frame_samples, 0.0f, 4096.0f, "%.0f");
+    ImGui::SetItemTooltip("Cap of the weight one frame gets in a cell's blend n_new / (n_old + n_new) (the frame's mean is unchanged, only how hard it pulls\n"
+                          "the history): a frame can never move a cell by more than Max Frame Samples / (history + Max Frame Samples). 0 = off.");
+    ImGui::SliderInt("Free After (frames)", &s.max_untouched_frames, 1, 600);
+    ImGui::Checkbox("Draw Cell AABBs", reinterpret_cast<bool *>(&render_context.render_data.rtgi_settings.hash_grid_debug_draw_cells));
+    ImGui::SetItemTooltip("Draw the world-space box of every cell queried this frame, colored per cell (same switch as the RTGI hash grid). Cells of different normal buckets share a box. Capped by the debug AABB draw capacity.");
+    ImGui::SeparatorText("Exposure");
+    ImGui::SetItemTooltip("Exposure = how many screen pixels see a cell, smoothed over frames.");
+    ImGui::SliderFloat("Exposure Smoothing", &s.exposure_alpha, 0.01f, 1.0f, "%.2f");
+    ImGui::SetItemTooltip("Rate of the visible pixel count average.");
+    ImGui::SliderFloat("Coverage Weighting", &s.exposure_strength, 0.0f, 2.0f, "%.2f");
+    ImGui::SetItemTooltip("The new frame counts proportionally to its pixel coverage relative to the history's: the history samples are scaled by\n(last frame's coverage / this frame's coverage)^strength, in both directions. 1: coverage 4 -> 16 pixels = the new frame counts 4x more against\nthe history, 16 -> 4 = 4x less. (The frame's rays also scale with the coverage.) 0 = off.");
+    ImGui::SliderFloat("Coverage Min Scale", &s.exposure_min_scale, 0.01f, 1.0f, "%.2f");
+    ImGui::SetItemTooltip("Limits of one frame's scaling: [this, 1 / this].");
+
+    ImGui::SeparatorText("Lookup");
+    timing({RenderTimes::index<"RT_LAB", "LAB2_LOOKUP">()});
+    char const * const kernels[] = {"Tent (triangular, +-1 cell)", "Cubic B-Spline (+-2 cells)", "Gaussian (sigma 0.75 cells)"};
+    ImGui::Combo("Kernel", &s.lookup_kernel, kernels, 3);
+    ImGui::SetItemTooltip("Every tap draws a random offset from this distribution (per axis, in cells of the tap's cascade) and reads the cell at that\n"
+                          "point. No weights, no deterministic taps: the mean of the taps is the filtered value. The cubic B-spline and the\n"
+                          "gaussian are smoother than the tent (and wider).");
+    ImGui::SliderInt("Taps", &s.lookup_taps, 1, RT_LAB2_MAX_LOOKUP_TAPS);
+    ImGui::SetItemTooltip("Stochastic taps per pixel and frame (each also picks its cascade). Fewer = noisier lookup, the integrator averages it.");
+    ImGui::SliderFloat("Kernel Width", &s.lookup_distance, 0.0f, 4.0f, "%.2f");
+    ImGui::SetItemTooltip("Scales the kernel offsets: 1 = the kernel's own width in cells, > 1 wider (smoother, blurrier), < 1 narrower (0 = the pixel's own cell).");
+    ImGui::SliderFloat("Cascade Blend Width", &s.level_blend_width, 0.0f, 1.0f, "%.2f");
+    ImGui::SetItemTooltip("Stochastic cascade selection. Width of the blend region around every level transition in log2 cell size units (0 = hard\n"
+                          "levels, 1 = the whole level range). A tap picks the neighbor cascade with probability 0.5 exactly at the transition,\n"
+                          "falling to 0 at the edge of the region. The pixels in the region feed both cascades.");
+    ImGui::Checkbox("Project Taps On Surface", reinterpret_cast<bool *>(&s.lookup_project));
+    ImGui::SetItemTooltip("Tap offsets are projected onto the pixel's surface plane, so taps land on cells of the same surface\n(3D offsets mostly miss: a wall is one cell thick).");
+    ImGui::SliderInt("Min Cell Samples", &s.lookup_min_samples, 0, 64);
+    ImGui::SetItemTooltip("Taps on cells with fewer effective samples are skipped.");
+
+    ImGui::TextDisabled("Temporal resolve: see the Temporal Resolve section (shared by all pipelines).");
+}
 
 void rt_lab2_ui(RenderContext & render_context)
 {
@@ -797,30 +916,11 @@ void rt_lab2_ui(RenderContext & render_context)
         ImGui::SameLine();
         ImGui::TextDisabled("%8.1f us", static_cast<f32>(sum) * 0.001f);
     };
-    if (!ImGui::CollapsingHeader("RT Lab 2 (hash grid denoiser)"))
-    {
-        return;
-    }
     ImGui::PushID("rt lab 2");
-    bool enabled = lab2.enabled;
-    if (ImGui::Checkbox("Use RT Lab 2", &enabled))
+    if (ImGui::Button("Reset Hash Grid Settings"))
     {
-        lab2.enabled = enabled;
-        if (enabled)
-        {
-            render_context.render_data.rt_lab_settings.enabled = 1; // RT Lab 2 is a denoiser of the RT Lab trace
-        }
+        static_cast<RtLab2Config &>(lab2) = RtLab2Config{};
     }
-    ImGui::SetItemTooltip("Replaces the original RT Lab denoiser (temporal + spatial + guides) by the hash grid denoiser:\n"
-                          "cells integrate the rays over time, a stochastic interpolation brings them back to pixels, a small\n"
-                          "spatial temporal integrator finishes the image. The original stays as it is: the progressive reference\n"
-                          "phases of the tests, and everything with this unchecked, run it. Tests run the active denoiser.\n"
-                          "The trace settings (hit AO, ...) come from the active RT Lab preset.");
-    if (ImGui::Button("Reset Settings"))
-    {
-        lab2.settings = rt_lab2_default_settings();
-    }
-    ImGui::BeginDisabled(!lab2.enabled);
     ImGui::SliderFloat("Ray Budget (rays / px)", &lab2.ray_budget, 1.0f / 64.0f, 4.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     ImGui::SetItemTooltip("Hard budget, full res pixels. Below 1 only that fraction of the pixels shoots (rotated Bayer selection per 8x8 tile),\n"
                           "above 1 every pixel shoots and the extra rays are spread. Graph rebuild when the rounded up value changes.");
@@ -865,83 +965,7 @@ void rt_lab2_ui(RenderContext & render_context)
     }
     ImGui::EndDisabled();
 
-    ImGui::SeparatorText("Cells");
-    timing({RenderTimes::index<"RT_LAB", "LAB2_QUERY">(), RenderTimes::index<"RT_LAB", "LAB2_CELL_PREPARE">(), RenderTimes::index<"RT_LAB", "LAB2_ACCUMULATE">(), RenderTimes::index<"RT_LAB", "LAB2_CELL_INTEGRATE">()});
-    // The slider only edits the pending value, the (graph rebuilding, grid clearing) change is applied when it is released.
-    if (!ImGui::IsMouseDown(0))
-    {
-        lab2.capacity_ui = rt_lab2_cell_capacity_log2(s);
-    }
-    ImGui::SliderInt("Cell Capacity (2^n)", &lab2.capacity_ui, 16, 24, "2^%d");
-    if (ImGui::IsItemDeactivatedAfterEdit())
-    {
-        s.cell_capacity_log2 = static_cast<f32>(lab2.capacity_ui);
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("%u cells, %.0f MB", 1u << static_cast<u32>(lab2.capacity_ui), static_cast<f64>(sizeof(RtLab2Cell)) * static_cast<f64>(1u << static_cast<u32>(lab2.capacity_ui)) / (1024.0 * 1024.0));
-    ImGui::SetItemTooltip("Number of hash grid cell slots = the grid's memory (the number next to the slider; plus the gradient's ray records when it is on). Raise it when the Statistics show a high load\n"
-                          "(queries fail when the probe windows overflow). Applied when you release the slider: the graph rebuilds and the grid starts empty.");
-    ImGui::SliderFloat("Cell Size (px)", &s.cell_size_px, 2.0f, 64.0f, "%.1f");
-    ImGui::SetItemTooltip("Target cell size in pixels at the cell's distance: the cascade level is the smallest power of two multiple of\nMin Cell Size that reaches it (cells are between 1x and 2x this).");
-    ImGui::SliderFloat("Min Cell Size (m)", &s.min_cell_size, 0.001f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SliderFloat("History Samples / Pixel", &s.history_samples_per_pixel, 0.0f, 64.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("Temporal adaption speed, normalized by the pixel coverage. A cell's history window (cap of its effective sample count) =\nthis x the cell's smoothed visible pixel count. Fewer pixels see the cell -> proportionally fewer rays AND a proportionally smaller window,\nso the adaption speed in frames is the same for every cell: about this / (rays per pixel) frames. 0 = off (cap = Max History Samples).");
-    ImGui::SliderFloat("Min History Samples", &s.min_history_samples, 1.0f, 1024.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("Lower limit of the window, so a tiny cell still averages a few rays.");
-    ImGui::SliderFloat("Max History Samples", &s.max_history_samples, 1.0f, 65536.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("Upper limit of the window (the cap itself when History Samples / Pixel is 0).");
-    ImGui::SliderInt("Free After (frames)", &s.max_untouched_frames, 1, 600);
-    ImGui::SeparatorText("Exposure");
-    ImGui::SetItemTooltip("Exposure = how many screen pixels see a cell, smoothed over frames.");
-    ImGui::SliderFloat("Exposure Smoothing", &s.exposure_alpha, 0.01f, 1.0f, "%.2f");
-    ImGui::SetItemTooltip("Rate of the visible pixel count average.");
-    ImGui::SliderFloat("Coverage Weighting", &s.exposure_strength, 0.0f, 2.0f, "%.2f");
-    ImGui::SetItemTooltip("The new frame counts proportionally to its pixel coverage relative to the history's: the history samples are scaled by\n(last frame's coverage / this frame's coverage)^strength, in both directions. 1: coverage 4 -> 16 pixels = the new frame counts 4x more against\nthe history, 16 -> 4 = 4x less. (The frame's rays also scale with the coverage.) 0 = off.");
-    ImGui::SliderFloat("Coverage Min Scale", &s.exposure_min_scale, 0.01f, 1.0f, "%.2f");
-    ImGui::SetItemTooltip("Limits of one frame's scaling: [this, 1 / this].");
-
-    ImGui::SeparatorText("Lookup");
-    timing({RenderTimes::index<"RT_LAB", "LAB2_LOOKUP">()});
-    char const * const kernels[] = {"Tent (triangular, +-1 cell)", "Cubic B-Spline (+-2 cells)", "Gaussian (sigma 0.75 cells)"};
-    ImGui::Combo("Kernel", &s.lookup_kernel, kernels, 3);
-    ImGui::SetItemTooltip("Every tap draws a random offset from this distribution (per axis, in cells of the tap's cascade) and reads the cell at that\n"
-                          "point. No weights, no deterministic taps: the mean of the taps is the filtered value. The cubic B-spline and the\n"
-                          "gaussian are smoother than the tent (and wider).");
-    ImGui::SliderInt("Taps", &s.lookup_taps, 1, RT_LAB2_MAX_LOOKUP_TAPS);
-    ImGui::SetItemTooltip("Stochastic taps per pixel and frame (each also picks its cascade). Fewer = noisier lookup, the integrator averages it.");
-    ImGui::SliderFloat("Kernel Width", &s.lookup_distance, 0.0f, 4.0f, "%.2f");
-    ImGui::SetItemTooltip("Scales the kernel offsets: 1 = the kernel's own width in cells, > 1 wider (smoother, blurrier), < 1 narrower (0 = the pixel's own cell).");
-    ImGui::SliderFloat("Cascade Blend Width", &s.level_blend_width, 0.0f, 1.0f, "%.2f");
-    ImGui::SetItemTooltip("Stochastic cascade selection. Width of the blend region around every level transition in log2 cell size units (0 = hard\n"
-                          "levels, 1 = the whole level range). A tap picks the neighbor cascade with probability 0.5 exactly at the transition,\n"
-                          "falling to 0 at the edge of the region. The pixels in the region feed both cascades.");
-    ImGui::Checkbox("Project Taps On Surface", reinterpret_cast<bool *>(&s.lookup_project));
-    ImGui::SetItemTooltip("Tap offsets are projected onto the pixel's surface plane, so taps land on cells of the same surface\n(3D offsets mostly miss: a wall is one cell thick).");
-    ImGui::SliderInt("Min Cell Samples", &s.lookup_min_samples, 0, 64);
-    ImGui::SetItemTooltip("Taps on cells with fewer effective samples are skipped.");
-
-    ImGui::SeparatorText("Integrator");
-    timing({RenderTimes::index<"RT_LAB", "LAB2_INTEGRATOR">()});
-    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&s.integrator_enabled));
-    ImGui::SetItemTooltip("Off: the lookup is the output.");
-    ImGui::BeginDisabled(s.integrator_enabled == 0);
-    ImGui::SliderInt("Window Radius", &s.window_radius, 0, RT_LAB2_MAX_WINDOW_RADIUS);
-    ImGui::SetItemTooltip("Variance window (2r + 1)^2 of this frame's lookup, on the pixel's surface.");
-    ImGui::SliderFloat("Variance Reference", &s.variance_reference, 0.01f, 2.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("Relative std of the window (luminance std / mean) at which the window counts as fully noisy.");
-    ImGui::SliderFloat("Alpha Quiet", &s.alpha_max, 0.0f, 1.0f, "%.3f");
-    ImGui::SetItemTooltip("Blend factor of the new value in a quiet window (it is already accurate: little history).");
-    ImGui::SliderFloat("Alpha Noisy", &s.alpha_min, 0.0f, 1.0f, "%.3f");
-    ImGui::SetItemTooltip("Blend factor of the new value in a fully noisy window (keeps most of the history).\nNever below 1 / history length.");
-    ImGui::SliderFloat("History Clamp (sigmas)", &s.variance_gamma, 0.0f, 8.0f, "%.2f");
-    ImGui::SetItemTooltip("The reprojected history is clamped into window mean +- this many window standard deviations (TAA style).\nQuiet window = tight box = fast reaction to lighting changes. 0 = no clamp.");
-    ImGui::SliderFloat("Spatial Strength", &s.spatial_strength, 0.0f, 1.0f, "%.2f");
-    ImGui::SetItemTooltip("How far a noisy window moves the new value to the window mean (spatial filtering of the noise).");
-    ImGui::SliderInt("Max History Frames", &s.max_frames, 1, 512);
-    ImGui::SliderFloat("Plane Tolerance (px)", &s.plane_tolerance, 0.1f, 8.0f);
-    ImGui::SliderFloat("Normal Threshold", &s.normal_threshold, -1.0f, 1.0f);
-    ImGui::EndDisabled();
-    ImGui::EndDisabled();
+    rt_lab2_cells_ui(render_context);
     ImGui::SeparatorText("Temporal Gradient (per cell)");
     timing({RenderTimes::index<"RT_LAB", "LAB2_GRADIENT_TRACE">(), RenderTimes::index<"RT_LAB", "LAB2_GRADIENT_SPATIAL">(), RenderTimes::index<"RT_LAB", "LAB2_GRADIENT_RECORD">()});
     ImGui::Checkbox("Gradient Enabled", reinterpret_cast<bool *>(&s.gradient_enabled));
@@ -971,6 +995,13 @@ void rt_lab2_ui(RenderContext & render_context)
     ImGui::SetItemTooltip("The integrator's reprojected history is scaled by the applied correction of the pixel's cell too. Without it the integrator's slow blend lags the cells.");
     ImGui::EndDisabled();
     ImGui::TextDisabled("Debug views: RT_LAB2_* in the debug view list.");
+    ImGui::PopID();
+}
+
+// Live cell probes + grid statistics (runtime tools, not settings).
+void rt_lab2_tools_ui(RenderContext & render_context)
+{
+    ImGui::PushID("rt lab 2 tools");
     ImGui::SeparatorText("Live Cell Probes");
     rt_lab2_probe_ui(render_context);
     ImGui::SeparatorText("Statistics");
@@ -1045,6 +1076,7 @@ void rt_lab2_apply_json(RtLab2State & state, nlohmann::json const & json, std::v
         RT_LAB2_JSON_FIELD(history_samples_per_pixel)
         RT_LAB2_JSON_FIELD(min_history_samples)
         RT_LAB2_JSON_FIELD(max_history_samples)
+        RT_LAB2_JSON_FIELD(max_frame_samples)
         RT_LAB2_JSON_FIELD(exposure_alpha)
         RT_LAB2_JSON_FIELD(exposure_strength)
         RT_LAB2_JSON_FIELD(exposure_min_scale)
@@ -1053,16 +1085,6 @@ void rt_lab2_apply_json(RtLab2State & state, nlohmann::json const & json, std::v
         RT_LAB2_JSON_FIELD(lookup_distance)
         RT_LAB2_JSON_FIELD(lookup_project)
         RT_LAB2_JSON_FIELD(lookup_min_samples)
-        RT_LAB2_JSON_FIELD(integrator_enabled)
-        RT_LAB2_JSON_FIELD(window_radius)
-        RT_LAB2_JSON_FIELD(variance_gamma)
-        RT_LAB2_JSON_FIELD(alpha_min)
-        RT_LAB2_JSON_FIELD(alpha_max)
-        RT_LAB2_JSON_FIELD(variance_reference)
-        RT_LAB2_JSON_FIELD(spatial_strength)
-        RT_LAB2_JSON_FIELD(max_frames)
-        RT_LAB2_JSON_FIELD(plane_tolerance)
-        RT_LAB2_JSON_FIELD(normal_threshold)
 #undef RT_LAB2_JSON_FIELD
         else
         {

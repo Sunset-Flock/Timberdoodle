@@ -10,6 +10,14 @@
 // pixel count. NOTE: this scales the ray_list + ray_result VRAM linearly.
 #define RTGI_RAY_LIST_CAPACITY_MUL 4
 
+// RtgiSettings::diffuse_hit_shading
+#define RTGI_HIT_SHADING_DIFFUSE_COARSE 0
+#define RTGI_HIT_SHADING_DIFFUSE_FINE 1
+// RtgiSettings::specular_hit_shading
+#define RTGI_HIT_SHADING_SPECULAR_FINE 0
+#define RTGI_HIT_SHADING_SPECULAR_WIDE_COARSE 1
+#define RTGI_HIT_SHADING_SPECULAR_COARSE 2
+
 
 struct RtgiSettings
 {
@@ -83,15 +91,17 @@ struct RtgiSettings
     // (reproject demand -> allocate -> trace-from-list -> blend). Only one path runs per frame.
     daxa_i32 use_repacked_ray_dispatch;
 
-    // The repacked path always traces split: a slim trace pipeline (no shading code, minimal payload) only records the
-    // hit (rtgi_ray_hits) and bins it into a SHARP list (specular hits: full material + light shading), a COARSE list
-    // (diffuse hits: PGI radiance only) or the MISS list (sky); one specialized compute shade pass per list,
-    // dispatched indirectly. split_coarse_wide_specular: specular hits whose GGX cone footprint at the hit is at least
-    // the PGI probe spacing there are shaded coarse (PGI radiance) instead of sharp. See rtgi_split_hit_is_sharp.
-    daxa_i32 split_coarse_wide_specular;
-    // 1 = every hit (diffuse rays too) gets the sharp shading (full material + lights + shadow rays) instead of the PGI
-    // radiance shortcut. Both trace paths (split: rtgi_split_hit_is_sharp input, classic: closest_hit). Not the pioneer trace.
-    daxa_i32 force_fine_hit_shading;
+    // Hit shading: FINE = full material + lights + shadow rays (rtgi_shade_sharp_hit), COARSE = PGI radiance only (rtgi_shade_coarse_hit).
+    // The repacked path always traces split: a slim trace pipeline (no shading code, minimal payload) only records the hit
+    // (rtgi_ray_hits) and bins it into a SHARP (fine) list, a COARSE list or the MISS list (sky); one specialized compute shade
+    // pass per list, dispatched indirectly. Both trace paths read the modes below (split: rtgi_split_hit_is_sharp, classic: closest_hit),
+    // the pioneer trace is always coarse.
+    // diffuse_hit_shading: RTGI_HIT_SHADING_DIFFUSE_*.
+    daxa_i32 diffuse_hit_shading;
+    // specular_hit_shading: RTGI_HIT_SHADING_SPECULAR_*. WIDE = coarse when the GGX cone footprint at the hit covers at least
+    // specular_coarse_footprint PGI probe spacings there, else fine (repacked path only, the classic path shades WIDE fine).
+    daxa_i32 specular_hit_shading;
+    daxa_f32 specular_coarse_footprint;
 
     // 1 = each tile's ray budget is proportional to its demand (disoccluded tiles get more rays).
     // 0 = every tile gets the same fixed budget regardless of demand (uniform ray rate per tile).

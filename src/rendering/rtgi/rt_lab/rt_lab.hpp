@@ -42,6 +42,17 @@ void rt_lab_tests_begin_frame(RenderContext & render_context);
 // render_data.rt_lab_settings and collects the reference analysis readback. Returns true when the task graph must be
 // rebuilt.
 auto rt_lab_frame_update(RenderContext & render_context) -> bool;
+// Derives lab2 / lab3 / lab4 `enabled` from the pipeline fields of `settings` (the active preset, start of rt_lab_frame_update; a no ReSTIR + none combination
+// becomes classic). Returns true when the pipeline changed, i.e. the task graph must be rebuilt.
+auto rt_lab_pipeline_resolve(RtLabState & lab, RtLabSettings & settings) -> bool;
+// The settings of the stages a preset runs (ReSTIR, input glue, hash grid, temporal resolve), edited in place: RtLabState::preset_configs[preset].
+void rt_lab_preset_config_ui(RenderContext & render_context, i32 preset);
+// The temporal resolve settings of a preset (same round trip as above), for the Resolve section.
+void rt_lab_preset_resolve_ui(RenderContext & render_context, i32 preset);
+// The preset's default config (everything outside RtLabSettings).
+auto rt_lab_default_preset_config(RtLabPreset preset) -> RtLabPresetConfig;
+// "Pipeline" block of a preset's settings (version combo, ReSTIR checkbox, denoiser combo).
+void rt_lab_pipeline_ui(RtLabSettings & settings);
 // Steps of a test's programmed move: the longer of the camera and the sun move, in fixed_dt steps.
 auto rt_lab_test_move_steps(RtLabTestMove const & move) -> i32;
 // The application took the step 0 poses of a starting test move (RtLabState::test_move_begin): recorded with the test.
@@ -53,6 +64,8 @@ MAKE_COMPUTE_COMPILE_INFO(rt_lab_ray_filter_compile_info, "./src/rendering/rtgi/
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gather_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gather")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_blur_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gradient_blur")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_gradient_trace")
+MAKE_COMPUTE_COMPILE_INFO(rt_lab_stats_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_analysis.hlsl", "entry_rt_lab_stats")
+MAKE_COMPUTE_COMPILE_INFO(rt_lab_picker_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_analysis.hlsl", "entry_rt_lab_picker")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_probe_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_probe.hlsl", "entry_rt_lab_probe")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_telemetry_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_telemetry.hlsl", "entry_rt_lab_telemetry")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_trace")
@@ -121,6 +134,8 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
            a.temporal_gradient_all_base_rays != b.temporal_gradient_all_base_rays ||
            (a.temporal_gradient_all_base_rays != 0 && a.min_ray_budget != b.min_ray_budget) || // dense record size
            a.half_res != b.half_res ||
+           a.restir_enabled != b.restir_enabled ||
+           a.denoiser != b.denoiser ||
            a.temporal_enabled != b.temporal_enabled ||
            a.temporal_progressive != b.temporal_progressive ||
            a.split_history_enabled != b.split_history_enabled ||
@@ -135,3 +150,6 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
 
 // Opaque specular is null: the opaque shading then falls back to its diffuse based specular approximation.
 auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult;
+// The same denoiser fed by the ReSTIR stage of RT Lab 3 instead of its own ray stage (pipeline: ReSTIR + classic denoiser). No temporal gradient / ray filter /
+// SH guide / telemetry (they need the lab's own ray buffers), no move reference history backups of the geometry.
+auto tasks_rt_lab_restir_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult;

@@ -33,6 +33,7 @@ struct RtLab2Settings
     daxa_f32 history_samples_per_pixel;
     daxa_f32 min_history_samples;
     daxa_f32 max_history_samples;   // upper limit of the cap
+    daxa_f32 max_frame_samples;     // cap of the weight one frame's rays / pixels get in a cell's blend n_new / (n_old + n_new), 0 = off (RT Lab 4: a frame cannot pull a cell harder than this)
     daxa_f32 cell_capacity_log2;    // log2 of the number of cell slots (the grid's memory). 0 = the default 20 (this slot was the removed pixel clamp: older builds send 0)
     // Exposure = how many pixels see the cell (pixel coverage). exposure itself is smoothed (the history window follows it); the weight of a new frame
     // against the history follows the raw coverage change between the last frame and this one (exposure_strength).

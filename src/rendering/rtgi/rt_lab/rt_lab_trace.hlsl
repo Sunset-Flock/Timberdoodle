@@ -50,9 +50,11 @@ func rt_lab_shade_fine_hit(RtgiShadeContext ctx, RtLabSettings settings, uint in
 // hit_seed (rt_lab_hit_seed): rand() is seeded with it right before the hit is shaded, so the trace and the re-trace
 // draw the same random numbers in the shading.
 // hit_t: the hit distance, RT_LAB_RAY_T_MAX on a miss.
-func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc ray, uint hit_seed, out float hit_t) -> float3
+// want_normal: also fetch the hit's face normal (facing the ray), on a miss -direction (RT Lab 3 stores it with the sample).
+func rt_lab_trace_radiance_ex(RtgiShadeContext ctx, RtLabSettings settings, RayDesc ray, uint hit_seed, bool want_normal, out float hit_t, out float3 hit_normal) -> float3
 {
     hit_t = RT_LAB_RAY_T_MAX;
+    hit_normal = -ray.Direction;
     RayQuery<RAY_FLAG_NONE> q;
     q.TraceRayInline(RaytracingAccelerationStructure::get(ctx.tlas), 0, 0xFF, ray);
     while (q.Proceed())
@@ -71,12 +73,25 @@ func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc
     }
     if (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
     {
+        if (want_normal)
+        {
+            float3 hit_position;
+            float3 face_normal;
+            rtgi_shade_hit_position_face_normal(ctx, q.CommittedInstanceID(), q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics(), hit_position, face_normal);
+            hit_normal = dot(face_normal, ray.Direction) > 0.0f ? -face_normal : face_normal;
+        }
         rand_seed(hit_seed);
         const float t = q.CommittedRayT();
         hit_t = t;
         return rt_lab_shade_fine_hit(ctx, settings, q.CommittedInstanceID(), q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics(), ray.Direction, t);
     }
     return rtgi_shade_miss(ctx, ray.Direction);
+}
+
+func rt_lab_trace_radiance(RtgiShadeContext ctx, RtLabSettings settings, RayDesc ray, uint hit_seed, out float hit_t) -> float3
+{
+    float3 hit_normal;
+    return rt_lab_trace_radiance_ex(ctx, settings, ray, hit_seed, false, hit_t, hit_normal);
 }
 
 [shader("compute")]

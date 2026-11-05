@@ -1,6 +1,9 @@
 #include "rt_lab.hpp"
 #include "rt_lab_internal.hpp"
 #include "rt_lab2.hpp"
+#include "rt_lab3.hpp"
+#include "rt_lab4.hpp"
+#include "rt_lab_integrator.hpp"
 
 #include "rt_lab_trace.inl"
 #include "rt_lab_temporal.inl"
@@ -9,6 +12,7 @@
 #include "rt_lab_resolve.inl"
 #include "rt_lab_convergence.inl"
 #include "rt_lab_measure.inl"
+#include "rt_lab_analysis.hpp"
 #include "rt_lab_probe.inl"
 #include "rt_lab_telemetry.inl"
 
@@ -21,6 +25,7 @@
 #include <limits>
 
 #include <fmt/format.h>
+#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
@@ -38,7 +43,7 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
             .redistribution_enabled        = 0,
             .ray_budget                    = 1.0f,
             .min_ray_budget                = 0.125f,
-            .max_rays_per_pixel            = 12,
+            .max_rays_per_pixel            = 16,
             .fast_convergence_samples      = 32.0f,
             .temporal_gradient_enabled     = 0,
             .temporal_gradient_blur_radius = 24,
@@ -111,7 +116,7 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
         .redistribution_enabled        = 1,
         .ray_budget                    = 1.0f,
         .min_ray_budget                = 0.125f,
-        .max_rays_per_pixel            = 12,
+        .max_rays_per_pixel            = 16,
         .fast_convergence_samples      = 32.0f,
         .temporal_gradient_enabled     = 1,
         .temporal_gradient_blur_radius = 24,
@@ -174,7 +179,17 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
         .reset_history                 = 0,
     };
     settings.neural_enabled = preset == RT_LAB_PRESET_NEURAL ? 1 : 0;
+    settings.coarse_anti_lag_soft_floor = 0.1f;
+    settings.coarse_anti_lag_spring_min = 0.15f;
+    settings.coarse_anti_lag_spring_range = 3.0f;
     return settings;
+}
+
+auto rt_lab_default_preset_config(RtLabPreset preset) -> RtLabPresetConfig
+{
+    RtLabPresetConfig config = {};
+    config.integrator.enabled = preset != RT_LAB_PRESET_PROGRESSIVE; // the reference accumulates without a temporal resolve
+    return config;
 }
 
 void rt_lab_init(RenderContext & render_context)
@@ -184,6 +199,11 @@ void rt_lab_init(RenderContext & render_context)
     {
         lab.presets[p] = rt_lab_default_settings(static_cast<RtLabPreset>(p));
     }
+    for (i32 p = 0; p < RT_LAB_PRESET_COUNT; ++p)
+    {
+        lab.preset_configs[p] = rt_lab_default_preset_config(static_cast<RtLabPreset>(p));
+    }
+    rt_lab_config_apply(lab, lab.preset_configs[lab.active_preset]);
     render_context.render_data.rt_lab_settings = lab.presets[lab.active_preset];
 }
 
@@ -225,6 +245,7 @@ void rt_lab_destroy(RenderContext & render_context)
     rt_lab_destroy_history_backups(render_context);
     rt_lab_telemetry_destroy(render_context);
     rt_lab_probe_destroy(render_context);
+    rt_lab_analysis_destroy(render_context);
     rt_lab2_probe_destroy(render_context);
     rt_lab2_stats_destroy(render_context);
     rt_lab_neural_destroy(render_context);
@@ -486,6 +507,11 @@ static auto rt_lab_settings_to_json(RtLabSettings const & s) -> nlohmann::json
         {"neural_use_coopvec", s.neural_use_coopvec},
         {"neural_use_half", s.neural_use_half},
         {"neural_target_samples", s.neural_target_samples},
+        {"restir_enabled", s.restir_enabled},
+        {"denoiser", s.denoiser},
+        {"coarse_anti_lag_soft_floor", s.coarse_anti_lag_soft_floor},
+        {"coarse_anti_lag_spring_min", s.coarse_anti_lag_spring_min},
+        {"coarse_anti_lag_spring_range", s.coarse_anti_lag_spring_range},
     };
 }
 
@@ -564,6 +590,11 @@ static auto rt_lab_settings_from_json(nlohmann::json const & j) -> RtLabSettings
     s.neural_use_coopvec = j.value("neural_use_coopvec", 1);
     s.neural_use_half = j.value("neural_use_half", 0);
     s.neural_target_samples = j.value("neural_target_samples", 1000000.0f);
+    s.restir_enabled = j.value("restir_enabled", 0);
+    s.denoiser = j.value("denoiser", RT_LAB_DENOISER_CLASSIC);
+    s.coarse_anti_lag_soft_floor = j.value("coarse_anti_lag_soft_floor", 0.0f); // old results: the hard behavior
+    s.coarse_anti_lag_spring_min = j.value("coarse_anti_lag_spring_min", 1.0f);
+    s.coarse_anti_lag_spring_range = j.value("coarse_anti_lag_spring_range", 3.0f);
     return s;
 }
 
@@ -1530,6 +1561,95 @@ static auto rt_lab_convergence_result_from_readback(ReadbackValues const & readb
     return result;
 }
 
+auto rt_lab_pipeline_resolve(RtLabState & lab, RtLabSettings & settings) -> bool
+{
+    settings.denoiser = std::clamp(settings.denoiser, 0, static_cast<i32>(RT_LAB_DENOISER_COUNT) - 1);
+    bool const restir = settings.restir_enabled != 0;
+    if (!restir && settings.denoiser == RT_LAB_DENOISER_NONE)
+    {
+        settings.denoiser = RT_LAB_DENOISER_CLASSIC; // nothing denoises the raw rays without ReSTIR
+    }
+    bool const hash_grid = settings.denoiser == RT_LAB_DENOISER_HASH_GRID;
+    lab.lab4.enabled = restir && hash_grid;
+    lab.lab3.enabled = restir && settings.denoiser == RT_LAB_DENOISER_NONE;
+    lab.lab3.classic_denoiser = restir && settings.denoiser == RT_LAB_DENOISER_CLASSIC;
+    lab.lab2.enabled = !restir && hash_grid;
+    i32 const pipeline = (restir ? 4 : 0) | settings.denoiser;
+    bool const changed = pipeline != lab.built_pipeline;
+    lab.built_pipeline = pipeline;
+    return changed;
+}
+
+void rt_lab_preset_config_ui(RenderContext & render_context, i32 preset)
+{
+    auto & lab = render_context.rt_lab;
+    auto const & settings = lab.presets[preset];
+    // The section UIs edit the live lab states: load this preset's config into them, show them, store the result back. Another preset than the active one
+    // puts the active config back afterwards (the passes read the live states).
+    RtLabPresetConfig const saved = rt_lab_config_gather(lab);
+    rt_lab_config_apply(lab, lab.preset_configs[preset]);
+    bool const restir = settings.restir_enabled != 0;
+    bool const hash_grid = settings.denoiser == RT_LAB_DENOISER_HASH_GRID;
+    bool const none = settings.denoiser == RT_LAB_DENOISER_NONE && restir;
+    if (restir && ImGui::CollapsingHeader("ReSTIR GI Settings"))
+    {
+        rt_lab3_ui(render_context);
+    }
+    if (restir && !none && ImGui::CollapsingHeader("ReSTIR -> Denoiser Input"))
+    {
+        rt_lab4_ui(render_context);
+    }
+    if (hash_grid && ImGui::CollapsingHeader("Hash Grid Settings"))
+    {
+        rt_lab2_ui(render_context);
+        rt_lab2_cells_ui(render_context);
+    }
+    lab.preset_configs[preset] = rt_lab_config_gather(lab);
+    if (preset != lab.active_preset)
+    {
+        rt_lab_config_apply(lab, saved);
+    }
+}
+
+void rt_lab_preset_resolve_ui(RenderContext & render_context, i32 preset)
+{
+    auto & lab = render_context.rt_lab;
+    RtLabPresetConfig const saved = rt_lab_config_gather(lab);
+    rt_lab_config_apply(lab, lab.preset_configs[preset]);
+    ImGui::TextDisabled("Temporal resolve: runs after the denoiser in every pipeline (the hash grid's integrator).");
+    rt_lab_integrator_ui(lab.integrator, render_context, "temporal resolve");
+    lab.preset_configs[preset] = rt_lab_config_gather(lab);
+    if (preset != lab.active_preset)
+    {
+        rt_lab_config_apply(lab, saved);
+    }
+}
+
+void rt_lab_pipeline_ui(RtLabSettings & settings)
+{
+    ImGui::SeparatorText("Pipeline");
+    char const * versions[] = {"Custom", "1: Classic denoiser", "2: Hash grid", "3: ReSTIR GI", "4: ReSTIR GI + hash grid"};
+    i32 version = rt_lab_pipeline_version(settings);
+    if (ImGui::Combo("Version", &version, versions, 5) && version != 0)
+    {
+        rt_lab_pipeline_set_version(settings, version);
+    }
+    ImGui::SetItemTooltip("Shortcut for the two settings below: 1 classic denoiser, 2 hash grid, 3 ReSTIR GI without denoiser, 4 ReSTIR GI feeding the hash grid. Custom = any other combination.");
+    ImGui::Checkbox("ReSTIR GI", reinterpret_cast<bool *>(&settings.restir_enabled));
+    ImGui::SetItemTooltip("Optional stage between the trace and the denoiser: temporal + spatial reservoir reuse and a ray filter (settings: RT Lab 3 section). Graph rebuild.");
+    char const * denoisers[] = {"Classic (temporal + spatial)", "Hash grid", "None (ReSTIR only)"};
+    ImGui::Combo("Denoiser", &settings.denoiser, denoisers, RT_LAB_DENOISER_COUNT);
+    ImGui::SetItemTooltip("The classic denoiser and the hash grid exclude each other. None is only possible with ReSTIR. Order: reproject + ray redistribution -> trace -> [ReSTIR] -> denoiser -> temporal resolve -> resolve.");
+    if (settings.restir_enabled != 0 && settings.denoiser == RT_LAB_DENOISER_CLASSIC)
+    {
+        ImGui::TextDisabled("ReSTIR -> classic: no temporal gradient / ray filter / SH guide / telemetry (they need the lab's own ray buffers).");
+    }
+    if (settings.restir_enabled == 0 && settings.denoiser == RT_LAB_DENOISER_NONE)
+    {
+        ImGui::TextDisabled("None needs ReSTIR: runs as the classic denoiser.");
+    }
+}
+
 auto rt_lab_frame_update(RenderContext & render_context) -> bool
 {
     auto & lab = render_context.rt_lab;
@@ -1556,13 +1676,13 @@ auto rt_lab_frame_update(RenderContext & render_context) -> bool
             lab.rebuild_requested = true;
         }
     }
-    if (lab.post_stabilization_enabled != lab.post_stabilization_built)
-    {
-        lab.rebuild_requested = true; // graph shape
-    }
     if (rt_lab_telemetry_frame_update(render_context))
     {
         lab.rebuild_requested = true; // graph shape: telemetry pass, ray lengths
+    }
+    if (rt_lab_analysis_frame_update(render_context))
+    {
+        lab.rebuild_requested = true; // graph shape: statistics / picker passes
     }
     if (rt_lab_probe_frame_update(render_context))
     {
@@ -1598,9 +1718,26 @@ auto rt_lab_frame_update(RenderContext & render_context) -> bool
     lab.backup_custom_history = lab.phase == RtLabTestPhase::MOVE_WARMUP || lab.phase == RtLabTestPhase::MOVE_TESTED;
     render_data.rt_lab_settings = lab.presets[preset];
     render_data.rt_lab_settings.enabled = enabled;
+    rt_lab_config_apply(lab, lab.preset_configs[preset]); // the live lab states hold the config of the preset in use
+    if (rt_lab_pipeline_resolve(lab, render_data.rt_lab_settings)) // derives lab2 / lab3 / lab4 `enabled` from the active preset
+    {
+        lab.rebuild_requested = true; // graph shape: ReSTIR stage / denoiser
+    }
     if (rt_lab2_frame_update(render_context, reference_phase)) // after the preset is applied: overrides the trace related fields
     {
         lab.rebuild_requested = true; // graph shape: which denoiser
+    }
+    if (rt_lab_integrator_frame_update(lab.integrator))
+    {
+        lab.rebuild_requested = true; // graph shape: temporal resolve pass
+    }
+    if (rt_lab3_frame_update(render_context, reference_phase)) // after lab 2: wins when both are enabled
+    {
+        lab.rebuild_requested = true; // graph shape: which denoiser, spatial pass count
+    }
+    if (rt_lab4_frame_update(render_context, reference_phase))
+    {
+        lab.rebuild_requested = true; // graph shape: RT Lab 4 on / off, cell weight mode
     }
     if (rt_lab_neural_frame_update(render_context)) // after the preset is applied: it reads the neural settings
     {
@@ -1891,23 +2028,10 @@ static void rt_lab_atrous_callback(daxa::TaskInterface ti, RenderContext * rende
     rt_lab_dispatch(ti, render_context, push, AT.dst, RT_LAB_BLUR_X, render_time, rt_lab_atrous_compile_info().name);
 }
 
-void rt_lab_resolve_callback(daxa::TaskInterface ti, RenderContext * render_context, bool split_enabled, bool spatial_ran, bool stabilize)
+void rt_lab_resolve_callback(daxa::TaskInterface ti, RenderContext * render_context, bool split_enabled, bool spatial_ran)
 {
     auto const & AT = RtLabResolveH::Info::AT;
     RtLabResolvePush push = {};
-    push.stabilize = 0u;
-    if (stabilize)
-    {
-        push.stabilize = RT_LAB_STABILIZE_ENABLED | RT_LAB_STABILIZE_VARIANCE_BOUND;
-        if (render_context->rt_lab.post_stabilization_temporal_variance)
-        {
-            push.stabilize |= RT_LAB_STABILIZE_VARIANCE_CLAMP;
-        }
-    }
-    push.stabilize_alpha = render_context->rt_lab.post_stabilization_alpha;
-    push.stabilize_gamma = render_context->rt_lab.post_stabilization_gamma;
-    push.stabilize_radius = static_cast<u32>(std::clamp(render_context->rt_lab.post_stabilization_radius, 1, RT_LAB_STABILIZE_MAX_RADIUS));
-    push.stabilize_disable_clamp = render_context->rt_lab.post_stabilization_clamp ? 0u : 1u;
     push.split_enabled = split_enabled ? 1u : 0u;
     push.clamp_input_count = spatial_ran ? 0u : 1u;
     rt_lab_dispatch(ti, render_context, push, AT.resolved, RT_LAB_RESOLVE_X, RenderTimes::index<"RT_LAB", "RESOLVE">(), rt_lab_resolve_compile_info().name);
@@ -2009,7 +2133,9 @@ void rt_lab_measure_store_callback(daxa::TaskInterface ti, RenderContext * rende
 /// === Task graph ===
 ///
 
-auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
+// `restir` != null: the ray stage (demand, distribute, trace, gather, temporal gradient, ray filter, telemetry) is the ReSTIR stage's. Its per pixel estimate
+// (cell_input: .rgb estimate, .a weight) takes the place of the gathered ray mean, the denoiser below it is unchanged.
+static auto rt_lab_main_impl(TasksRtgiInfo const & info, RtLab3Stage const * restir) -> TasksRtgiMainResult
 {
     auto & render_context = info.render_context;
     auto const & settings = render_context.render_data.rt_lab_settings;
@@ -2076,19 +2202,19 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     };
 
     // Lab resolution geometry, written by the demand pass. Double buffered: the temporal pass reprojects against last frame's.
-    auto lab_depth = create_history_image({
+    auto lab_depth = restir ? restir->lab_depth : create_history_image({
         .format = daxa::Format::R32_SFLOAT,
         .size = lab_size,
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
         .name = "rt_lab_depth_persistent",
     });
-    auto lab_face_normal = create_history_image({
+    auto lab_face_normal = restir ? restir->lab_face_normal : create_history_image({
         .format = daxa::Format::R32_UINT,
         .size = lab_size,
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
         .name = "rt_lab_face_normal_persistent",
     });
-    auto lab_raw_diffuse = info.tg.create_task_image({
+    auto lab_raw_diffuse = restir ? restir->cell_input : info.tg.create_task_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = lab_size,
         .name = "rt_lab_raw_diffuse",
@@ -2140,22 +2266,28 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     }
 
     // Ray redistribution (rt_lab_rays.inl): demand -> distribute -> trace (ray list) -> gather.
-    u32 const ray_capacity = lab_size.x * lab_size.y * rt_lab_ray_capacity_per_pixel(settings);
-    auto ray_counters = info.tg.create_task_buffer({
-        .size = sizeof(RtLabRayCounters),
-        .name = "rt_lab_ray_counters",
-    });
-    auto ray_list = info.tg.create_task_buffer({
-        .size = sizeof(u32) * ray_capacity,
-        .name = "rt_lab_ray_list",
-    });
-    auto rays = info.tg.create_task_buffer({
-        .size = sizeof(RtLabRay) * ray_capacity,
-        .name = "rt_lab_rays",
-    });
+    u32 const ray_capacity = restir ? 0u : lab_size.x * lab_size.y * rt_lab_ray_capacity_per_pixel(settings);
+    daxa::TaskBufferView ray_counters = daxa::NullTaskBuffer;
+    daxa::TaskBufferView ray_list = daxa::NullTaskBuffer;
+    daxa::TaskBufferView rays = daxa::NullTaskBuffer;
+    if (!restir)
+    {
+        ray_counters = info.tg.create_task_buffer({
+            .size = sizeof(RtLabRayCounters),
+            .name = "rt_lab_ray_counters",
+        });
+        ray_list = info.tg.create_task_buffer({
+            .size = sizeof(u32) * ray_capacity,
+            .name = "rt_lab_ray_list",
+        });
+        rays = info.tg.create_task_buffer({
+            .size = sizeof(RtLabRay) * ray_capacity,
+            .name = "rt_lab_rays",
+        });
+    }
     // Pixel telemetry (rt_lab_telemetry.hpp) needs the ray lengths (the lab itself does not use them).
-    bool const telemetry = render_context.rt_lab.telemetry.enabled && !render_context.rt_lab.telemetry.buffer.id().is_empty();
-    bool const sh_guide = (settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) != 0 && settings.temporal_enabled != 0 && settings.spatial_enabled != 0;
+    bool const telemetry = !restir && render_context.rt_lab.telemetry.enabled && !render_context.rt_lab.telemetry.buffer.id().is_empty();
+    bool const sh_guide = !restir && (settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) != 0 && settings.temporal_enabled != 0 && settings.spatial_enabled != 0;
     // Directional variance SH guide: the second moments of the light direction distribution.
     bool const sh_variance_guide = sh_guide && (settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE;
     daxa::TaskBufferView ray_lengths = daxa::NullTaskBuffer;
@@ -2166,21 +2298,26 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .name = "rt_lab_ray_lengths",
         });
     }
-    auto ray_demand = info.tg.create_task_image({
-        .format = daxa::Format::R32_UINT,
-        .size = lab_size,
-        .name = "rt_lab_ray_demand",
-    });
-    auto ray_alloc = info.tg.create_task_image({
-        .format = daxa::Format::R32G32_UINT,
-        .size = lab_size,
-        .name = "rt_lab_ray_alloc",
-    });
-    info.tg.clear_buffer({.buffer = ray_counters, .name = "rt_lab_ray_counters_clear"});
+    daxa::TaskImageView ray_demand = daxa::NullTaskImage;
+    daxa::TaskImageView ray_alloc = restir ? restir->ray_alloc : daxa::TaskImageView{};
+    if (!restir)
+    {
+        ray_demand = info.tg.create_task_image({
+            .format = daxa::Format::R32_UINT,
+            .size = lab_size,
+            .name = "rt_lab_ray_demand",
+        });
+        ray_alloc = info.tg.create_task_image({
+            .format = daxa::Format::R32G32_UINT,
+            .size = lab_size,
+            .name = "rt_lab_ray_alloc",
+        });
+        info.tg.clear_buffer({.buffer = ray_counters, .name = "rt_lab_ray_counters_clear"});
+    }
 
     // Temporal gradient (A-SVGF style, rt_lab_rays.inl): re-trace last frame's records -> blur -> lambda, consumed by the
     // demand + temporal pass; the gather pass selects and writes this frame's records.
-    bool const gradient_enabled = settings.temporal_enabled != 0 && settings.temporal_gradient_enabled != 0;
+    bool const gradient_enabled = !restir && settings.temporal_enabled != 0 && settings.temporal_gradient_enabled != 0;
     auto const gradient_size = daxa::Extent3D{round_up_div(lab_size.x, static_cast<u32>(RT_LAB_GRADIENT_CELL)), round_up_div(lab_size.y, static_cast<u32>(RT_LAB_GRADIENT_CELL)), 1};
     // All base rays: one record per lab pixel, else one per cell.
     bool const gradient_per_pixel = gradient_enabled && settings.temporal_gradient_all_base_rays != 0;
@@ -2342,67 +2479,70 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .executes(rt_lab_gradient_blur_callback, &render_context, true, lab_size, gradient_per_pixel));
     }
 
-    info.tg.add_task(daxa::HeadTask<RtLabDemandH::Info>()
-        .head_views(RtLabDemandH::Info::Views{
-            .globals = render_context.tgpu_render_data.view(),
-            .view_cam_depth = info.view_cam_depth,
-            .view_cam_face_normals = info.view_cam_face_normals,
-            .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
-            .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
-            .lab_depth = lab_depth.current(),
-            .lab_face_normal = lab_face_normal.current(),
-            .lab_depth_history = lab_depth.previous(),
-            .lab_face_normal_history = lab_face_normal.previous(),
-            .history = history_previous,
-            .ray_demand = ray_demand,
-            .ray_counters = ray_counters,
-            .debug_image = info.debug_image,
-            .temporal_gradient = temporal_gradient,
-            .variance_history = variance_image != daxa::NullTaskImage ? variance_image.previous() : daxa::NullTaskImage,
-        })
-        .executes(rt_lab_demand_callback, &render_context, settings.temporal_enabled != 0, gradient_enabled));
-    info.tg.add_task(daxa::HeadTask<RtLabDistributeH::Info>()
-        .head_views(RtLabDistributeH::Info::Views{
-            .globals = render_context.tgpu_render_data.view(),
-            .debug_image = info.debug_image,
-            .ray_demand = ray_demand,
-            .ray_counters = ray_counters,
-            .ray_list = ray_list,
-            .ray_alloc = ray_alloc,
-        })
-        .executes(rt_lab_distribute_callback, &render_context, ray_capacity));
+    if (!restir)
+    {
+        info.tg.add_task(daxa::HeadTask<RtLabDemandH::Info>()
+            .head_views(RtLabDemandH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .view_cam_depth = info.view_cam_depth,
+                .view_cam_face_normals = info.view_cam_face_normals,
+                .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
+                .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
+                .lab_depth = lab_depth.current(),
+                .lab_face_normal = lab_face_normal.current(),
+                .lab_depth_history = lab_depth.previous(),
+                .lab_face_normal_history = lab_face_normal.previous(),
+                .history = history_previous,
+                .ray_demand = ray_demand,
+                .ray_counters = ray_counters,
+                .debug_image = info.debug_image,
+                .temporal_gradient = temporal_gradient,
+                .variance_history = variance_image != daxa::NullTaskImage ? variance_image.previous() : daxa::NullTaskImage,
+            })
+            .executes(rt_lab_demand_callback, &render_context, settings.temporal_enabled != 0, gradient_enabled));
+        info.tg.add_task(daxa::HeadTask<RtLabDistributeH::Info>()
+            .head_views(RtLabDistributeH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .debug_image = info.debug_image,
+                .ray_demand = ray_demand,
+                .ray_counters = ray_counters,
+                .ray_list = ray_list,
+                .ray_alloc = ray_alloc,
+            })
+            .executes(rt_lab_distribute_callback, &render_context, ray_capacity));
 
-    info.tg.add_task(daxa::HeadTask<RtLabTraceH::Info>()
-        .head_views(RtLabTraceH::Info::Views{
-            .globals = render_context.tgpu_render_data.view(),
-            .lab_depth = lab_depth.current(),
-            .lab_face_normal = lab_face_normal.current(),
-            .ray_counters = ray_counters,
-            .ray_list = ray_list,
-            .ray_alloc = ray_alloc,
-            .rays = rays,
-            .mesh_instances = info.mesh_instances,
-            .sky = info.sky,
-            .sky_transmittance = info.sky_transmittance,
-            .light_mask_volume = info.light_mask_volume,
-            .pgi_color = info.pgi_color,
-            .pgi_visibility = info.pgi_visibility,
-            .pgi_info = info.pgi_info,
-            .pgi_requests = info.pgi_requests,
-            .tlas = info.tlas,
-            .vsm_globals = info.vsm_globals,
-            .vsm_point_lights = info.vsm_point_lights,
-            .vsm_spot_lights = info.vsm_spot_lights,
-            .vsm_memory_block = info.vsm_memory_block,
-            .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
-            .ray_lengths = telemetry ? ray_lengths : daxa::NullTaskBuffer,
-        })
-        .executes(rt_lab_trace_callback, &render_context, ray_capacity, telemetry));
+        info.tg.add_task(daxa::HeadTask<RtLabTraceH::Info>()
+            .head_views(RtLabTraceH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .lab_depth = lab_depth.current(),
+                .lab_face_normal = lab_face_normal.current(),
+                .ray_counters = ray_counters,
+                .ray_list = ray_list,
+                .ray_alloc = ray_alloc,
+                .rays = rays,
+                .mesh_instances = info.mesh_instances,
+                .sky = info.sky,
+                .sky_transmittance = info.sky_transmittance,
+                .light_mask_volume = info.light_mask_volume,
+                .pgi_color = info.pgi_color,
+                .pgi_visibility = info.pgi_visibility,
+                .pgi_info = info.pgi_info,
+                .pgi_requests = info.pgi_requests,
+                .tlas = info.tlas,
+                .vsm_globals = info.vsm_globals,
+                .vsm_point_lights = info.vsm_point_lights,
+                .vsm_spot_lights = info.vsm_spot_lights,
+                .vsm_memory_block = info.vsm_memory_block,
+                .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+                .ray_lengths = telemetry ? ray_lengths : daxa::NullTaskBuffer,
+            })
+            .executes(rt_lab_trace_callback, &render_context, ray_capacity, telemetry));
+    }
 
     // Ray filter (RtLabSettings::ray_filter_*): clamped rays for the pixel means, temporal SH and coarse clamp; the
     // temporal gradient selection keeps the raw rays.
     daxa::TaskBufferView filtered_rays = rays;
-    bool const ray_filter = settings.ray_filter_mode != RT_LAB_RAY_FILTER_OFF;
+    bool const ray_filter = !restir && settings.ray_filter_mode != RT_LAB_RAY_FILTER_OFF;
     if (ray_filter)
     {
         filtered_rays = info.tg.create_task_buffer({
@@ -2466,20 +2606,23 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .executes(rt_lab_telemetry_reference_callback, &render_context));
     }
 
-    info.tg.add_task(daxa::HeadTask<RtLabGatherH::Info>()
-        .head_views(RtLabGatherH::Info::Views{
-            .globals = render_context.tgpu_render_data.view(),
-            .ray_alloc = ray_alloc,
-            .rays = rays,
-            .lab_raw_diffuse = lab_raw_diffuse,
-            .lab_depth = gradient_enabled ? lab_depth.current() : daxa::NullTaskImage,
-            .lab_face_normal = gradient_enabled ? lab_face_normal.current() : daxa::NullTaskImage,
-            .gradient_record_origin = gradient_record_origin,
-            .gradient_record_surface = gradient_record_surface,
-            .gradient_record_data = gradient_record_data,
-            .filtered_rays = ray_filter ? filtered_rays : daxa::NullTaskBuffer,
-        })
-        .executes(rt_lab_gather_callback, &render_context, gradient_enabled, ray_filter, gradient_per_pixel));
+    if (!restir)
+    {
+        info.tg.add_task(daxa::HeadTask<RtLabGatherH::Info>()
+            .head_views(RtLabGatherH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .ray_alloc = ray_alloc,
+                .rays = rays,
+                .lab_raw_diffuse = lab_raw_diffuse,
+                .lab_depth = gradient_enabled ? lab_depth.current() : daxa::NullTaskImage,
+                .lab_face_normal = gradient_enabled ? lab_face_normal.current() : daxa::NullTaskImage,
+                .gradient_record_origin = gradient_record_origin,
+                .gradient_record_surface = gradient_record_surface,
+                .gradient_record_data = gradient_record_data,
+                .filtered_rays = ray_filter ? filtered_rays : daxa::NullTaskBuffer,
+            })
+            .executes(rt_lab_gather_callback, &render_context, gradient_enabled, ray_filter, gradient_per_pixel));
+    }
 
 
     daxa::TaskImageView lab_diffuse = lab_raw_diffuse;
@@ -2507,7 +2650,7 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     daxa::TaskImageView lab_sh_m2b = daxa::NullTaskImage;
 
     // A neural dump (training data v3) needs the temporal SH-Y + CoCg and the squared moments of Y, Co, Cg.
-    bool const neural_dump_sh = lab_state.neural.dump.enabled && settings.temporal_enabled != 0;
+    bool const neural_dump_sh = !restir && lab_state.neural.dump.enabled && settings.temporal_enabled != 0;
     bool const sh_images_bound = sh_guide; // the blur passes read lab_sh_y / lab_cocg
     if (settings.temporal_enabled)
     {
@@ -3004,31 +3147,11 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .name = "rt_lab_split_difference_resolved",
         });
     }
-    // Post stabilization runs inside the resolve (rt_lab_resolve.hlsl): its history, null when off.
-    daxa::TaskImageView stabilize_history = daxa::NullTaskImage;
-    daxa::TaskImageView stabilize_history_out = daxa::NullTaskImage;
-    daxa::TaskImageView stabilize_variance = daxa::NullTaskImage;
-    daxa::TaskImageView stabilize_variance_out = daxa::NullTaskImage;
-    if (lab_state.post_stabilization_enabled)
+    // Temporal resolve (shared feature, rt_lab_integrator.hpp) on the final lab image. Probes keep reading the lab image itself.
+    daxa::TaskImageView resolve_input = lab_diffuse;
+    if (lab_state.integrator.enabled)
     {
-        // f16 .a holds the linear depth: relative precision ~1e-3, plenty for the 2 pixel width plane test.
-        auto history = create_history_image({
-            .format = daxa::Format::R16G16B16A16_SFLOAT,
-            .size = full_size,
-            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
-            .name = "rt_lab_post_stabilize_persistent",
-        });
-        stabilize_history = history.previous();
-        stabilize_history_out = history.current();
-        // Short temporal variance history of the resolved input (packed f16 mean / std dev YCoCg + frames, see rt_lab_resolve.inl).
-        auto variance = create_history_image({
-            .format = daxa::Format::R32G32B32A32_UINT,
-            .size = full_size,
-            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
-            .name = "rt_lab_post_stabilize_variance_persistent",
-        });
-        stabilize_variance = variance.previous();
-        stabilize_variance_out = variance.current();
+        resolve_input = rt_lab_add_integrator(info, lab_state.integrator, lab_depth, lab_face_normal, lab_diffuse, lab_size, "rt_lab_integrator_persistent");
     }
     info.tg.add_task(daxa::HeadTask<RtLabResolveH::Info>()
         .head_views(RtLabResolveH::Info::Views{
@@ -3038,17 +3161,14 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .view_cam_face_normals = info.view_cam_face_normals,
             .lab_depth = lab_depth.current(),
             .lab_face_normal = lab_face_normal.current(),
-            .lab_diffuse = lab_diffuse,
+            .lab_diffuse = resolve_input,
             .resolved = resolved,
             .lab_split_difference = lab_split_difference,
             .split_difference_resolved = split_difference_resolved,
-            .stabilize_history = stabilize_history,
-            .stabilize_history_out = stabilize_history_out,
-            .stabilize_variance = stabilize_variance,
-            .stabilize_variance_out = stabilize_variance_out,
         })
-        .executes(rt_lab_resolve_callback, &render_context, split_enabled, settings.spatial_enabled != 0,
-            stabilize_history != daxa::NullTaskImage));
+        .executes(rt_lab_resolve_callback, &render_context, split_enabled, settings.spatial_enabled != 0));
+
+    rt_lab_add_analysis(info, resolved);
 
     // Live pixel probes: read back the accumulated state of the followed pixels.
     if (lab_state.probe.enabled && !lab_state.probe.buffer.id().is_empty())
@@ -3180,4 +3300,108 @@ auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .opaque_diffuse = resolved,
         .opaque_specular = daxa::NullTaskImage,
     };
+}
+
+auto tasks_rt_lab_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
+{
+    return rt_lab_main_impl(info, nullptr);
+}
+
+auto tasks_rt_lab_restir_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
+{
+    // The per pixel estimate takes the cell input glue of RT Lab 4 (same weight / source settings): .a = the sample weight the classic temporal pass blends with.
+    auto const & lab4 = info.render_context.rt_lab.lab4;
+    auto const stage = rt_lab3_add_restir(info, std::clamp(lab4.cell_weight_mode, 0, 2), std::clamp(lab4.cell_source, 0, 1));
+    return rt_lab_main_impl(info, &stage);
+}
+
+// The old lab's measurement + reference comparison passes (RtLabState buffers / images), on the final resolved image. Shared by every lab denoiser that has no
+// split history: the error prediction image is cleared (no valid samples), the convergence metric of the measurement reads "above range" and the reference
+// comparison skips its prediction part. `size` = full resolution.
+void rt_lab_add_test_passes(TasksRtgiInfo const & info, daxa::TaskImageView resolved, daxa::Extent3D size)
+{
+    auto & render_context = info.render_context;
+    auto & lab_state = render_context.rt_lab;
+    auto split_difference_resolved = info.tg.create_task_image({
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = size,
+        .name = "rt_lab_split_difference_resolved",
+    });
+    info.tg.clear_image({.view = split_difference_resolved, .name = "rt_lab_split_difference_clear"});
+
+    if (!lab_state.measure_frame_histogram.id().is_empty())
+    {
+        info.tg.register_buffer(lab_state.measure_frame_histogram);
+        info.tg.register_buffer(lab_state.measure_run_histograms);
+        info.tg.register_buffer(lab_state.measure_lag_run);
+        auto luma_statistics = info.tg.create_task_image({
+            .format = daxa::Format::R32G32B32A32_SFLOAT,
+            .size = size,
+            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+            .name = "rt_lab_measure_luma_statistics_persistent",
+        });
+        auto jitter_state = info.tg.create_task_image({
+            .format = daxa::Format::R32G32B32A32_SFLOAT,
+            .size = size,
+            .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+            .name = "rt_lab_measure_jitter_persistent",
+        });
+        info.tg.clear_buffer({.buffer = lab_state.measure_frame_histogram.view(), .name = "rt_lab_measure_frame_histogram_clear"});
+        info.tg.add_task(daxa::HeadTask<RtLabMeasureAccumulateH::Info>()
+            .head_views(RtLabMeasureAccumulateH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .view_cam_depth = info.view_cam_depth,
+                .view_cam_face_normals = info.view_cam_face_normals,
+                .resolved = resolved,
+                .split_difference_resolved = split_difference_resolved,
+                .luma_statistics_history = luma_statistics.previous(),
+                .luma_statistics = luma_statistics.current(),
+                .jitter_history = jitter_state.previous(),
+                .jitter_state = jitter_state.current(),
+                .frame_histogram = lab_state.measure_frame_histogram.view(),
+            })
+            .executes(rt_lab_measure_accumulate_callback, &render_context));
+        info.tg.add_task(daxa::HeadTask<RtLabMeasureStoreH::Info>()
+            .head_views(RtLabMeasureStoreH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .frame_histogram = lab_state.measure_frame_histogram.view(),
+                .run_histograms = lab_state.measure_run_histograms.view(),
+            })
+            .executes(rt_lab_measure_store_callback, &render_context));
+        info.tg.add_task(daxa::HeadTask<RtLabMeasureLagH::Info>()
+            .head_views(RtLabMeasureLagH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .view_cam_depth = info.view_cam_depth,
+                .resolved = resolved,
+                .lag_run = lab_state.measure_lag_run.view(),
+            })
+            .executes(rt_lab_measure_lag_callback, &render_context));
+    }
+
+    if (!lab_state.progressive_image.id().is_empty())
+    {
+        info.tg.register_image(lab_state.progressive_image);
+        info.tg.register_image(lab_state.custom_image);
+        info.tg.register_image(lab_state.predicted_error_image);
+        info.tg.add_task(daxa::HeadTask<RtLabConvergenceCaptureH::Info>()
+            .head_views(RtLabConvergenceCaptureH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .resolved = resolved,
+                .progressive = lab_state.progressive_image.view(),
+                .custom = lab_state.custom_image.view(),
+                .split_difference = split_difference_resolved,
+                .predicted_error = lab_state.predicted_error_image.view(),
+            })
+            .executes(rt_lab_convergence_capture_callback, &render_context, false));
+        info.tg.add_task(daxa::HeadTask<RtLabConvergenceAnalyzeH::Info>()
+            .head_views(RtLabConvergenceAnalyzeH::Info::Views{
+                .globals = render_context.tgpu_render_data.view(),
+                .debug_image = info.debug_image,
+                .view_cam_depth = info.view_cam_depth,
+                .progressive = lab_state.progressive_image.view(),
+                .custom = lab_state.custom_image.view(),
+                .predicted_error = lab_state.predicted_error_image.view(),
+            })
+            .executes(rt_lab_convergence_analyze_callback, &render_context));
+    }
 }

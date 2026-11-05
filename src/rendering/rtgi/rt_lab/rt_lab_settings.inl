@@ -81,6 +81,12 @@
 #define RT_LAB_DIST_LUMINANCE_FLOOR (RTGI_RADIANCE_SCALE * 1e-4f)
 #define RT_LAB_GRADIENT_MAX_BLUR_RADIUS 32 // RtLabSettings::temporal_gradient_blur_radius limit (gradient cells)
 
+// denoiser: the stage after the trace (and the optional ReSTIR stage). Pipeline order: reproject + ray redistribution -> trace -> [restir_enabled] -> denoiser -> temporal resolve -> resolve.
+#define RT_LAB_DENOISER_CLASSIC 0   // temporal accumulation + spatial filter (the original lab; 0 so old saved settings load as classic)
+#define RT_LAB_DENOISER_HASH_GRID 1 // world space hash grid cells (RT Lab 2)
+#define RT_LAB_DENOISER_NONE 2      // only with ReSTIR: its temporal + spatial reuse is the denoising (RT Lab 3)
+#define RT_LAB_DENOISER_COUNT 3
+
 struct RtLabSettings
 {
     // Master switch: 1 = the RT Lab path replaces the RTGI denoiser (rtgi_settings.enabled still turns RTGI on / off).
@@ -275,4 +281,21 @@ struct RtLabSettings
     // RT_LAB_SPATIAL_SAMPLE_COUNT debug view heatmap maximum. Metric only, the filtering is unchanged.
     daxa_f32 sample_count_input_clamp;
     daxa_f32 sample_count_debug_max;
+    // Upper limit of the base ray coverage (0..1) of the ray redistribution, 0 = none (the leftover budget raises the base coverage up
+    // to every pixel, the old lab). With a limit the base coverage is exactly min(max_base_coverage, budget) and the leftover only
+    // buys extra rays. Not part of the presets (RT Lab 3 sets it every frame, together with min_ray_budget).
+    daxa_f32 max_base_coverage;
+    // Pipeline (part of the presets, graph shape): ReSTIR GI stage between the trace and the denoiser, and the denoiser (RT_LAB_DENOISER_*).
+    // The four lab versions are combinations of these (rt_lab_pipeline_version): 1 classic, 2 hash grid, 3 ReSTIR + none, 4 ReSTIR + hash grid.
+    daxa_i32 restir_enabled;
+    daxa_i32 denoiser;
+    // Kalman anti-lag rubber band (coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_KALMAN): the pull of the slow history toward the fast mean is
+    // soft for small differences and stiffens to the full pull for large ones.
+    // soft_floor: relative difference (0.1 = 10 %) added to the noise of the difference in quadrature, so differences below it are never trusted
+    // as a real change however quiet the noise estimate is (0 = off).
+    daxa_f32 coarse_anti_lag_soft_floor;
+    // spring_min: share of the correction (and of the length cut) applied at the smallest differences, 1 = no spring (the old hard behavior).
+    daxa_f32 coarse_anti_lag_spring_min;
+    // spring_range: the ratio (slow / fast, e.g. 3) at which the pull is the full one; between the soft floor and this ratio it rises smoothly.
+    daxa_f32 coarse_anti_lag_spring_range;
 };

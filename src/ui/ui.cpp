@@ -10,7 +10,9 @@
 #include "../daxa_helper.hpp"
 #include "../rendering/rtgi/rt_lab/rt_lab.hpp"
 #include "../rendering/rtgi/rt_lab/rt_lab2.hpp"
-#include "../rendering/rtgi/rt_lab/rt_lab_resolve.inl" // RT_LAB_STABILIZE_MAX_RADIUS
+#include "../rendering/rtgi/rt_lab/rt_lab3.hpp"
+#include "../rendering/rtgi/rt_lab/rt_lab4.hpp"
+#include "../rendering/rtgi/rt_lab/rt_lab_integrator.hpp"
 #include "../shader_shared/gpu_work_expansion.inl"
 #include "../shader_lib/volumetric.hlsl"
 
@@ -127,6 +129,7 @@ namespace
         "RT_LAB2_HISTORY",
         "RT_LAB2_TEMPORAL_GRADIENT",
         "RT_LAB2_TEMPORAL_GRADIENT_LOSS",
+        "RT_LAB3_SAMPLE_COUNT",
     };
 
     static_assert(DEBUG_DRAW_MODE_NAMES.back() != nullptr, "DEBUG_DRAW_MODE_NAMES is missing entries for DEBUG_DRAW_MODE_COUNT");
@@ -756,6 +759,7 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
         {
             ImGui::MenuItem("Settings", NULL, &renderer_settings);
             ImGui::MenuItem("RT Lab", NULL, &widget_rt_lab);
+            ImGui::MenuItem("RT Lab Analysis", NULL, &widget_rt_lab_analysis);
             ImGui::MenuItem("Widget Settings", NULL, &widget_settings);
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_interface);
@@ -1300,13 +1304,6 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("Shading AO Range", &render_data.rtgi_settings.shading_ao_range, 0.0f, 4.0f);
                     ImGui::Checkbox("Use Repacked Ray Dispatch", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_repacked_ray_dispatch));
                     ImGui::SetItemTooltip("Repacked: slim trace that only records hits, then specialized shade passes (sharp hits: full material + light shading, coarse hits: PGI radiance, misses: sky). Off: classic per-pixel trace that shades in the closest hit.");
-                    ImGui::BeginDisabled(render_data.rtgi_settings.use_repacked_ray_dispatch == 0);
-                    ImGui::Checkbox("Coarse Shade Wide Specular", reinterpret_cast<bool *>(&render_data.rtgi_settings.split_coarse_wide_specular));
-                    ImGui::SetItemTooltip("Specular hits whose GGX cone at the hit is at least as wide as the PGI probe spacing there use coarse (PGI radiance) shading instead of full shading. Repacked ray dispatch only.");
-                    ImGui::EndDisabled();
-                    ImGui::Checkbox("Force Fine Hit Shading", reinterpret_cast<bool *>(&render_data.rtgi_settings.force_fine_hit_shading));
-                    ImGui::SetItemTooltip("Every hit (diffuse rays too) gets full material + light shading with shadow rays instead of the PGI radiance shortcut.\n"
-                                      "Overrides Coarse Shade Wide Specular. Both trace paths, not the pioneer trace.");
                     ImGui::SliderFloat("Ray Budget (rays/pixel)", &render_data.rtgi_settings.ray_percentage, 0.0f, 4.0f);
                     ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);
                     ImGui::SliderInt("Max Rays Per Pixel", &render_data.rtgi_settings.max_rays_per_pixel, 1, 32);
@@ -1332,6 +1329,20 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("Pioneer Guide Mix", &render_data.rtgi_settings.specular_guide_mix, 0.0f, 1.0f);
                     ImGui::SetItemTooltip("Probability (at roughness 1) of drawing a specular ray from the pioneer guide lobe (MIS weighted).");
                     ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.specular_guide_concentration, 0.0f, 1.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Hit Shading");
+                    ImGui::TextDisabled("Fine = full material + lights + shadow rays, coarse = PGI radiance only.");
+                    {
+                        char const * diffuse_modes[] = {"Coarse", "Fine"};
+                        ImGui::Combo("Diffuse Hits", &render_data.rtgi_settings.diffuse_hit_shading, diffuse_modes, 2);
+                        ImGui::SetItemTooltip("Shading of diffuse ray hits. The pioneer trace is always coarse.");
+                        char const * specular_modes[] = {"Fine", "Coarse When Wide", "Coarse"};
+                        ImGui::Combo("Specular Hits", &render_data.rtgi_settings.specular_hit_shading, specular_modes, 3);
+                        ImGui::SetItemTooltip("Shading of specular ray hits. Coarse When Wide: coarse when the GGX cone at the hit covers at least the footprint below in PGI probe spacings, else fine. Repacked ray dispatch only: the classic trace shades Coarse When Wide fine.");
+                        ImGui::BeginDisabled(render_data.rtgi_settings.specular_hit_shading != RTGI_HIT_SHADING_SPECULAR_WIDE_COARSE);
+                        ImGui::SliderFloat("Coarse Footprint (probe spacings)", &render_data.rtgi_settings.specular_coarse_footprint, 0.1f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::EndDisabled();
+                    }
                     rtgi_sub_end();
                     ImGui::TreePop();
                 }
@@ -1824,6 +1835,8 @@ static void rt_lab_test_move_ui(char const * id, RtLabState & lab, RtLabTestMove
 void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_state)
 {
     RenderGlobalData & render_data = render_context.render_data;
+    bool rt_lab_window_ended = false; // the settings window is ended before the analysis window begins
+    bool analysis_window_begun = false;
     if (ImGui::Begin("RT Lab", &widget_rt_lab, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
@@ -1848,14 +1861,35 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::TextDisabled("%8.1f us", static_cast<f32>(sum) * 0.001f);
             return open;
         };
+        // Top level section of a preset (same look as the ReSTIR / hash grid sections of rt_lab_preset_config_ui) with the section's accumulated GPU time.
+        auto lab_header = [&](char const * name, std::initializer_list<u32> indices) -> bool {
+            bool const open = ImGui::CollapsingHeader(name);
+            u64 sum = 0;
+            for (u32 i : indices)
+            {
+                sum += render_context.render_times.get_average(i);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%8.1f us", static_cast<f32>(sum) * 0.001f);
+            return open;
+        };
         // All settings of one preset.
-        auto lab_preset_settings = [&](RtLabSettings & settings) {
-            ImGui::Checkbox("Half Resolution", reinterpret_cast<bool *>(&settings.half_res));
-            ImGui::Checkbox("Animate Noise", reinterpret_cast<bool *>(&settings.animate_noise));
-            if (lab_section("Trace", { RenderTimes::index<"RT_LAB", "RAY_DEMAND">(), RenderTimes::index<"RT_LAB", "RAY_DISTRIBUTE">(),
+        auto lab_preset_settings = [&](RtLabSettings & settings, i32 preset) {
+            rt_lab_pipeline_ui(settings);
+            if (lab_header("Trace Settings", { RenderTimes::index<"RT_LAB", "RAY_DEMAND">(), RenderTimes::index<"RT_LAB", "RAY_DISTRIBUTE">(),
                                        RenderTimes::index<"RT_LAB", "TRACE">(), RenderTimes::index<"RT_LAB", "RAY_FILTER">(),
                                        RenderTimes::index<"RT_LAB", "RAY_GATHER">() }))
             {
+                // The hash grid without ReSTIR (version 2) only runs at full resolution; every other pipeline follows this checkbox.
+                bool const full_res_only = settings.restir_enabled == 0 && settings.denoiser == RT_LAB_DENOISER_HASH_GRID;
+                ImGui::BeginDisabled(full_res_only);
+                ImGui::Checkbox("Half Resolution", reinterpret_cast<bool *>(&settings.half_res));
+                ImGui::EndDisabled();
+                if (full_res_only)
+                {
+                    ImGui::SetItemTooltip("The hash grid without ReSTIR runs at full resolution only. Enable ReSTIR GI for half resolution.");
+                }
+                ImGui::Checkbox("Animate Noise", reinterpret_cast<bool *>(&settings.animate_noise));
                 ImGui::TextDisabled("Cosine distributed diffuse rays.");
                 ImGui::Checkbox("Ray Redistribution", reinterpret_cast<bool *>(&settings.redistribution_enabled));
                 ImGui::SetItemTooltip("Off: 1 ray per pixel.\nOn: pixels with a short history (disocclusions) ask for extra rays (RTGI demand curve),\n"
@@ -1886,7 +1920,8 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                                       "(the ray itself excluded), the ray clamped against them, hue preserving.\n"
                                       "Absolute: per channel ceiling = neighbors' linear mean x factor, the worst channel decides.\n"
                                       "Perceptual: like the RTGI firefly clamp, per channel exp(mean of log rgb + tolerance), the worst channel decides.\n"
-                                      "Pixel means, temporal SH and coarse clamp use the filtered rays, the temporal gradient the raw ones.");
+                                      "Pixel means, temporal SH and coarse clamp use the filtered rays, the temporal gradient the raw ones.\n"
+                                      "With ReSTIR GI it runs AFTER the reuse instead, on the per pixel estimate (same mode / radius / tolerance / factor), so it acts per pixel, not per ray.");
                 ImGui::BeginDisabled(settings.ray_filter_mode == RT_LAB_RAY_FILTER_OFF);
                 ImGui::SliderInt("Radius", &settings.ray_filter_radius, 0, RT_LAB_RAY_FILTER_MAX_RADIUS);
                 ImGui::SetItemTooltip("Neighbor pixels (2r + 1)^2 (2 = 5x5). 0 = only the pixel's own other rays.");
@@ -1902,341 +1937,332 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 ImGui::EndDisabled();
                 ImGui::PopID();
-                ImGui::TreePop();
             }
-            if (lab_section("Temporal", { RenderTimes::index<"RT_LAB", "TEMPORAL">() }))
+            rt_lab_preset_config_ui(render_context, preset);
+            // The classic denoiser: temporal accumulation + spatial filter (hash grid and ReSTIR only have their own sections above).
+            if (settings.denoiser == RT_LAB_DENOISER_CLASSIC && lab_header("Denoise Settings", {
+                    RenderTimes::index<"RT_LAB", "TEMPORAL">(), RenderTimes::index<"RT_LAB", "BLUR_HORIZONTAL">(), RenderTimes::index<"RT_LAB", "BLUR_VERTICAL">(),
+                    RenderTimes::index<"RT_LAB", "ATROUS0">(), RenderTimes::index<"RT_LAB", "ATROUS1">(), RenderTimes::index<"RT_LAB", "ATROUS2">(), RenderTimes::index<"RT_LAB", "ATROUS3">(),
+                    RenderTimes::index<"RT_LAB", "ATROUS4">(), RenderTimes::index<"RT_LAB", "ATROUS5">(), RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">() }))
             {
-                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.temporal_enabled));
-                ImGui::Checkbox("Progressive Accumulation", reinterpret_cast<bool *>(&settings.temporal_progressive));
-                ImGui::SetItemTooltip("Off = smart: fp16 history, short history (Max History Frames).\nOn = progressive: fp32 history, accumulates up to Progressive Max Samples.");
-                if (settings.temporal_progressive)
+                if (lab_section("Temporal", { RenderTimes::index<"RT_LAB", "TEMPORAL">() }))
                 {
-                    ImGui::SliderInt("Progressive Max Samples", &settings.progressive_max_samples, 1, 4096);
-                }
-                else
-                {
-                    ImGui::SliderInt("Max History Frames", &settings.max_history_frames, 1, 256);
-                }
-                ImGui::SliderFloat("Disocclusion Plane Tolerance (px)", &settings.disocclusion_plane_tolerance, 0.1f, 8.0f);
-                ImGui::SliderFloat("Disocclusion Normal Threshold", &settings.disocclusion_normal_threshold, -1.0f, 1.0f);
-                ImGui::Checkbox("Occluder Aware Soft Normalized Sample Count Reprojection", reinterpret_cast<bool *>(&settings.occluder_aware_soft_normalize));
-                ImGui::SetItemTooltip("On: tido RTGI style. History length = normalized mean of the valid taps x (1 - occluder coverage)^0.34, only\n"
-                                      "taps that hid the point last frame (in front of it) penalize; edge overhang does not.\n"
-                                      "Off: old RTGI / ReLAX style soft normalize, sum(w * count) / W^0.66: every partial footprint is penalized.");
-                ImGui::Checkbox("Bicubic Reprojection", reinterpret_cast<bool *>(&settings.bicubic_reprojection));
-                ImGui::SetItemTooltip("Reproject the history with a 12-tap Catmull-Rom when all 12 taps lie on this surface (else bilinear).\nBilinear blurs the history a little every frame under motion.");
-                ImGui::Checkbox("Split History (A/B Error Estimate)", reinterpret_cast<bool *>(&settings.split_history_enabled));
-                ImGui::SetItemTooltip("Two extra histories, A takes even frames, B odd frames. |A - B| / 2 estimates the error of the accumulated mean.\nSee the RT_LAB_SPLIT_* debug views.");
-                ImGui::Checkbox("Perceptual Moments", reinterpret_cast<bool *>(&settings.luma_moments_enabled));
-                ImGui::SetItemTooltip("Accumulate the center + distance weighted 3x3 moments m1, m2 of log(1 + luma / floor) (>= 0) with the color's blend. The per sample variance\n"
-                                      "for the variance guides (and the gradient cap) is m2 - m1^2, converted to linear with (luma + floor)^2 and spread\n"
-                                      "over rgb like the color, instead of the 5x5 spatial estimate. Graph shape.");
-                ImGui::SeparatorText("Temporal Gradient");
-                ImGui::PushID("temporal gradient");
-                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.temporal_gradient_enabled));
-                ImGui::SameLine();
-                ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_TRACE">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_H">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">())) * 0.001f);
-                ImGui::SetItemTooltip("A-SVGF style: one ray per 4x4 pixels is re-traced next frame with the exact same launch data.\n"
-                                      "The luminance changes, blurred in screen space (edge aware, coarse plane + normal tests), give lambda = |sum delta| / sum max(old, new).\n"
-                                      "Reprojected history lengths are scaled by 1 - lambda before the ray redistribution and in the temporal pass.\n"
-                                      "Debug view RT_LAB_TEMPORAL_GRADIENT.");
-                ImGui::BeginDisabled(settings.temporal_gradient_enabled == 0);
-                ImGui::SliderInt("Blur Radius (cells)", &settings.temporal_gradient_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
-                ImGui::SetItemTooltip("Separable gaussian over the 4x4 pixel gradient cells (1/4 res), sigma = radius / 2.\nReach = 4 x radius pixels.");
-                ImGui::Checkbox("Re-trace Base Rays", reinterpret_cast<bool *>(&settings.temporal_gradient_all_base_rays));
-                ImGui::SetItemTooltip("On: the base rays (ray 0 of the guaranteed base share, rate Min Ray Budget, 0.125 = 2 per 4x4 cell) are recorded\n"
-                                      "and re-traced next frame, the samples summed per 4x4 cell. Off: one ray per 4x4 cell. Graph shape.");
-                {
-                    char const * relative_modes[] = {"Samples (A-SVGF)", "Pixel", "Min (Samples, Pixel)"};
-                    ImGui::Combo("Lambda Relative To", &settings.temporal_gradient_pixel_relative, relative_modes, 3);
-                    ImGui::SetItemTooltip("Samples: A-SVGF, lambda = |sum w delta| / sum w max of the re-traced samples.\n"
-                                          "Pixel: the blur carries the ABSOLUTE luminance change (mean delta of the re-traced samples), made relative\n"
-                                          "only at each pixel against its own previous history luminance L: lambda = |delta| / max(old, new) of the pixel,\n"
-                                          "rescale ratio = (L + delta) / L. A small change in the dark no longer cuts a bright pixel's history.\n"
-                                          "Min: the smaller of both (a bright change no longer cuts dark neighbors fully either).");
-                }
-                ImGui::SliderFloat("Temporal Alpha", &settings.temporal_gradient_history_alpha, 0.05f, 1.0f);
-                ImGui::SetItemTooltip("1 = off. Settle / scale modes: temporal EMA of the blurred gradient sums per cell (reprojected), before lambda:\n"
-                                      "the re-trace's frame to frame noise averages over ~1 / alpha frames, a real step still shows alpha x lambda at once.\n"
-                                      "Kalman mode: GLIDE, the fraction of the correction applied per frame (the rest stays pending in the cell), ramping\n"
-                                      "to 1 for big changes (ratio 2x .. 5x): shocks stay instant, moderate changes glide in over ~1 / alpha frames.");
-                if (settings.temporal_gradient_history_alpha < 1.0f)
-                {
-                    ImGui::SliderFloat("Temporal Shock Lambda", &settings.temporal_gradient_history_shock, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SetItemTooltip("Smoothing bypass: alpha ramps to 1 (reset to this frame) as this frame's lambda goes from shock / 2 to shock,\n"
-                                          "so single frame flashes still cut at once (both edges).");
-                }
-                ImGui::SliderFloat("Lambda Deadzone", &settings.temporal_gradient_deadzone, 0.0f, 0.5f);
-                ImGui::SetItemTooltip("lambda' = (lambda - d) / (1 - d) before the scale / cap: removes small, noise level lambdas, keeps big ones\n"
-                                      "(single frame flashes) almost unchanged. The history rescale stays on the raw signed lambda.");
-                ImGui::SliderFloat("Scale", &settings.temporal_gradient_scale, 0.0f, 8.0f);
-                ImGui::SetItemTooltip("lambda multiplier (saturated): history kept = 1 - saturate(lambda x scale).");
-                {
-                    bool cap_mse = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_MSE) != 0;
-                    bool cap_settle = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_SETTLE) != 0;
-                    bool changed = ImGui::Checkbox("MSE Cap", &cap_mse);
-                    ImGui::SetItemTooltip("Replaces the scale: history capped (same frame) at k x perceptual variance / (lambda^2 - floor^2), floored at Cap Min.\n"
-                                          "k folds in the spatial filter's noise reduction (k << 1).");
-                    changed |= ImGui::Checkbox("Settle Cap", &cap_settle);
-                    bool cap_kalman = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0;
-                    changed |= ImGui::Checkbox("Kalman (correct + information loss)", &cap_kalman);
-                    ImGui::SetItemTooltip("Replaces the other caps: the gradient measures the change (log ratio + variance), a per cell Kalman filter tracks it\n"
-                                          "(innovation gate = instant reset on shocks), the history is CORRECTED by the shrunk change (History Rescale) and only\n"
-                                          "the remaining uncertainty L cuts it continuously: N' = N / (1 + N k L / v). No deadzone / smoothing thresholds.");
-                    ImGui::SetItemTooltip("Replaces the scale: history capped so the remaining lag lambda x (N / (N + 1))^K drops below the tolerance\n"
-                                          "within K frames: N = 1 / ((lambda / tolerance)^(1 / K) - 1). Combined with the MSE cap: the smaller one.");
-                    if (changed)
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.temporal_enabled));
+                    ImGui::Checkbox("Progressive Accumulation", reinterpret_cast<bool *>(&settings.temporal_progressive));
+                    ImGui::SetItemTooltip("Off = smart: fp16 history, short history (Max History Frames).\nOn = progressive: fp32 history, accumulates up to Progressive Max Samples.");
+                    if (settings.temporal_progressive)
                     {
-                        settings.temporal_gradient_cap_mode = (cap_mse ? RT_LAB_GRADIENT_CAP_MSE : 0) | (cap_settle ? RT_LAB_GRADIENT_CAP_SETTLE : 0) | (cap_kalman ? RT_LAB_GRADIENT_CAP_KALMAN : 0);
+                        ImGui::SliderInt("Progressive Max Samples", &settings.progressive_max_samples, 1, 4096);
                     }
-                    if (cap_mse)
+                    else
                     {
-                        ImGui::SliderFloat("Cap k", &settings.temporal_gradient_cap_k, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SliderInt("Max History Frames", &settings.max_history_frames, 1, 256);
                     }
-                    if (cap_kalman)
+                    ImGui::SliderFloat("Disocclusion Plane Tolerance (px)", &settings.disocclusion_plane_tolerance, 0.1f, 8.0f);
+                    ImGui::SliderFloat("Disocclusion Normal Threshold", &settings.disocclusion_normal_threshold, -1.0f, 1.0f);
+                    ImGui::Checkbox("Occluder Aware Soft Normalized Sample Count Reprojection", reinterpret_cast<bool *>(&settings.occluder_aware_soft_normalize));
+                    ImGui::SetItemTooltip("On: tido RTGI style. History length = normalized mean of the valid taps x (1 - occluder coverage)^0.34, only\n"
+                                          "taps that hid the point last frame (in front of it) penalize; edge overhang does not.\n"
+                                          "Off: old RTGI / ReLAX style soft normalize, sum(w * count) / W^0.66: every partial footprint is penalized.");
+                    ImGui::Checkbox("Bicubic Reprojection", reinterpret_cast<bool *>(&settings.bicubic_reprojection));
+                    ImGui::SetItemTooltip("Reproject the history with a 12-tap Catmull-Rom when all 12 taps lie on this surface (else bilinear).\nBilinear blurs the history a little every frame under motion.");
+                    ImGui::Checkbox("Split History (A/B Error Estimate)", reinterpret_cast<bool *>(&settings.split_history_enabled));
+                    ImGui::SetItemTooltip("Two extra histories, A takes even frames, B odd frames. |A - B| / 2 estimates the error of the accumulated mean.\nSee the RT_LAB_SPLIT_* debug views.");
+                    ImGui::Checkbox("Perceptual Moments", reinterpret_cast<bool *>(&settings.luma_moments_enabled));
+                    ImGui::SetItemTooltip("Accumulate the center + distance weighted 3x3 moments m1, m2 of log(1 + luma / floor) (>= 0) with the color's blend. The per sample variance\n"
+                                          "for the variance guides (and the gradient cap) is m2 - m1^2, converted to linear with (luma + floor)^2 and spread\n"
+                                          "over rgb like the color, instead of the 5x5 spatial estimate. Graph shape.");
+                    ImGui::SeparatorText("Temporal Gradient");
+                    ImGui::PushID("temporal gradient");
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.temporal_gradient_enabled));
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_TRACE">()) +
+                                                                      render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_H">()) +
+                                                                      render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">())) * 0.001f);
+                    ImGui::SetItemTooltip("A-SVGF style: one ray per 4x4 pixels is re-traced next frame with the exact same launch data.\n"
+                                          "The luminance changes, blurred in screen space (edge aware, coarse plane + normal tests), give lambda = |sum delta| / sum max(old, new).\n"
+                                          "Reprojected history lengths are scaled by 1 - lambda before the ray redistribution and in the temporal pass.\n"
+                                          "Debug view RT_LAB_TEMPORAL_GRADIENT.");
+                    ImGui::BeginDisabled(settings.temporal_gradient_enabled == 0);
+                    ImGui::SliderInt("Blur Radius (cells)", &settings.temporal_gradient_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
+                    ImGui::SetItemTooltip("Separable gaussian over the 4x4 pixel gradient cells (1/4 res), sigma = radius / 2.\nReach = 4 x radius pixels.");
+                    ImGui::Checkbox("Re-trace Base Rays", reinterpret_cast<bool *>(&settings.temporal_gradient_all_base_rays));
+                    ImGui::SetItemTooltip("On: the base rays (ray 0 of the guaranteed base share, rate Min Ray Budget, 0.125 = 2 per 4x4 cell) are recorded\n"
+                                          "and re-traced next frame, the samples summed per 4x4 cell. Off: one ray per 4x4 cell. Graph shape.");
                     {
-                        ImGui::SliderFloat("Kalman Process Noise q", &settings.temporal_gradient_kalman_q, 1e-7f, 1e-1f, "%.2e", ImGuiSliderFlags_Logarithmic);
-                        ImGui::SliderFloat("Kalman Gate (sigmas)", &settings.temporal_gradient_kalman_gate, 1.0f, 10.0f);
-                        ImGui::SliderFloat("Kalman Loss k", &settings.temporal_gradient_kalman_k, 0.1f, 1000.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                        char const * relative_modes[] = {"Samples (A-SVGF)", "Pixel", "Min (Samples, Pixel)"};
+                        ImGui::Combo("Lambda Relative To", &settings.temporal_gradient_pixel_relative, relative_modes, 3);
+                        ImGui::SetItemTooltip("Samples: A-SVGF, lambda = |sum w delta| / sum w max of the re-traced samples.\n"
+                                              "Pixel: the blur carries the ABSOLUTE luminance change (mean delta of the re-traced samples), made relative\n"
+                                              "only at each pixel against its own previous history luminance L: lambda = |delta| / max(old, new) of the pixel,\n"
+                                              "rescale ratio = (L + delta) / L. A small change in the dark no longer cuts a bright pixel's history.\n"
+                                              "Min: the smaller of both (a bright change no longer cuts dark neighbors fully either).");
                     }
-                    if (cap_settle)
+                    ImGui::SliderFloat("Temporal Alpha", &settings.temporal_gradient_history_alpha, 0.05f, 1.0f);
+                    ImGui::SetItemTooltip("1 = off. Settle / scale modes: temporal EMA of the blurred gradient sums per cell (reprojected), before lambda:\n"
+                                          "the re-trace's frame to frame noise averages over ~1 / alpha frames, a real step still shows alpha x lambda at once.\n"
+                                          "Kalman mode: GLIDE, the fraction of the correction applied per frame (the rest stays pending in the cell), ramping\n"
+                                          "to 1 for big changes (ratio 2x .. 5x): shocks stay instant, moderate changes glide in over ~1 / alpha frames.");
+                    if (settings.temporal_gradient_history_alpha < 1.0f)
                     {
-                        ImGui::SliderFloat("Settle Frames (K)", &settings.temporal_gradient_settle_frames, 1.0f, 64.0f, "%.1f");
-                        ImGui::SliderFloat("Settle Tolerance", &settings.temporal_gradient_settle_tolerance, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SliderFloat("Temporal Shock Lambda", &settings.temporal_gradient_history_shock, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SetItemTooltip("Smoothing bypass: alpha ramps to 1 (reset to this frame) as this frame's lambda goes from shock / 2 to shock,\n"
+                                              "so single frame flashes still cut at once (both edges).");
                     }
-                    if (cap_mse || cap_settle)
+                    ImGui::SliderFloat("Lambda Deadzone", &settings.temporal_gradient_deadzone, 0.0f, 0.5f);
+                    ImGui::SetItemTooltip("lambda' = (lambda - d) / (1 - d) before the scale / cap: removes small, noise level lambdas, keeps big ones\n"
+                                          "(single frame flashes) almost unchanged. The history rescale stays on the raw signed lambda.");
+                    ImGui::SliderFloat("Scale", &settings.temporal_gradient_scale, 0.0f, 8.0f);
+                    ImGui::SetItemTooltip("lambda multiplier (saturated): history kept = 1 - saturate(lambda x scale).");
                     {
-                        ImGui::SliderFloat("Cap Min (samples)", &settings.temporal_gradient_cap_min, 0.0f, 32.0f, "%.1f");
+                        bool cap_mse = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_MSE) != 0;
+                        bool cap_settle = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_SETTLE) != 0;
+                        bool changed = ImGui::Checkbox("MSE Cap", &cap_mse);
+                        ImGui::SetItemTooltip("Replaces the scale: history capped (same frame) at k x perceptual variance / (lambda^2 - floor^2), floored at Cap Min.\n"
+                                              "k folds in the spatial filter's noise reduction (k << 1).");
+                        changed |= ImGui::Checkbox("Settle Cap", &cap_settle);
+                        bool cap_kalman = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0;
+                        changed |= ImGui::Checkbox("Kalman (correct + information loss)", &cap_kalman);
+                        ImGui::SetItemTooltip("Replaces the other caps: the gradient measures the change (log ratio + variance), a per cell Kalman filter tracks it\n"
+                                              "(innovation gate = instant reset on shocks), the history is CORRECTED by the shrunk change (History Rescale) and only\n"
+                                              "the remaining uncertainty L cuts it continuously: N' = N / (1 + N k L / v). No deadzone / smoothing thresholds.");
+                        ImGui::SetItemTooltip("Replaces the scale: history capped so the remaining lag lambda x (N / (N + 1))^K drops below the tolerance\n"
+                                              "within K frames: N = 1 / ((lambda / tolerance)^(1 / K) - 1). Combined with the MSE cap: the smaller one.");
+                        if (changed)
+                        {
+                            settings.temporal_gradient_cap_mode = (cap_mse ? RT_LAB_GRADIENT_CAP_MSE : 0) | (cap_settle ? RT_LAB_GRADIENT_CAP_SETTLE : 0) | (cap_kalman ? RT_LAB_GRADIENT_CAP_KALMAN : 0);
+                        }
+                        if (cap_mse)
+                        {
+                            ImGui::SliderFloat("Cap k", &settings.temporal_gradient_cap_k, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        }
+                        if (cap_kalman)
+                        {
+                            ImGui::SliderFloat("Kalman Process Noise q", &settings.temporal_gradient_kalman_q, 1e-7f, 1e-1f, "%.2e", ImGuiSliderFlags_Logarithmic);
+                            ImGui::SliderFloat("Kalman Gate (sigmas)", &settings.temporal_gradient_kalman_gate, 1.0f, 10.0f);
+                            ImGui::SliderFloat("Kalman Loss k", &settings.temporal_gradient_kalman_k, 0.1f, 1000.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                        }
+                        if (cap_settle)
+                        {
+                            ImGui::SliderFloat("Settle Frames (K)", &settings.temporal_gradient_settle_frames, 1.0f, 64.0f, "%.1f");
+                            ImGui::SliderFloat("Settle Tolerance", &settings.temporal_gradient_settle_tolerance, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        }
+                        if (cap_mse || cap_settle)
+                        {
+                            ImGui::SliderFloat("Cap Min (samples)", &settings.temporal_gradient_cap_min, 0.0f, 32.0f, "%.1f");
+                        }
+                        ImGui::Checkbox("History Rescale", reinterpret_cast<bool *>(&settings.temporal_gradient_rescale));
+                        ImGui::SetItemTooltip("Multiplies the reprojected histories by the gradient's luminance ratio sum new / sum old (signed\n"
+                                              "lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening): jumps to the new lighting without losing samples.");
+                        if (settings.temporal_gradient_rescale)
+                        {
+                            ImGui::SliderFloat("Rescale Strength", &settings.temporal_gradient_rescale_strength, 0.0f, 1.0f);
+                        }
                     }
-                    ImGui::Checkbox("History Rescale", reinterpret_cast<bool *>(&settings.temporal_gradient_rescale));
-                    ImGui::SetItemTooltip("Multiplies the reprojected histories by the gradient's luminance ratio sum new / sum old (signed\n"
-                                          "lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening): jumps to the new lighting without losing samples.");
-                    if (settings.temporal_gradient_rescale)
+                    ImGui::EndDisabled();
+                    ImGui::PopID();
+                    ImGui::SeparatorText("Coarse Temporal Anti-Lag");
+                    ImGui::PushID("coarse clamp");
+                    i32 const anti_lag_mode = settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MODE_MASK;
+                    i32 const anti_lag_flags = settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_MODE_MASK;
+                    bool anti_lag_enabled = anti_lag_mode != RT_LAB_ANTI_LAG_OFF;
+                    if (ImGui::Checkbox("Enabled", &anti_lag_enabled))
                     {
-                        ImGui::SliderFloat("Rescale Strength", &settings.temporal_gradient_rescale_strength, 0.0f, 1.0f);
+                        settings.coarse_anti_lag_enabled = (anti_lag_enabled ? RT_LAB_ANTI_LAG_BLEND_ONLY : RT_LAB_ANTI_LAG_OFF) | anti_lag_flags;
                     }
-                }
-                ImGui::EndDisabled();
-                ImGui::PopID();
-                ImGui::SeparatorText("Coarse Temporal Anti-Lag");
-                ImGui::PushID("coarse clamp");
-                i32 const anti_lag_mode = settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MODE_MASK;
-                i32 const anti_lag_flags = settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_MODE_MASK;
-                bool anti_lag_enabled = anti_lag_mode != RT_LAB_ANTI_LAG_OFF;
-                if (ImGui::Checkbox("Enabled", &anti_lag_enabled))
-                {
-                    settings.coarse_anti_lag_enabled = (anti_lag_enabled ? RT_LAB_ANTI_LAG_BLEND_ONLY : RT_LAB_ANTI_LAG_OFF) | anti_lag_flags;
-                }
-                ImGui::SameLine();
-                ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_DOWNSAMPLE">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_BLUR_H">()) +
-                                                                  render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_BLUR_V">())) * 0.001f);
-                ImGui::SetItemTooltip("Adjusts the history COUNT, never the color. Ray luminance per 4x4 cell, blurred a lot (edge aware), feeds an RTGI\n"
-                                      "style coarse fast history (fast mean + fast relative variance) next to a slow coarse mean. RTGI anti-lag: when the\n"
-                                      "slow mean diverges from the fast mean, the history length is cut to N x (1 + sqrt(fast var) x Variance Blend)^2 x\n"
-                                      "(1 / max(1, slow / fast))^2 (noise earns trust back); caps the coarse slow history and the pixel histories.\n"
-                                      "Debug views: RT_LAB_COARSE_ANTI_LAG (history cut), _MEAN (slow coarse mean, per pixel), _FRAME_MEAN (this frame's\n"
-                                      "blurred mean), _RELATIVE_STD (fast history relative std) / _FRAME_RELATIVE_STD (this frame's spatial sigma / mean),\n"
-                                      "log heatmap 1 % .. 1000 %, the last three at cell res.");
-                ImGui::BeginDisabled(anti_lag_mode == RT_LAB_ANTI_LAG_OFF);
-                bool reduce_samples = anti_lag_mode != RT_LAB_ANTI_LAG_BLEND_ONLY;
-                if (ImGui::Checkbox("Reduce Sample Count", &reduce_samples) && anti_lag_mode != RT_LAB_ANTI_LAG_OFF)
-                {
-                    settings.coarse_anti_lag_enabled = (reduce_samples ? RT_LAB_ANTI_LAG_REDUCE_SAMPLES : RT_LAB_ANTI_LAG_BLEND_ONLY) | anti_lag_flags;
-                }
-                ImGui::SetItemTooltip("On: the stored history length is cut, so the following frames keep converging fast on the new result.\n"
-                                      "Off: RTGI style, only this frame's blend uses the cut length, the stored length keeps growing.");
-                bool kalman = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_KALMAN) != 0;
-                if (ImGui::Checkbox("Kalman", &kalman))
-                {
-                    settings.coarse_anti_lag_enabled = kalman ? (settings.coarse_anti_lag_enabled | RT_LAB_ANTI_LAG_KALMAN) : (settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_KALMAN);
-                }
-                ImGui::SetItemTooltip("Per cell Kalman filter of the log coarse mean (measurement noise from the blur footprint's ray variance),\n"
-                                      "predicted with the temporal gradient's correction, robust gate (a second frame outside resets). The pixel histories\n"
-                                      "are CORRECTED towards it (shrunk, ratio), only the uncorrectable rest cuts the count.\n"
-                                      "Replaces History Frames / MSE / Noise Estimate / Variance Blend (unused while on).");
-                ImGui::SliderInt("Blur Radius (cells)", &settings.coarse_anti_lag_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
-                ImGui::SetItemTooltip("Separable edge aware gaussian over the 4x4 pixel cells, sigma = radius / 2. Reach = 4 x radius pixels.");
-                ImGui::BeginDisabled(kalman);
-                ImGui::SliderInt("History Frames", &settings.coarse_anti_lag_history_frames, 1, 64);
-                ImGui::SetItemTooltip("Fast history window in frames (RTGI temporal_fast_history_frames, default 4 = measured best).\n"
-                                      "The slow side is the denoiser's own history length (Max History Frames / Progressive Max Samples).");
-                bool mse_optimal = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MSE_OPTIMAL) != 0;
-                if (ImGui::Checkbox("MSE Optimal Length", &mse_optimal))
-                {
-                    settings.coarse_anti_lag_enabled = mse_optimal ? (settings.coarse_anti_lag_enabled | RT_LAB_ANTI_LAG_MSE_OPTIMAL) : (settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_MSE_OPTIMAL);
-                }
-                ImGui::SetItemTooltip("Heuristic for the cut. Off: RTGI fast history anti-lag (variance scaling x (1 / slow-fast ratio)^2).\n"
-                                      "On: MSE optimal length N* = k x fast rel variance / (slow-fast rel difference)^2 (difference debiased by the\n"
-                                      "fast mean's own noise), never below History Frames. Continuous in the difference: no threshold, no abrupt cut.");
-                {
-                    i32 const noise_bits = RT_LAB_ANTI_LAG_NOISE_MAD | RT_LAB_ANTI_LAG_NOISE_SPATIAL;
-                    i32 noise = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_NOISE_SPATIAL) != 0 ? 2 : ((settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_NOISE_MAD) != 0 ? 1 : 0);
-                    char const * noise_names[] = {"Variance", "Relative Abs Deviation", "Spatial Prediction"};
-                    if (ImGui::Combo("Noise Estimate", &noise, noise_names, 3))
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_DOWNSAMPLE">()) +
+                                                                      render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_BLUR_H">()) +
+                                                                      render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "ANTI_LAG_BLUR_V">())) * 0.001f);
+                    ImGui::SetItemTooltip("Adjusts the history COUNT, never the color. Ray luminance per 4x4 cell, blurred a lot (edge aware), feeds an RTGI\n"
+                                          "style coarse fast history (fast mean + fast relative variance) next to a slow coarse mean. RTGI anti-lag: when the\n"
+                                          "slow mean diverges from the fast mean, the history length is cut to N x (1 + sqrt(fast var) x Variance Blend)^2 x\n"
+                                          "(1 / max(1, slow / fast))^2 (noise earns trust back); caps the coarse slow history and the pixel histories.\n"
+                                          "Debug views: RT_LAB_COARSE_ANTI_LAG (history cut), _MEAN (slow coarse mean, per pixel), _FRAME_MEAN (this frame's\n"
+                                          "blurred mean), _RELATIVE_STD (fast history relative std) / _FRAME_RELATIVE_STD (this frame's spatial sigma / mean),\n"
+                                          "log heatmap 1 % .. 1000 %, the last three at cell res.");
+                    ImGui::BeginDisabled(anti_lag_mode == RT_LAB_ANTI_LAG_OFF);
+                    bool reduce_samples = anti_lag_mode != RT_LAB_ANTI_LAG_BLEND_ONLY;
+                    if (ImGui::Checkbox("Reduce Sample Count", &reduce_samples) && anti_lag_mode != RT_LAB_ANTI_LAG_OFF)
                     {
-                        settings.coarse_anti_lag_enabled = (settings.coarse_anti_lag_enabled & ~noise_bits) |
-                            (noise == 1 ? RT_LAB_ANTI_LAG_NOISE_MAD : (noise == 2 ? RT_LAB_ANTI_LAG_NOISE_SPATIAL : 0));
+                        settings.coarse_anti_lag_enabled = (reduce_samples ? RT_LAB_ANTI_LAG_REDUCE_SAMPLES : RT_LAB_ANTI_LAG_BLEND_ONLY) | anti_lag_flags;
                     }
-                    ImGui::SetItemTooltip("Fast history noise estimate. Variance: EMA of squared relative deviations (inflates quadratically on change).\n"
-                                          "Relative Abs Deviation: EMA of |deviation|, sigma = MAD x sqrt(pi/2) (inflates linearly, recovers faster).\n"
-                                          "Spatial Prediction: ray variance over the blur footprint / effective ray count (no temporal inflation).");
+                    ImGui::SetItemTooltip("On: the stored history length is cut, so the following frames keep converging fast on the new result.\n"
+                                          "Off: RTGI style, only this frame's blend uses the cut length, the stored length keeps growing.");
+                    bool kalman = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_KALMAN) != 0;
+                    if (ImGui::Checkbox("Kalman", &kalman))
+                    {
+                        settings.coarse_anti_lag_enabled = kalman ? (settings.coarse_anti_lag_enabled | RT_LAB_ANTI_LAG_KALMAN) : (settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_KALMAN);
+                    }
+                    ImGui::SetItemTooltip("Per cell Kalman filter of the log coarse mean (measurement noise from the blur footprint's ray variance),\n"
+                                          "predicted with the temporal gradient's correction, robust gate (a second frame outside resets). The pixel histories\n"
+                                          "are CORRECTED towards it (shrunk, ratio), only the uncorrectable rest cuts the count.\n"
+                                          "Replaces History Frames / MSE / Noise Estimate / Variance Blend (unused while on).");
+                    ImGui::SliderInt("Blur Radius (cells)", &settings.coarse_anti_lag_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
+                    ImGui::SetItemTooltip("Separable edge aware gaussian over the 4x4 pixel cells, sigma = radius / 2. Reach = 4 x radius pixels.");
+                    ImGui::BeginDisabled(!kalman);
+                    ImGui::SliderFloat("Soft Floor", &settings.coarse_anti_lag_soft_floor, 0.0f, 0.5f, "%.3f");
+                    ImGui::SetItemTooltip("Kalman rubber band: relative difference (0.1 = 10%%) that is never trusted as a real change, however quiet the noise estimate is.\n"
+                                          "Raise it when small light changes make the histories jitter. 0 = off.");
+                    ImGui::SliderFloat("Spring Min", &settings.coarse_anti_lag_spring_min, 0.0f, 1.0f, "%.2f");
+                    ImGui::SetItemTooltip("Share of the pull (and of the length cut) applied at the smallest differences. It stiffens smoothly to 1 at Spring Range.\n"
+                                          "1 = no spring, the hard behavior.");
+                    ImGui::SliderFloat("Spring Range", &settings.coarse_anti_lag_spring_range, 1.1f, 20.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Ratio of slow to fast mean at which the pull is the full one (3 = the history is 3x off).");
+                    ImGui::EndDisabled();
+                    ImGui::BeginDisabled(kalman);
+                    ImGui::SliderInt("History Frames", &settings.coarse_anti_lag_history_frames, 1, 64);
+                    ImGui::SetItemTooltip("Fast history window in frames (RTGI temporal_fast_history_frames, default 4 = measured best).\n"
+                                          "The slow side is the denoiser's own history length (Max History Frames / Progressive Max Samples).");
+                    bool mse_optimal = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_MSE_OPTIMAL) != 0;
+                    if (ImGui::Checkbox("MSE Optimal Length", &mse_optimal))
+                    {
+                        settings.coarse_anti_lag_enabled = mse_optimal ? (settings.coarse_anti_lag_enabled | RT_LAB_ANTI_LAG_MSE_OPTIMAL) : (settings.coarse_anti_lag_enabled & ~RT_LAB_ANTI_LAG_MSE_OPTIMAL);
+                    }
+                    ImGui::SetItemTooltip("Heuristic for the cut. Off: RTGI fast history anti-lag (variance scaling x (1 / slow-fast ratio)^2).\n"
+                                          "On: MSE optimal length N* = k x fast rel variance / (slow-fast rel difference)^2 (difference debiased by the\n"
+                                          "fast mean's own noise), never below History Frames. Continuous in the difference: no threshold, no abrupt cut.");
+                    {
+                        i32 const noise_bits = RT_LAB_ANTI_LAG_NOISE_MAD | RT_LAB_ANTI_LAG_NOISE_SPATIAL;
+                        i32 noise = (settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_NOISE_SPATIAL) != 0 ? 2 : ((settings.coarse_anti_lag_enabled & RT_LAB_ANTI_LAG_NOISE_MAD) != 0 ? 1 : 0);
+                        char const * noise_names[] = {"Variance", "Relative Abs Deviation", "Spatial Prediction"};
+                        if (ImGui::Combo("Noise Estimate", &noise, noise_names, 3))
+                        {
+                            settings.coarse_anti_lag_enabled = (settings.coarse_anti_lag_enabled & ~noise_bits) |
+                                (noise == 1 ? RT_LAB_ANTI_LAG_NOISE_MAD : (noise == 2 ? RT_LAB_ANTI_LAG_NOISE_SPATIAL : 0));
+                        }
+                        ImGui::SetItemTooltip("Fast history noise estimate. Variance: EMA of squared relative deviations (inflates quadratically on change).\n"
+                                              "Relative Abs Deviation: EMA of |deviation|, sigma = MAD x sqrt(pi/2) (inflates linearly, recovers faster).\n"
+                                              "Spatial Prediction: ray variance over the blur footprint / effective ray count (no temporal inflation).");
+                    }
+                    ImGui::SliderFloat(mse_optimal ? "MSE k" : "Variance Blend", &settings.coarse_anti_lag_variance_blend, 0.0f, 16.0f);
+                    ImGui::SetItemTooltip(mse_optimal ? "MSE optimal length scale k: 1 = plain MSE optimum, larger = longer histories (less noise, more lag)."
+                                                      : "How much fast relative variance (noise) earns trust back (RTGI temporal_variance_fast_history_blend, default 4).");
+                    ImGui::EndDisabled(); // kalman
+                    ImGui::EndDisabled();
+                    ImGui::PopID();
+                    ImGui::TreePop();
                 }
-                ImGui::SliderFloat(mse_optimal ? "MSE k" : "Variance Blend", &settings.coarse_anti_lag_variance_blend, 0.0f, 16.0f);
-                ImGui::SetItemTooltip(mse_optimal ? "MSE optimal length scale k: 1 = plain MSE optimum, larger = longer histories (less noise, more lag)."
-                                                  : "How much fast relative variance (noise) earns trust back (RTGI temporal_variance_fast_history_blend, default 4).");
-                ImGui::EndDisabled(); // kalman
-                ImGui::EndDisabled();
-                ImGui::PopID();
-                ImGui::TreePop();
-            }
-            if (lab_section("Spatial", {
-                    RenderTimes::index<"RT_LAB", "BLUR_HORIZONTAL">(), RenderTimes::index<"RT_LAB", "BLUR_VERTICAL">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS0">(), RenderTimes::index<"RT_LAB", "ATROUS1">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS2">(), RenderTimes::index<"RT_LAB", "ATROUS3">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS4">(), RenderTimes::index<"RT_LAB", "ATROUS5">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">() }))
-            {
-                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.spatial_enabled));
-                char const * const spatial_modes[] = {"Separable Gaussian", "A-Trous 5x5"};
-                ImGui::Combo("Mode", &settings.spatial_mode, spatial_modes, 2);
-                ImGui::SetItemTooltip("Separable gaussian: horizontal + vertical pass, Blur Radius taps per side.\nA-trous: passes of a 5x5 B3 spline kernel, tap spacing 1, 2, 4, 8, ... px.\nBoth use the same geometric edge stopping (plane tolerance, normal power).");
-                if (settings.spatial_mode == 0)
+                if (lab_section("Spatial", {
+                        RenderTimes::index<"RT_LAB", "BLUR_HORIZONTAL">(), RenderTimes::index<"RT_LAB", "BLUR_VERTICAL">(),
+                        RenderTimes::index<"RT_LAB", "ATROUS0">(), RenderTimes::index<"RT_LAB", "ATROUS1">(),
+                        RenderTimes::index<"RT_LAB", "ATROUS2">(), RenderTimes::index<"RT_LAB", "ATROUS3">(),
+                        RenderTimes::index<"RT_LAB", "ATROUS4">(), RenderTimes::index<"RT_LAB", "ATROUS5">(),
+                        RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">() }))
                 {
-                    ImGui::SliderInt("Blur Radius (px)", &settings.blur_radius, 0, 32);
-                }
-                else
-                {
-                    ImGui::Indent();
-                    ImGui::SliderInt("A-Trous Passes", &settings.atrous_passes, 1, RT_LAB_ATROUS_MAX_PASSES);
-                    i32 const passes = std::clamp(settings.atrous_passes, 1, RT_LAB_ATROUS_MAX_PASSES);
-                    // Reach: sum of 2 * step over the passes.
-                    ImGui::TextDisabled("Tap spacing 1 .. %i px, reach +-%i px", 1 << (passes - 1), 2 * ((1 << passes) - 1));
-                    ImGui::Unindent();
-                }
-                ImGui::SliderFloat("Target Samples", &settings.fine_target_samples, 0.0f, 1000000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-                ImGui::SetItemTooltip("Fine filter sample count budget (0 = off). Each pass accepts taps ring by ring from the center outwards;\n"
-                                      "the ring that would exceed this effective sample count is weighted down so the pass reaches it exactly,\n"
-                                      "further taps are dropped. Fine filter only.");
-                ImGui::Checkbox("Early Out At Target", reinterpret_cast<bool *>(&settings.fine_target_early_out));
-                ImGui::SetItemTooltip("Pixels whose center already holds the target sample count skip the rest of the spatial pass (guides, taps)\n"
-                                      "and return the center. Same result as without, cheaper.");
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.spatial_enabled));
+                    char const * const spatial_modes[] = {"Separable Gaussian", "A-Trous 5x5"};
+                    ImGui::Combo("Mode", &settings.spatial_mode, spatial_modes, 2);
+                    ImGui::SetItemTooltip("Separable gaussian: horizontal + vertical pass, Blur Radius taps per side.\nA-trous: passes of a 5x5 B3 spline kernel, tap spacing 1, 2, 4, 8, ... px.\nBoth use the same geometric edge stopping (plane tolerance, normal power).");
+                    if (settings.spatial_mode == 0)
+                    {
+                        ImGui::SliderInt("Blur Radius (px)", &settings.blur_radius, 0, 32);
+                    }
+                    else
+                    {
+                        ImGui::Indent();
+                        ImGui::SliderInt("A-Trous Passes", &settings.atrous_passes, 1, RT_LAB_ATROUS_MAX_PASSES);
+                        i32 const passes = std::clamp(settings.atrous_passes, 1, RT_LAB_ATROUS_MAX_PASSES);
+                        // Reach: sum of 2 * step over the passes.
+                        ImGui::TextDisabled("Tap spacing 1 .. %i px, reach +-%i px", 1 << (passes - 1), 2 * ((1 << passes) - 1));
+                        ImGui::Unindent();
+                    }
+                    ImGui::SliderFloat("Target Samples", &settings.fine_target_samples, 0.0f, 1000000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("Fine filter sample count budget (0 = off). Each pass accepts taps ring by ring from the center outwards;\n"
+                                          "the ring that would exceed this effective sample count is weighted down so the pass reaches it exactly,\n"
+                                          "further taps are dropped. Fine filter only.");
+                    ImGui::Checkbox("Early Out At Target", reinterpret_cast<bool *>(&settings.fine_target_early_out));
+                    ImGui::SetItemTooltip("Pixels whose center already holds the target sample count skip the rest of the spatial pass (guides, taps)\n"
+                                          "and return the center. Same result as without, cheaper.");
 
-                // Guides weight the fine filter's taps, three families: what the pixels look like (radiance), how the light
-                // reaches them / how far the rays went (ray length), where the surfaces are (geometry).
-                ImGui::SeparatorText("Radiance Guides");
-                ImGui::Checkbox("Variance Guide", reinterpret_cast<bool *>(&settings.variance_guide_enabled));
-                ImGui::SetItemTooltip("Fine filter only. The temporal pass estimates the per sample rgb variance (5x5 raw samples on this surface,\n"
-                                      "accumulated like the color). Center and tap are estimates of their means, N(mean, variance / effective samples);\n"
-                                      "the tap weight is the likelihood both share a mean: exp(-z^2 / (2 k^2)), z^2 = mean over rgb of\n"
-                                      "(mean_c - mean_t)^2 / (var_c / n_c + var_t / n_t). Few samples = loose test, many samples = tight test.\n"
-                                      "Rejected taps also do not count into the effective sample count. Debug view RT_LAB_VARIANCE.");
-                ImGui::BeginDisabled(settings.variance_guide_enabled == 0);
-                ImGui::SliderFloat("Tolerance (sigmas)", &settings.variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                ImGui::EndDisabled();
-                ImGui::BeginDisabled(settings.temporal_enabled == 0);
-                // Combo entries -> distribution_guide_mode values (the skew-normal schemes 2 / 4 were removed).
-                char const * const distribution_modes[] = {"Off", "Lognormal Body + Bright Tail", "Dark Tail + Lognormal Body + Bright Tail"};
-                i32 distribution_index = settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_OFF ? 0 : (settings.distribution_guide_mode >= RT_LAB_DISTRIBUTION_LOGNORMAL_3 ? 2 : 1);
-                if (ImGui::Combo("Distribution Guide", &distribution_index, distribution_modes, 3))
-                {
-                    settings.distribution_guide_mode = distribution_index == 0 ? RT_LAB_DISTRIBUTION_OFF : (distribution_index == 1 ? RT_LAB_DISTRIBUTION_LOGNORMAL : RT_LAB_DISTRIBUTION_LOGNORMAL_3);
-                }
-                ImGui::SetItemTooltip("Fine filter. Every pixel tracks its incoming light as a lognormal body / tail mixture of y = ln(1 + luma / floor):\n"
-                                      "the pixel's perceptual mean (the mean of y over ALL samples, independent of the split) sets the tail thresholds: bright tail =\n"
-                                      "the 3x3 samples above mean + 2, body = the pixel's own sample between the thresholds. No threshold depends on the tail estimates,\n"
-                                      "so there is no feedback loop.\n"
-                                      "Tap weight = exp(-|mu_c - mu_t| / (k sqrt(var_c + var_t) + eps)) of the BODY log means (variances with one prior sample).\n"
-                                      "Rejected taps do not count into the effective sample count. Multiplies with the variance guide. Graph shape.\n"
-                                      "Dark Tail adds a DARK tail below mean - 2 (the mirror of the bright tail); the tap weight then compares all components of both\n"
-                                      "pixels: sum over pairs of w_a w_b exp(-|mu_a - mu_b| / (k sqrt(var_a + var_b) + eps)), normalized by the self overlaps.\n"
-                                      "Inspect the tracked state of single pixels in RT Lab -> Live Pixel Probes.");
-                if (settings.distribution_guide_mode != RT_LAB_DISTRIBUTION_OFF)
-                {
-                    ImGui::SliderFloat("Distribution Tolerance (k)", &settings.distribution_guide_sigmas, 0.1f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SetItemTooltip("k in the weights above (sigmas of the test). Larger = looser.");
-                    if (settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_LOGNORMAL)
+                    // Guides weight the fine filter's taps, three families: what the pixels look like (radiance), how the light
+                    // reaches them / how far the rays went (ray length), where the surfaces are (geometry).
+                    ImGui::SeparatorText("Radiance Guides");
+                    ImGui::Checkbox("Variance Guide", reinterpret_cast<bool *>(&settings.variance_guide_enabled));
+                    ImGui::SetItemTooltip("Fine filter only. The temporal pass estimates the per sample rgb variance (5x5 raw samples on this surface,\n"
+                                          "accumulated like the color). Center and tap are estimates of their means, N(mean, variance / effective samples);\n"
+                                          "the tap weight is the likelihood both share a mean: exp(-z^2 / (2 k^2)), z^2 = mean over rgb of\n"
+                                          "(mean_c - mean_t)^2 / (var_c / n_c + var_t / n_t). Few samples = loose test, many samples = tight test.\n"
+                                          "Rejected taps also do not count into the effective sample count. Debug view RT_LAB_VARIANCE.");
+                    ImGui::BeginDisabled(settings.variance_guide_enabled == 0);
+                    ImGui::SliderFloat("Tolerance (sigmas)", &settings.variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::EndDisabled();
+                    ImGui::BeginDisabled(settings.temporal_enabled == 0);
+                    // Combo entries -> distribution_guide_mode values (the skew-normal schemes 2 / 4 were removed).
+                    char const * const distribution_modes[] = {"Off", "Lognormal Body + Bright Tail", "Dark Tail + Lognormal Body + Bright Tail"};
+                    i32 distribution_index = settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_OFF ? 0 : (settings.distribution_guide_mode >= RT_LAB_DISTRIBUTION_LOGNORMAL_3 ? 2 : 1);
+                    if (ImGui::Combo("Distribution Guide", &distribution_index, distribution_modes, 3))
                     {
-                        char const * const compare_modes[] = {"Body + Tail + Energy", "Membership + Energy", "Perceptual Mean + Energy", "Body + Tail (no energy)"};
-                        settings.distribution_guide_compare = std::clamp(settings.distribution_guide_compare, 0, RT_LAB_DISTRIBUTION_COMPARE_COUNT - 1);
-                        ImGui::Combo("Comparison", &settings.distribution_guide_compare, compare_modes, RT_LAB_DISTRIBUTION_COMPARE_COUNT);
-                        ImGui::SetItemTooltip("Does the DONOR (the tap) match the receiver's distribution, not just its body? The tap weights show in the live pixel probes.\n"
-                                              "Every comparison but the last also has to pass the TOTAL ENERGY test: the energy each distribution stands for (the mean of exp(y) over body +\n"
-                                              "  tails, with the uncertainty of the tail estimates) must match. Tails are rare and carry the energy, a shadowed pixel and a lit one with the same body\n"
-                                              "  can only be told apart by it.\n"
-                                              "Body + Tail + Energy (default): the body test and the tail test (Welch of the tail means; a tail only one pixel has costs that tail's energy share),\n"
-                                              "  blended by the share of the mean energy the tails carry, AND the energy test.\n"
-                                              "Membership + Energy: does the donor's body AND tail (by mass) lie where the receiver's mixture has mass, and the other way around.\n"
-                                              "Perceptual Mean + Energy: Welch style test of the tracked perceptual means (the mean of ALL samples) x the body + tail test.\n"
-                                              "Body + Tail (no energy): the cheap shape test alone.");
+                        settings.distribution_guide_mode = distribution_index == 0 ? RT_LAB_DISTRIBUTION_OFF : (distribution_index == 1 ? RT_LAB_DISTRIBUTION_LOGNORMAL : RT_LAB_DISTRIBUTION_LOGNORMAL_3);
                     }
-                }
-                ImGui::EndDisabled();
-                char const * const sh_guide_modes[] = {"Off", "Dominant Direction", "Cross Evaluation", "Direction z-Test", "Directional Variance"};
-                i32 sh_guide_mode = settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK;
-                ImGui::Combo("SH Guide", &sh_guide_mode, sh_guide_modes, 5);
-                ImGui::SetItemTooltip("Fine filter. Compares where the light of center and tap comes from (SH-Y of the temporal pass, read only).\n"
-                                      "Each mode has a base weight in 0..1, the tap weight is multiplied by pow(base, strength): strength 0 = no effect.\n"
-                                      "Dominant Direction: base = cosine between the dominant directions, only as far as both have a clear dominant direction.\n"
-                                      "Cross Evaluation: the tap's SH resolved at the center's normal vs the center's own, base = exp(-(relative difference / 0.5)^2).\n"
-                                      "Direction z-Test: mean light vector difference vs its noise (1 - R^2, history lengths), base = exp(-z^2 / 8).\n"
-                                      "Directional Variance: the temporal pass also accumulates the second moments of the light direction distribution (3x3 center +\n"
-                                      "distance weighted per frame, m1 = the SH-Y): the Y weighted direction covariance (anisotropic) and the luma variance.\n"
-                                      "Mahalanobis distance of the mean light direction difference under C_c / n_c + C_t / n_t, plus a z test of Y; base = exp(-(z^2 per\n"
-                                      "degree of freedom) / 8).\n"
-                                      "Rejected taps are not counted. Graph shape (off vs on).");
-                settings.sh_guide_mode = sh_guide_mode;
-                ImGui::BeginDisabled(sh_guide_mode == 0);
-                f32 & sh_guide_strength = sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTION ? settings.sh_guide_direction_strength :
-                                          (sh_guide_mode == RT_LAB_SH_GUIDE_CROSS ? settings.sh_guide_cross_strength :
-                                          (sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE ? settings.sh_guide_directional_variance_strength : settings.sh_guide_statistical_strength));
-                ImGui::SliderFloat("SH Guide Strength", &sh_guide_strength, 0.0f, 16.0f, "%.2f");
-                ImGui::SetItemTooltip("Exponent of the mode's base weight. 0 = the guide does nothing, higher = stronger. Every mode keeps its own value.");
-                ImGui::EndDisabled();
+                    ImGui::SetItemTooltip("Fine filter. Every pixel tracks its incoming light as a lognormal body / tail mixture of y = ln(1 + luma / floor):\n"
+                                          "the pixel's perceptual mean (the mean of y over ALL samples, independent of the split) sets the tail thresholds: bright tail =\n"
+                                          "the 3x3 samples above mean + 2, body = the pixel's own sample between the thresholds. No threshold depends on the tail estimates,\n"
+                                          "so there is no feedback loop.\n"
+                                          "Tap weight = exp(-|mu_c - mu_t| / (k sqrt(var_c + var_t) + eps)) of the BODY log means (variances with one prior sample).\n"
+                                          "Rejected taps do not count into the effective sample count. Multiplies with the variance guide. Graph shape.\n"
+                                          "Dark Tail adds a DARK tail below mean - 2 (the mirror of the bright tail); the tap weight then compares all components of both\n"
+                                          "pixels: sum over pairs of w_a w_b exp(-|mu_a - mu_b| / (k sqrt(var_a + var_b) + eps)), normalized by the self overlaps.\n"
+                                          "Inspect the tracked state of single pixels in RT Lab -> Analysis -> Pixel Picker.");
+                    if (settings.distribution_guide_mode != RT_LAB_DISTRIBUTION_OFF)
+                    {
+                        ImGui::SliderFloat("Distribution Tolerance (k)", &settings.distribution_guide_sigmas, 0.1f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SetItemTooltip("k in the weights above (sigmas of the test). Larger = looser.");
+                        if (settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_LOGNORMAL)
+                        {
+                            char const * const compare_modes[] = {"Body + Tail + Energy", "Membership + Energy", "Perceptual Mean + Energy", "Body + Tail (no energy)"};
+                            settings.distribution_guide_compare = std::clamp(settings.distribution_guide_compare, 0, RT_LAB_DISTRIBUTION_COMPARE_COUNT - 1);
+                            ImGui::Combo("Comparison", &settings.distribution_guide_compare, compare_modes, RT_LAB_DISTRIBUTION_COMPARE_COUNT);
+                            ImGui::SetItemTooltip("Does the DONOR (the tap) match the receiver's distribution, not just its body? The tap weights show in the live pixel probes.\n"
+                                                  "Every comparison but the last also has to pass the TOTAL ENERGY test: the energy each distribution stands for (the mean of exp(y) over body +\n"
+                                                  "  tails, with the uncertainty of the tail estimates) must match. Tails are rare and carry the energy, a shadowed pixel and a lit one with the same body\n"
+                                                  "  can only be told apart by it.\n"
+                                                  "Body + Tail + Energy (default): the body test and the tail test (Welch of the tail means; a tail only one pixel has costs that tail's energy share),\n"
+                                                  "  blended by the share of the mean energy the tails carry, AND the energy test.\n"
+                                                  "Membership + Energy: does the donor's body AND tail (by mass) lie where the receiver's mixture has mass, and the other way around.\n"
+                                                  "Perceptual Mean + Energy: Welch style test of the tracked perceptual means (the mean of ALL samples) x the body + tail test.\n"
+                                                  "Body + Tail (no energy): the cheap shape test alone.");
+                        }
+                    }
+                    ImGui::EndDisabled();
+                    char const * const sh_guide_modes[] = {"Off", "Dominant Direction", "Cross Evaluation", "Direction z-Test", "Directional Variance"};
+                    i32 sh_guide_mode = settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK;
+                    ImGui::Combo("SH Guide", &sh_guide_mode, sh_guide_modes, 5);
+                    ImGui::SetItemTooltip("Fine filter. Compares where the light of center and tap comes from (SH-Y of the temporal pass, read only).\n"
+                                          "Each mode has a base weight in 0..1, the tap weight is multiplied by pow(base, strength): strength 0 = no effect.\n"
+                                          "Dominant Direction: base = cosine between the dominant directions, only as far as both have a clear dominant direction.\n"
+                                          "Cross Evaluation: the tap's SH resolved at the center's normal vs the center's own, base = exp(-(relative difference / 0.5)^2).\n"
+                                          "Direction z-Test: mean light vector difference vs its noise (1 - R^2, history lengths), base = exp(-z^2 / 8).\n"
+                                          "Directional Variance: the temporal pass also accumulates the second moments of the light direction distribution (3x3 center +\n"
+                                          "distance weighted per frame, m1 = the SH-Y): the Y weighted direction covariance (anisotropic) and the luma variance.\n"
+                                          "Mahalanobis distance of the mean light direction difference under C_c / n_c + C_t / n_t, plus a z test of Y; base = exp(-(z^2 per\n"
+                                          "degree of freedom) / 8).\n"
+                                          "Rejected taps are not counted. Graph shape (off vs on).");
+                    settings.sh_guide_mode = sh_guide_mode;
+                    ImGui::BeginDisabled(sh_guide_mode == 0);
+                    f32 & sh_guide_strength = sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTION ? settings.sh_guide_direction_strength :
+                                              (sh_guide_mode == RT_LAB_SH_GUIDE_CROSS ? settings.sh_guide_cross_strength :
+                                              (sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE ? settings.sh_guide_directional_variance_strength : settings.sh_guide_statistical_strength));
+                    ImGui::SliderFloat("SH Guide Strength", &sh_guide_strength, 0.0f, 16.0f, "%.2f");
+                    ImGui::SetItemTooltip("Exponent of the mode's base weight. 0 = the guide does nothing, higher = stronger. Every mode keeps its own value.");
+                    ImGui::EndDisabled();
 
-                ImGui::SeparatorText("Geometry Guides");
-                ImGui::SliderFloat("Plane Tolerance (px)", &settings.blur_plane_tolerance, 0.1f, 8.0f);
-                ImGui::SliderFloat("Normal Power", &settings.blur_normal_power, 0.0f, 64.0f);
-                ImGui::TreePop();
+                    ImGui::SeparatorText("Geometry Guides");
+                    ImGui::SliderFloat("Plane Tolerance (px)", &settings.blur_plane_tolerance, 0.1f, 8.0f);
+                    ImGui::SliderFloat("Normal Power", &settings.blur_normal_power, 0.0f, 64.0f);
+                    ImGui::TreePop();
+                }
             }
-            if (lab_section("Resolve", { RenderTimes::index<"RT_LAB", "RESOLVE">() }))
+            if (lab_header("Resolve Settings", { RenderTimes::index<"RT_LAB", "RESOLVE">(), RenderTimes::index<"RT_LAB", "INTEGRATOR">(), RenderTimes::index<"RT_LAB", "LAB2_INTEGRATOR">() }))
             {
                 ImGui::TextDisabled("Full res output, bilateral upsample when half res.");
-                // Shared by both presets (not part of them): the same values show under each preset.
-                ImGui::SeparatorText("Post Stabilization");
-                ImGui::PushID("post stabilization");
-                ImGui::Checkbox("Enabled", &lab.post_stabilization_enabled);
-                ImGui::SetItemTooltip("TAA style temporal step, the LAST thing the resolve does, always at full res (both presets, not part of them):\n"
-                                      "own history, reprojected, clamped to the current output's neighborhood box (mean +- gamma x sigma, YCoCg),\n"
-                                      "blended with the current output by alpha. Replaces the output for the measurements / estimate too.\n"
-                                      "Its cost shows in the RESOLVE timer (the halo of every 8x8 group is resolved twice).");
-                ImGui::BeginDisabled(!lab.post_stabilization_enabled);
-                ImGui::SliderFloat("Alpha", &lab.post_stabilization_alpha, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                ImGui::SetItemTooltip("Blend factor of the current output (1 = off).");
-                ImGui::Checkbox("Variance Clamp", &lab.post_stabilization_clamp);
-                ImGui::SetItemTooltip("Clamp the reprojected history into the neighborhood box. Off: plain exponential history (alpha only).");
-                ImGui::BeginDisabled(!lab.post_stabilization_clamp);
-                ImGui::SliderFloat("Gamma", &lab.post_stabilization_gamma, 0.25f, 4.0f);
-                ImGui::SetItemTooltip("Clamp box half width in standard deviations of the neighborhood (smaller = less ghosting, more flicker).");
-                ImGui::Checkbox("Temporal Variance", &lab.post_stabilization_temporal_variance);
-                ImGui::SetItemTooltip("Short history (max 4 frames, reprojected) of the neighborhood variance loosens the box:\n"
-                                      "half width = gamma x sqrt(max(neighborhood variance, its history)).\n"
-                                      "A frame whose neighborhood spreads less than recently does not clamp harder.");
-                ImGui::SliderInt("Variance Estimator Radius", &lab.post_stabilization_radius, 1, RT_LAB_STABILIZE_MAX_RADIUS);
-                ImGui::SetItemTooltip("Neighborhood of the mean / sigma estimate: (2r + 1)^2 pixels (1 = 3x3). Larger = steadier box, the halo grows\n"
-                                      "(more pixels resolved twice per 8x8 group).");
-                ImGui::EndDisabled();
-                ImGui::EndDisabled();
-                ImGui::PopID();
-                ImGui::TreePop();
+                rt_lab_preset_resolve_ui(render_context, preset);
             }
         };
 
         if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Checkbox("Use RT Lab Denoiser", reinterpret_cast<bool *>(&render_data.rt_lab_settings.enabled));
+            ImGui::Checkbox("Use RT Lab", reinterpret_cast<bool *>(&render_data.rt_lab_settings.enabled));
             ImGui::SetItemTooltip("Master switch: replaces the RTGI denoiser with the experimental RT Lab path (diffuse only). RTGI must be enabled.");
             if (render_data.rt_lab_settings.enabled && !render_data.rtgi_settings.enabled)
             {
@@ -2292,12 +2318,13 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     if (ImGui::Button("Reset To Defaults"))
                     {
                         lab.presets[p] = rt_lab_default_settings(static_cast<RtLabPreset>(p));
+                        lab.preset_configs[p] = rt_lab_default_preset_config(static_cast<RtLabPreset>(p));
                     }
                     if (ImGui::BeginTabBar("##preset tabs"))
                     {
                         if (ImGui::BeginTabItem("Settings"))
                         {
-                            lab_preset_settings(lab.presets[p]);
+                            lab_preset_settings(lab.presets[p], p);
                             ImGui::EndTabItem();
                         }
                         if (ImGui::BeginTabItem("Neural Affinity"))
@@ -2312,7 +2339,26 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::PopID();
             }
         }
-        if (ImGui::CollapsingHeader("Debug Views", ImGuiTreeNodeFlags_DefaultOpen))
+        // Analysis lives in its own window so it can be used next to the settings.
+        ImGui::PopItemWidth();
+        ImGui::End();
+        rt_lab_window_ended = true;
+        analysis_window_begun = widget_rt_lab_analysis;
+        bool const analysis_open = widget_rt_lab_analysis && ImGui::Begin("RT Lab Analysis", &widget_rt_lab_analysis, ImGuiWindowFlags_NoCollapse);
+        if (analysis_open)
+        {
+            ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+        }
+        // The picker input below is read every frame, also with the window closed or sections collapsed.
+        if (analysis_open && ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            rt_lab_statistics_ui(render_context);
+        }
+        if (analysis_open && ImGui::CollapsingHeader("Pixel Picker", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            rt_lab_picker_ui(render_context);
+        }
+        if (analysis_open && ImGui::CollapsingHeader("Debug Views"))
         {
             debug_mode_sub_selector("rt lab debug visualization", &rt_lab_debug_visualization, {
                 DEBUG_DRAW_MODE_RTGI_TOTAL_RAYS_SHOT,
@@ -2346,6 +2392,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 DEBUG_DRAW_MODE_RT_LAB2_HISTORY,
                 DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT,
                 DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT_LOSS,
+                DEBUG_DRAW_MODE_RT_LAB3_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_SPLIT_ERROR,
                 DEBUG_DRAW_MODE_RT_LAB_SPLIT_RELATIVE_ERROR,
@@ -2378,26 +2425,21 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::SliderFloat("Temporal Count Clamp", &lab.sample_count_input_clamp, 0.0f, 512.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
             ImGui::SetItemTooltip("The temporal history length is clamped to this before the spatial passes accumulate it.\n0 = off, 1 = count only the spatial samples. Metric only, the filtering is unchanged.");
         }
-        // Live pixel probes: a viewport click while a probe is picking sets its pixel (read every frame, also with the header collapsed).
+        // Pixel picker: a viewport click while a picker is picking sets its pixel (read every frame, also with the header collapsed).
         bool const viewport_click = window->button_pressed(0 /* left */) && !window->is_cursor_captured() && !ImGui::GetIO().WantCaptureMouse;
-        bool const probe_consumed = rt_lab_probe_input(render_context, viewport_click, window->get_cursor_x(), window->get_cursor_y(),
+        bool const picker_consumed = rt_lab_picker_input(render_context, viewport_click, window->get_cursor_x(), window->get_cursor_y(),
             static_cast<i32>(window->get_width()), static_cast<i32>(window->get_height()));
-        rt_lab2_ui(render_context);
-        if (ImGui::CollapsingHeader("Live Pixel Probes"))
+        if (render_context.rt_lab.lab2.enabled || render_context.rt_lab.lab4.enabled)
         {
-            rt_lab_probe_ui(render_context);
+            if (analysis_open && ImGui::CollapsingHeader("Hash Grid Tools"))
+            {
+                rt_lab2_tools_ui(render_context);
+            }
         }
         // RT Lab 2 cell probes: same, a viewport click while one is picking sets its pixel.
-        bool const cell_probe_consumed = rt_lab2_probe_input(render_context, viewport_click && !probe_consumed && render_context.rt_lab.probe.picking < 0,
+        rt_lab2_probe_input(render_context, viewport_click && !picker_consumed && render_context.rt_lab.analysis.picking < 0,
             window->get_cursor_x(), window->get_cursor_y(), static_cast<i32>(window->get_width()), static_cast<i32>(window->get_height()));
-        // Pixel telemetry: the mouse input is read every frame (also with the header collapsed).
-        rt_lab_telemetry_input(render_context, viewport_click && !probe_consumed && !cell_probe_consumed && render_context.rt_lab.probe.picking < 0 && render_context.rt_lab.lab2.probe.picking < 0,
-            window->get_cursor_x(), window->get_cursor_y(), static_cast<i32>(window->get_width()), static_cast<i32>(window->get_height()));
-        if (ImGui::CollapsingHeader("Pixel Telemetry"))
-        {
-            rt_lab_telemetry_ui(render_context);
-        }
-        if (ImGui::CollapsingHeader("Test", ImGuiTreeNodeFlags_DefaultOpen))
+        if (analysis_open && ImGui::CollapsingHeader("Test", ImGuiTreeNodeFlags_DefaultOpen))
         {
             RtLabTestSetup & setup = lab.test;
             char const * const preset_names[RT_LAB_PRESET_COUNT] = {"Progressive", "Custom", "Neural"};
@@ -2860,9 +2902,19 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 ImGui::TreePop();
             }
         }
-        ImGui::PopItemWidth();
+        if (analysis_open)
+        {
+            ImGui::PopItemWidth();
+        }
+        if (analysis_window_begun)
+        {
+            ImGui::End();
+        }
     }
-    ImGui::End();
+    if (!rt_lab_window_ended)
+    {
+        ImGui::End();
+    }
 }
 
 

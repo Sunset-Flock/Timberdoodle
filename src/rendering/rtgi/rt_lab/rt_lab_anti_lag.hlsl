@@ -298,15 +298,19 @@ func entry_rt_lab_anti_lag_blur(uint2 dtid : SV_DispatchThreadID)
             const float frames_now = history.z;
             // The pixel histories hold the slow mean: its bias vs m, noise of the difference = P + the slow EMA's own noise.
             const float bias = log(history.x + luminance_floor) - m;
-            const float bias_variance = p + r / max(2.0f * frames_now - 1.0f, 1.0f);
+            // Rubber band: a soft dead band (the noise of the difference never drops below soft_floor) and a spring that stiffens with the stretch.
+            const float soft_floor_log = log(1.0f + max(settings.coarse_anti_lag_soft_floor, 0.0f));
+            const float bias_variance = p + r / max(2.0f * frames_now - 1.0f, 1.0f) + square(soft_floor_log);
+            const float spring_full_log = log(max(settings.coarse_anti_lag_spring_range, 1.0f + 1e-3f));
+            const float spring = lerp(saturate(settings.coarse_anti_lag_spring_min), 1.0f, smoothstep(soft_floor_log, max(spring_full_log, soft_floor_log + 1e-3f), abs(bias)));
             const float shrink_sigmas_sq = square(RT_LAB_ANTI_LAG_KALMAN_SHRINK_SIGMAS);
             const float shrink = max(0.0f, 1.0f - shrink_sigmas_sq * bias_variance / max(square(bias), 1e-12f)); // James-Stein
-            const float correction = clamp(-shrink * bias, -RT_LAB_GRADIENT_KALMAN_MAX_LOG, RT_LAB_GRADIENT_KALMAN_MAX_LOG);
+            const float correction = clamp(-shrink * spring * bias, -RT_LAB_GRADIENT_KALMAN_MAX_LOG, RT_LAB_GRADIENT_KALMAN_MAX_LOG);
             clip_ratio = exp(correction);
             history.x *= clip_ratio;
             // Information loss: the uncorrectable rest beyond its noise + the correction's own uncertainty.
             const float residual = bias + correction;
-            const float loss = max(square(residual) - shrink_sigmas_sq * bias_variance, 0.0f) + square(shrink) * p;
+            const float loss = max(square(residual) - shrink_sigmas_sq * bias_variance, 0.0f) * square(spring) + square(shrink) * p;
             const float v = max(per_ray_variance, 1e-4f);
             const float cap = frames_now / (1.0f + frames_now * RT_LAB_ANTI_LAG_KALMAN_K * loss / v);
             anti_lag_alpha = cap < frames_now - 0.5f ? 1.0f / (max(cap, 1.0f) + 1.0f) : 0.0f;

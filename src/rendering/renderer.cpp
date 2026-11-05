@@ -16,6 +16,9 @@
 #include "rtgi/rtgi.hpp"
 #include "rtgi/rt_lab/rt_lab.hpp"
 #include "rtgi/rt_lab/rt_lab2.hpp"
+#include "rtgi/rt_lab/rt_lab3.hpp"
+#include "rtgi/rt_lab/rt_lab4.hpp"
+#include "rtgi/rt_lab/rt_lab_integrator.hpp"
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
@@ -259,8 +262,16 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rt_lab2_lookup_compile_info()},
         {rt_lab2_integrator_compile_info()},
         {rt_lab2_probe_compile_info()},
+        {rt_lab3_trace_compile_info()},
+        {rt_lab3_temporal_compile_info()},
+        {rt_lab3_spatial_compile_info()},
+        {rt_lab3_shade_compile_info()},
+        {rt_lab3_filter_compile_info()},
+        {rt_lab_integrator_compile_info()},
         {rt_lab_ray_filter_compile_info()},
         {rt_lab_trace_compile_info()},
+        {rt_lab_stats_compile_info()},
+        {rt_lab_picker_compile_info()},
         {rt_lab_probe_compile_info()},
         {rt_lab_telemetry_compile_info()},
         {rt_lab_telemetry_reference_compile_info()},
@@ -621,11 +632,10 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
 auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 {
     using namespace daxa;
-    // Every graph build records the post stabilization state, also when the RT Lab is not part of the graph: otherwise
-    // rt_lab_frame_update sees enabled != built forever and forces a rebuild every frame.
-    render_context->rt_lab.post_stabilization_built = render_context->rt_lab.post_stabilization_enabled;
     render_context->rt_lab.telemetry.built = render_context->rt_lab.telemetry.enabled;
     render_context->rt_lab.probe.built = render_context->rt_lab.probe.enabled;
+    render_context->rt_lab.analysis.stats_built = render_context->rt_lab.analysis.stats_enabled;
+    render_context->rt_lab.analysis.picker_built = std::any_of(render_context->rt_lab.analysis.pickers.begin(), render_context->rt_lab.analysis.pickers.end(), [](auto const & p) { return p.active; });
     rt_lab_neural_record_built(render_context->render_data.rt_lab_settings, render_context->rt_lab.neural);
     TaskGraph tg{{
         .device = this->gpu_context->device,
@@ -1122,7 +1132,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         // Master switch: the experimental RT Lab path replaces the RTGI denoiser.
         // (RT Lab 2 replaces the RT Lab denoiser while rt_lab_frame_update says it is active.)
         auto rtgi_result = render_context->render_data.rt_lab_settings.enabled
-            ? (render_context->rt_lab.lab2.active ? tasks_rt_lab2_main(info) : tasks_rt_lab_main(info))
+            ? (render_context->rt_lab.lab4.active ? tasks_rt_lab4_main(info) : render_context->rt_lab.lab3.active ? (render_context->rt_lab.lab3.classic_denoiser && !render_context->rt_lab.lab3.enabled ? tasks_rt_lab_restir_main(info) : tasks_rt_lab3_main(info)) : render_context->rt_lab.lab2.active ? tasks_rt_lab2_main(info) : tasks_rt_lab_main(info))
             : tasks_rtgi_main(info);
         rtgi_per_pixel_diffuse = rtgi_result.opaque_diffuse;
         rtgi_per_pixel_specular = rtgi_result.opaque_specular;

@@ -188,7 +188,30 @@ func entry_rt_lab_distribute(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_G
         const uint base_demand = push.attach.ray_counters->base_demand;
         const uint extra_demand = push.attach.ray_counters->extra_demand;
         uint tile_total = 0u;
-        if (base_demand + extra_demand <= budget)
+        const float max_base = saturate(settings.max_base_coverage);
+        const bool base_capped = max_base > 0.0f && max_base < 1.0f;
+        // SURPLUS: the demand (shaped by max_rays_per_pixel and the history) is below the budget. The budget is a hard AND exact total, so the
+        // demand only decides WHERE the rays go: every pixel's share is scaled up, rays = ratio x demand (rounded by the cumulative scan below).
+        // With a base coverage limit the base rays keep their schedule, the scaled share is the extras: ratio = (budget - base) / total demand.
+        bool surplus = false;
+        float surplus_ratio = 0.0f;
+        if (base_demand > 0u)
+        {
+            const float weight_total = float(base_demand + extra_demand);
+            if (base_capped)
+            {
+                const float base_total = min(max_base * float(base_demand), float(budget));
+                const float extra_budget = float(budget) - base_total;
+                surplus = float(extra_demand) < extra_budget;
+                surplus_ratio = extra_budget / weight_total;
+            }
+            else
+            {
+                surplus = base_demand + extra_demand < budget;
+                surplus_ratio = float(budget) / weight_total;
+            }
+        }
+        if (!base_capped && !surplus && base_demand + extra_demand <= budget)
         {
             for (uint i = 0u; i < RT_LAB_TILE_PIXELS; ++i)
             {
@@ -201,9 +224,19 @@ func entry_rt_lab_distribute(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_G
             const float min_budget = saturate(settings.min_ray_budget);
             const float min_base_spend = min(float(base_demand) * min_budget, float(budget));
             const float extra_ratio = extra_demand > 0u ? saturate((float(budget) - min_base_spend) / float(extra_demand)) : 0.0f;
-            const float base_fraction = base_demand > 0u
+            float base_fraction = base_demand > 0u
                 ? min(min(max((float(budget) - float(extra_demand) * extra_ratio) / float(base_demand), min_budget), 1.0f), float(budget) / float(base_demand))
                 : 0.0f;
+            if (base_capped)
+            {
+                // The leftover budget never raises the base coverage above the limit.
+                base_fraction = min(base_fraction, max_base);
+            }
+            if (surplus)
+            {
+                // Everything above the base schedule is the scaled share.
+                base_fraction = base_capped ? max_base : 0.0f;
+            }
 
             uint tile_base_demand = 0u;
             uint tile_extra_demand = 0u;
@@ -220,7 +253,24 @@ func entry_rt_lab_distribute(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_G
             const uint frame = settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) : 0u;
             const uint rank_rotation = rt_lab_base_rank_rotation(settings, push.attach.globals.trunk_flt_frame_index);
             uint base_given = 0u;
-            for (uint r = 0u; r < RT_LAB_TILE_PIXELS && base_given < tile_base_budget; ++r)
+            if (base_capped)
+            {
+                // Fixed schedule over ALL 64 tile positions (sky included): ranks [rotation, rotation + slots), the rotation advances by `slots`
+                // per frame, so every pixel gets exactly one base ray every 64 / slots frames. The counted version below rounds the tile's
+                // budget down: a tile with fewer than 1 / coverage geometry pixels (silhouettes, foliage) got NO base ray, ever.
+                const uint slots = uint(base_fraction * float(RT_LAB_TILE_PIXELS) + 1e-3f);
+                const uint scheduled_rotation = (frame * slots) % RT_LAB_TILE_PIXELS;
+                for (uint r = 0u; r < slots; ++r)
+                {
+                    const uint i = gs_pixel_by_rank[(r + scheduled_rotation) % RT_LAB_TILE_PIXELS];
+                    if (gs_desired[i] > 0u)
+                    {
+                        gs_rays[i] = 1u;
+                        ++base_given;
+                    }
+                }
+            }
+            for (uint r = 0u; !base_capped && r < RT_LAB_TILE_PIXELS && base_given < tile_base_budget; ++r)
             {
                 const uint i = gs_pixel_by_rank[(r + rank_rotation) % RT_LAB_TILE_PIXELS];
                 if (gs_desired[i] > 0u)
@@ -230,19 +280,22 @@ func entry_rt_lab_distribute(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_G
                 }
             }
             // Extras: cumulative scan, target(prefix) = floor(prefix / total x budget + phase), differenced.
+            // Surplus: the scan covers the whole demand (base ray included in the weight) and has no per pixel cap.
             const uint tile_id = gid.y * ((push.size.x + RT_LAB_RAYS_X - 1u) / RT_LAB_RAYS_X) + gid.x;
             const float phase = frac(float(frame) * 0.61803398875f + float(tile_id) * 0.7548776662f + 0.5f);
-            const float inv_extra_demand = tile_extra_demand > 0u ? rcp(float(tile_extra_demand)) : 0.0f;
+            const uint scan_total = surplus ? tile_base_demand + tile_extra_demand : tile_extra_demand;
+            const uint scan_budget = surplus ? uint(surplus_ratio * float(scan_total) + phase) : tile_extra_budget;
+            const float inv_extra_demand = scan_total > 0u ? rcp(float(scan_total)) : 0.0f;
             uint accumulated_demand = 0u;
             uint extra_given = 0u;
             for (uint i = 0u; i < RT_LAB_TILE_PIXELS; ++i)
             {
-                const uint extra_i = gs_desired[i] > 0u ? gs_desired[i] - 1u : 0u;
+                const uint extra_i = surplus ? gs_desired[i] : (gs_desired[i] > 0u ? gs_desired[i] - 1u : 0u);
                 accumulated_demand += extra_i;
-                const uint target = tile_extra_demand > 0u
-                    ? min(uint(saturate(float(accumulated_demand) * inv_extra_demand) * float(tile_extra_budget) + phase), tile_extra_budget)
+                const uint target = scan_total > 0u
+                    ? min(uint(saturate(float(accumulated_demand) * inv_extra_demand) * float(scan_budget) + phase), scan_budget)
                     : 0u;
-                const uint extra = min(target - min(extra_given, target), extra_i);
+                const uint extra = min(target - min(extra_given, target), surplus ? scan_budget : extra_i);
                 extra_given = max(extra_given, target);
                 gs_rays[i] += extra;
             }

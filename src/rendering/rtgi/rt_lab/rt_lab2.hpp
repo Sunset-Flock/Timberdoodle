@@ -33,8 +33,16 @@ auto rt_lab2_frame_update(RenderContext & render_context, bool reference_phase) 
 
 auto tasks_rt_lab2_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult;
 
-// UI section of the RT Lab window.
+// The cell grid half of RT Lab 2 (exposure, accumulate, cell integrate, lookup, temporal resolve) on a per pixel input (.rgb radiance, .a sample weight),
+// used by RT Lab 4. Returns the temporal resolve's output.
+auto rt_lab2_add_cell_stage(TasksRtgiInfo const & info, daxa::TaskImageView lab_depth, daxa::TaskImageView lab_face_normal, daxa::TaskImageView lab_raw_diffuse, daxa::Extent3D size) -> daxa::TaskImageView;
+
+// Hash grid settings of a preset (the live copy of its config, see rt_lab_preset_config_ui) / its runtime tools (probes, statistics).
 void rt_lab2_ui(RenderContext & render_context);
+void rt_lab2_tools_ui(RenderContext & render_context);
+
+// The grid, exposure, lookup and integrator settings of the UI section (RT Lab 4 shows them too).
+void rt_lab2_cells_ui(RenderContext & render_context);
 
 // Test plan / automation: applies the JSON object ("enabled", "ray_budget" and any RtLab2Settings field by name) to the
 // state. Unknown keys are appended to `unknown_keys`.

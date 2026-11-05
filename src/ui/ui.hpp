@@ -129,6 +129,7 @@ struct UIEngine
         bool convert_vdb_window = false;
         bool renderer_settings = true;
         bool widget_rt_lab = true;
+        bool widget_rt_lab_analysis = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_camera_path_editor = false;

@@ -72,12 +72,6 @@ struct TestPlanEntry
     bool screenshot = false;
     bool force_full_pgi_update = false;
     f32 lag_tolerance = 0.02f; // RT Lab temporal lag metric tolerance (relative)
-    bool post_stabilization_enabled = false;
-    f32 post_stabilization_alpha = 0.1f;
-    f32 post_stabilization_gamma = 1.0f;
-    i32 post_stabilization_radius = 1;
-    bool post_stabilization_clamp = true;
-    bool post_stabilization_temporal_variance = true;
 };
 
 struct Application

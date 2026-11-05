@@ -1,6 +1,9 @@
 #include "application.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab2.hpp"
+#include "rendering/rtgi/rt_lab/rt_lab3.hpp"
+#include "rendering/rtgi/rt_lab/rt_lab4.hpp"
+#include "rendering/rtgi/rt_lab/rt_lab_integrator.hpp"
 
 #include <fmt/format.h>
 #include <fstream>
@@ -31,12 +34,23 @@
 //       "preset": "custom" | "progressive" | "neural",      active (tested) RT Lab preset, default custom
 //       "force_full_pgi_update": false,                     RT Lab "Force Full PGI Update" for this test
 //       "lag_tolerance": 0.02,                              temporal lag metric tolerance (relative), default 0.02
-//       "post_stabilization": { "enabled": true, "alpha": 0.1, "gamma": 1.0, "radius": 1, "clamp": true, "temporal_variance": true },   RT Lab post stabilization (default off)
 //       "custom": { "coarse_anti_lag_enabled": 1, ... },       RT Lab preset overrides, keys = saved result settings keys,
 //       "progressive": { ... }, "neural_preset": { ... },   applied to the app's presets as they were at plan start (the neural preset also takes "custom" first)
 //       "lab2": { "enabled": true, "ray_budget": 0.25, "cell_size_px": 16, ... },   RT Lab 2 (hash grid denoiser) instead of the original denoiser:
 //                                                           keys = RtLab2Settings field names (rt_lab2_settings.inl), default off. The progressive reference
 //                                                           phases still run the original denoiser; every test starts from the RT Lab 2 defaults
+//       "integrator": { "enabled": true, "window_radius": 2, ... },   THE temporal resolve (RtLabIntegratorSettings field names, the hash grid's integrator), used by every
+//                                                           pipeline; part of the preset config, default ON (progressive preset: off). The integrator_* / window_radius ...
+//                                                           keys are no longer RT Lab 2 keys.
+//       The "lab2" / "lab3" / "lab4" / "integrator" objects are applied to the ACTIVE preset's config (RtLabState::preset_configs), defaults otherwise.
+//       pipeline: part of the preset settings, e.g. "custom": { "restir_enabled": 1, "denoiser": 0 }   denoiser 0 classic, 1 hash grid, 2 none (ReSTIR only).
+//                                                           The "enabled" flags of lab2 / lab3 / lab4 below still work (they select version 2 / 3 / 4 in the active preset).
+//       "lab4": { "enabled": true, "cell_source": 0, "cell_weight_mode": 1 },   RT Lab 4 = RT Lab 3 (ReSTIR GI, "lab3" settings) in front of RT Lab 2 (cells + temporal resolve,
+//                                                           "lab2" settings, no temporal gradient); default off, takes priority over "lab3" / "lab2".
+//                                                           cell_weight_mode: 0 one per pixel with a reservoir, 1 fresh rays, 2 reservoir confidence M
+//       "lab3": { "enabled": true, "ray_budget": 1.0, "spatial_passes": 1, ... },   RT Lab 3 (ReSTIR GI): keys = "enabled" (legacy), "half_res" (sets the preset),
+//                                                           "ray_budget", "redistribution_enabled", "max_rays_per_pixel", "target_sample_count", "min_base_coverage"
+//                                                           and the RtLab3Settings field names (rt_lab3_settings.inl); default off, takes priority over "lab2"
 //       "move": {                                           programmed move of the RT Lab test
 //         "dt": 0.0166667,                                  time per step
 //         "camera": { "velocity": [vx, vy, vz], "yaw_speed": 0, "pitch_speed": 0, "duration": 1, "start": "px py pz fx fy fz" },
@@ -205,6 +219,36 @@ auto Application::start_test_plan(std::filesystem::path const & path) -> bool
                 return fail(fmt::format("unknown \"lab2\" setting \"{}\"", unknown.front()));
             }
         }
+        if (spec.contains("integrator"))
+        {
+            RtLabIntegratorState scratch = {};
+            std::vector<std::string> unknown = {};
+            rt_lab_integrator_apply_json(scratch, spec["integrator"], unknown);
+            if (!unknown.empty())
+            {
+                return fail(fmt::format("unknown \"integrator\" setting \"{}\"", unknown.front()));
+            }
+        }
+        if (spec.contains("lab4"))
+        {
+            RtLab4State scratch = {};
+            std::vector<std::string> unknown = {};
+            rt_lab4_apply_json(scratch, spec["lab4"], unknown);
+            if (!unknown.empty())
+            {
+                return fail(fmt::format("unknown \"lab4\" setting \"{}\"", unknown.front()));
+            }
+        }
+        if (spec.contains("lab3"))
+        {
+            RtLab3State scratch = {};
+            std::vector<std::string> unknown = {};
+            rt_lab3_apply_json(scratch, spec["lab3"], unknown);
+            if (!unknown.empty())
+            {
+                return fail(fmt::format("unknown \"lab3\" setting \"{}\"", unknown.front()));
+            }
+        }
         if (spec.contains("move"))
         {
             nlohmann::json const & move = spec["move"];
@@ -230,16 +274,6 @@ auto Application::start_test_plan(std::filesystem::path const & path) -> bool
         entry.screenshot = spec.value("screenshot", false);
         entry.force_full_pgi_update = spec.value("force_full_pgi_update", false);
         entry.lag_tolerance = spec.value("lag_tolerance", 0.02f);
-        if (spec.contains("post_stabilization"))
-        {
-            nlohmann::json const & stabilization = spec["post_stabilization"];
-            entry.post_stabilization_enabled = stabilization.value("enabled", true);
-            entry.post_stabilization_alpha = stabilization.value("alpha", entry.post_stabilization_alpha);
-            entry.post_stabilization_gamma = stabilization.value("gamma", entry.post_stabilization_gamma);
-            entry.post_stabilization_radius = stabilization.value("radius", entry.post_stabilization_radius);
-            entry.post_stabilization_clamp = stabilization.value("clamp", entry.post_stabilization_clamp);
-            entry.post_stabilization_temporal_variance = stabilization.value("temporal_variance", entry.post_stabilization_temporal_variance);
-        }
         _test_plan_entries.push_back(std::move(entry));
     }
     if (_test_plan_entries.empty())
@@ -287,26 +321,41 @@ void Application::test_plan_setup(TestPlanEntry const & entry)
     lab.presets = entry.presets;
     lab.force_full_pgi_update = entry.force_full_pgi_update;
     lab.lag_tolerance = entry.lag_tolerance;
-    lab.post_stabilization_enabled = entry.post_stabilization_enabled;
-    lab.post_stabilization_alpha = entry.post_stabilization_alpha;
-    lab.post_stabilization_gamma = entry.post_stabilization_gamma;
-    lab.post_stabilization_radius = entry.post_stabilization_radius;
-    lab.post_stabilization_clamp = entry.post_stabilization_clamp;
-    lab.post_stabilization_temporal_variance = entry.post_stabilization_temporal_variance;
     lab.active_preset = entry.active_preset;
     {
-        // RT Lab 2: tests are independent, every test starts from the defaults plus its own overrides.
-        RtLab2State lab2 = {};
+        // The stage settings (hash grid, ReSTIR, glue, temporal resolve) are part of the active preset's config: tests are independent, every test starts from
+        // the preset's defaults plus its own "lab2" / "lab3" / "lab4" / "integrator" overrides.
+        auto const section = [&](char const * key) -> nlohmann::json
+        {
+            return entry.spec.value(key, nlohmann::json::object());
+        };
+        RtLabPresetConfig config = rt_lab_default_preset_config(static_cast<RtLabPreset>(std::clamp(lab.active_preset, 0, RT_LAB_PRESET_COUNT - 1)));
         std::vector<std::string> unknown = {};
-        rt_lab2_apply_json(lab2, entry.spec.value("lab2", nlohmann::json::object()), unknown);
-        lab.lab2.enabled = lab2.enabled;
-        lab.lab2.ray_budget = lab2.ray_budget;
-        lab.lab2.min_base_coverage = lab2.min_base_coverage;
-        lab.lab2.ray_filter_mode = lab2.ray_filter_mode;
-        lab.lab2.ray_filter_radius = lab2.ray_filter_radius;
-        lab.lab2.ray_filter_tolerance = lab2.ray_filter_tolerance;
-        lab.lab2.ray_filter_factor = lab2.ray_filter_factor;
-        lab.lab2.settings = lab2.settings;
+        RtLab2State lab2 = {};
+        rt_lab2_apply_json(lab2, section("lab2"), unknown);
+        config.lab2 = lab2;
+        RtLab3State lab3 = {};
+        rt_lab3_apply_json(lab3, section("lab3"), unknown);
+        config.lab3 = lab3;
+        RtLab4State lab4 = {};
+        rt_lab4_apply_json(lab4, section("lab4"), unknown);
+        config.lab4 = lab4;
+        RtLabIntegratorState integrator = {};
+        integrator.enabled = config.integrator.enabled;
+        rt_lab_integrator_apply_json(integrator, section("integrator"), unknown);
+        config.integrator = integrator;
+        lab.preset_configs[lab.active_preset] = config;
+        if (section("lab3").contains("half_res"))
+        {
+            lab.presets[lab.active_preset].half_res = lab3.half_res ? 1 : 0; // the resolution is a preset setting now
+        }
+        // Legacy "enabled" flags of lab2 / lab3 / lab4 (4 wins over 3 over 2): select that version in the active preset (the preset keys "restir_enabled" /
+        // "denoiser" of "custom" etc. are applied with the presets and win when the plan sets them).
+        i32 const legacy = lab4.enabled ? 4 : (lab3.enabled ? 3 : (lab2.enabled ? 2 : 0));
+        if (legacy != 0 && !section("custom").contains("denoiser") && !section("custom").contains("restir_enabled"))
+        {
+            rt_lab_pipeline_set_version(lab.presets[lab.active_preset], legacy);
+        }
     }
     {
         // Neural affinity + training data dump (rendering/rtgi/rt_lab/neural).
@@ -429,6 +478,27 @@ void Application::update_test_plan()
             _test_plan_frame_counter += 1;
             if (entry.type == TestPlanTestType::PERF)
             {
+                // "sun_flip": ["angle_x angle_y", "angle_x angle_y"]: the sun alternates between both directions EVERY frame (every frame is a jump frame).
+                if (entry.spec.contains("sun_flip") && entry.spec["sun_flip"].is_array() && entry.spec["sun_flip"].size() == 2)
+                {
+                    ProgrammedMovePose flip_pose = {};
+                    if (test_plan_pose(entry.spec["sun_flip"][_test_plan_frame_counter & 1], false, flip_pose))
+                    {
+                        _renderer->render_context->render_data.sky_settings.sun_direction = std::bit_cast<daxa_f32vec3>(programmed_move_sun_direction(flip_pose));
+                    }
+                }
+                // "sun_jumps": [[frame, "angle_x angle_y"], ...]: the sun teleports at that frame of the test (instant lighting change).
+                if (entry.spec.contains("sun_jumps") && entry.spec["sun_jumps"].is_array())
+                {
+                    for (nlohmann::json const & jump : entry.spec["sun_jumps"])
+                    {
+                        ProgrammedMovePose pose = {};
+                        if (jump.is_array() && jump.size() == 2 && jump[0].get<i32>() == _test_plan_frame_counter && test_plan_pose(jump[1], false, pose))
+                        {
+                            _renderer->render_context->render_data.sky_settings.sun_direction = std::bit_cast<daxa_f32vec3>(programmed_move_sun_direction(pose));
+                        }
+                    }
+                }
                 if (_test_plan_frame_counter >= entry.frames)
                 {
                     test_plan_finish_test({});
@@ -453,6 +523,15 @@ void Application::update_test_plan()
         }
         case TestPlanPhase::SCREENSHOT:
         {
+            // "sun_jump_late": "angle_x angle_y": the sun teleports one frame after the screenshot request = the screenshotted frame is the jump frame.
+            TestPlanEntry const & shot_entry = _test_plan_entries[_test_plan_index];
+            _test_plan_frame_counter += 1;
+            ProgrammedMovePose late_pose = {};
+            if (shot_entry.spec.contains("sun_jump_late") && _test_plan_frame_counter == shot_entry.frames + 1 &&
+                test_plan_pose(shot_entry.spec["sun_jump_late"], false, late_pose))
+            {
+                _renderer->render_context->render_data.sky_settings.sun_direction = std::bit_cast<daxa_f32vec3>(programmed_move_sun_direction(late_pose));
+            }
             if (_perf_test_screenshot_task && _perf_test_screenshot_task->not_finished == 0)
             {
                 _perf_test_screenshot_task = {};
