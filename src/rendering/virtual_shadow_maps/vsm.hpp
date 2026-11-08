@@ -141,9 +141,8 @@ inline void invalidate_pages_callback(daxa::TaskInterface ti, RenderContext * re
     ti.recorder.push_constant(push);
     u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_DIRECTIONAL_PAGES_X_DISPATCH);
     u32 const y_dispatch = (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION) / (VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "INVALIDATE_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "INVALIDATE_PAGES">());
     ti.recorder.dispatch({x_dispatch, y_dispatch, VSM_CLIP_LEVELS});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "INVALIDATE_PAGES">());
 }
 
 inline void free_wrapped_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -151,14 +150,13 @@ inline void free_wrapped_pages_callback(daxa::TaskInterface ti, RenderContext * 
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
     FreeWrappedPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_WRAPPED_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_WRAPPED_PAGES">());
     ti.recorder.dispatch({1, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_WRAPPED_PAGES">());
 }
 
 inline void free_moved_light_pages_callback(daxa::TaskInterface ti, RenderContext * render_context, VSMState const * vsm_state)
 {
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_MOVED_LIGHT_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_MOVED_LIGHT_PAGES">());
     if (!vsm_state->moved_light_layers.empty())
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_free_moved_light_pages_pipeline_compile_info().name));
@@ -177,7 +175,6 @@ inline void free_moved_light_pages_callback(daxa::TaskInterface ti, RenderContex
             ti.recorder.dispatch({dispatch_x, dispatch_y, array_layer_count});
         }
     }
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FREE_MOVED_LIGHT_PAGES">());
 }
 
 inline void force_always_resident_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -207,9 +204,8 @@ inline void mark_required_pages_callback(daxa::TaskInterface ti, RenderContext *
     MarkRequiredPagesPush push = {.attachments = alloc->device_address};
     ti.recorder.push_constant(push);
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "MARK_REQUIRED_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "MARK_REQUIRED_PAGES">());
     ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "MARK_REQUIRED_PAGES">());
 }
 
 inline void find_free_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -217,11 +213,10 @@ inline void find_free_pages_callback(daxa::TaskInterface ti, RenderContext * ren
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_find_free_pages_pipeline_compile_info().name));
     FindFreePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FIND_FREE_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FIND_FREE_PAGES">());
     static constexpr i32 meta_memory_pix_count = VSM_META_MEMORY_TABLE_RESOLUTION * VSM_META_MEMORY_TABLE_RESOLUTION;
     static constexpr i32 dispatch_x_size = (meta_memory_pix_count + FIND_FREE_PAGES_X_DISPATCH - 1) / FIND_FREE_PAGES_X_DISPATCH;
     ti.recorder.dispatch({dispatch_x_size, 1, 1});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "FIND_FREE_PAGES">());
 }
 
 inline void allocate_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -232,12 +227,11 @@ inline void allocate_pages_callback(daxa::TaskInterface ti, RenderContext * rend
     AllocatePagesPush push = {.attachments = ti.attachment_shader_blob};
     ti.recorder.push_constant(push);
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "ALLOCATE_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "ALLOCATE_PAGES">());
     ti.recorder.dispatch_indirect({
         .indirect_buffer = ti.id(AT.vsm_allocate_indirect),
         .offset = 0u,
     });
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "ALLOCATE_PAGES">());
 }
 
 inline void clear_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -246,18 +240,17 @@ inline void clear_pages_callback(daxa::TaskInterface ti, RenderContext * render_
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
     ClearPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CLEAR_PAGES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CLEAR_PAGES">());
     ti.recorder.dispatch_indirect({
         .indirect_buffer = ti.id(AT.vsm_clear_indirect),
         .offset = 0u,
     });
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CLEAR_PAGES">());
 }
 
 inline void gen_dirty_bit_hiz_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = GenDirtyBitHizH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_DIRECTIONAL">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_DIRECTIONAL">());
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
     auto const dispatch_x = round_up_div(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
     auto const dispatch_y = round_up_div(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
@@ -267,12 +260,11 @@ inline void gen_dirty_bit_hiz_callback(daxa::TaskInterface ti, RenderContext * r
     push.attachments = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
     ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_DIRECTIONAL">());
 }
 
 inline void gen_point_dirty_bit_hiz_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_POINT_SPOT">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_POINT_SPOT">());
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info().name));
     auto const dispatch_x = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
     auto const dispatch_y = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
@@ -285,7 +277,6 @@ inline void gen_point_dirty_bit_hiz_callback(daxa::TaskInterface ti, RenderConte
         (render_context->render_data.vsm_settings.point_light_count * 7 * 6) + // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
         (render_context->render_data.vsm_settings.spot_light_count * 7);       // MAX_SPOT_LIGHTS  * MIP_LEVELS
     ti.recorder.dispatch({dispatch_x, dispatch_y, dispatch_z});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_POINT_SPOT">());
 }
 
 inline void cull_and_draw_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -298,7 +289,7 @@ inline void cull_and_draw_pages_callback(daxa::TaskInterface ti, RenderContext *
         .name = "vsm memory daxa integer view",
     });
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_DIRECTIONAL">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_DIRECTIONAL">());
     auto render_cmd = std::move(ti.recorder).begin_renderpass({
         .render_area = daxa::Rect2D{.width = VSM_DIRECTIONAL_TEXTURE_RESOLUTION, .height = VSM_DIRECTIONAL_TEXTURE_RESOLUTION},
     });
@@ -329,14 +320,13 @@ inline void cull_and_draw_pages_callback(daxa::TaskInterface ti, RenderContext *
     }
 
     ti.recorder = std::move(render_cmd).end_renderpass();
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_DIRECTIONAL">());
     ti.recorder.destroy_image_view_deferred(memory_block_view);
 }
 
 inline void cull_and_draw_point_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = CullAndDrawPointPagesH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_POINT_SPOT">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_POINT_SPOT">());
     auto const memory_block_view = render_context->gpu_context->device.create_image_view({
         .type = daxa::ImageViewType::REGULAR_2D,
         .format = daxa::Format::R32_UINT,
@@ -423,7 +413,6 @@ inline void cull_and_draw_point_pages_callback(daxa::TaskInterface ti, RenderCon
         ti.recorder = std::move(render_cmd).end_renderpass();
     }
     ti.recorder.destroy_image_view_deferred(memory_block_view);
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_POINT_SPOT">());
 }
 
 inline void clear_dirty_bit_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -432,12 +421,11 @@ inline void clear_dirty_bit_callback(daxa::TaskInterface ti, RenderContext * ren
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_dirty_bit_pipeline_compile_info().name));
     ClearDirtyBitH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CLEAR_DIRY_BITS">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CLEAR_DIRY_BITS">());
     ti.recorder.dispatch_indirect({
         .indirect_buffer = ti.id(AT.vsm_clear_dirty_bit_indirect),
         .offset = 0u,
     });
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CLEAR_DIRY_BITS">());
 }
 
 inline void debug_virtual_page_table_callback(daxa::TaskInterface ti, RenderContext * render_context)

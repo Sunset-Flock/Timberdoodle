@@ -1469,14 +1469,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 if (rtgi_section("Post Blur", {
                         RenderTimes::index<"RTGI", "POST_BLUR_VERTICAL">(),
                         RenderTimes::index<"RTGI", "POST_BLUR_HORIZONTAL">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS0">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS1">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS2">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS3">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS4">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS5">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS6">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS7">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS">(),
                     }))
                 {
                     rtgi_sub_begin("General");
@@ -1954,8 +1947,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             // The classic denoiser: temporal accumulation + spatial filter (hash grid and ReSTIR only have their own sections above).
             if (settings.denoiser == RT_LAB_DENOISER_CLASSIC && lab_header("Denoise Settings", {
                     RenderTimes::index<"RT_LAB", "TEMPORAL">(), RenderTimes::index<"RT_LAB", "BLUR_HORIZONTAL">(), RenderTimes::index<"RT_LAB", "BLUR_VERTICAL">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS0">(), RenderTimes::index<"RT_LAB", "ATROUS1">(), RenderTimes::index<"RT_LAB", "ATROUS2">(), RenderTimes::index<"RT_LAB", "ATROUS3">(),
-                    RenderTimes::index<"RT_LAB", "ATROUS4">(), RenderTimes::index<"RT_LAB", "ATROUS5">(), RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">() }))
+                    RenderTimes::index<"RT_LAB", "ATROUS">() }))
             {
                 if (lab_section("Temporal", { RenderTimes::index<"RT_LAB", "TEMPORAL">() }))
                 {
@@ -2096,10 +2088,7 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 }
                 if (lab_section("Spatial", {
                         RenderTimes::index<"RT_LAB", "BLUR_HORIZONTAL">(), RenderTimes::index<"RT_LAB", "BLUR_VERTICAL">(),
-                        RenderTimes::index<"RT_LAB", "ATROUS0">(), RenderTimes::index<"RT_LAB", "ATROUS1">(),
-                        RenderTimes::index<"RT_LAB", "ATROUS2">(), RenderTimes::index<"RT_LAB", "ATROUS3">(),
-                        RenderTimes::index<"RT_LAB", "ATROUS4">(), RenderTimes::index<"RT_LAB", "ATROUS5">(),
-                        RenderTimes::index<"RT_LAB", "ATROUS6">(), RenderTimes::index<"RT_LAB", "ATROUS7">() }))
+                        RenderTimes::index<"RT_LAB", "ATROUS">() }))
                 {
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.spatial_enabled));
                     char const * const spatial_modes[] = {"Separable Gaussian", "A-Trous 5x5"};

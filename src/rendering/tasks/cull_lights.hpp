@@ -78,7 +78,7 @@ inline auto lights_significant_settings_change(LightSettings const & prev, Light
 void cull_lights_task(daxa::TaskInterface ti, RenderContext* render_context)
 {
     auto const & AT = CullLightsH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(cull_lights_compile_info().name));
 
     CullLightsPush push = {};
@@ -92,5 +92,4 @@ void cull_lights_task(daxa::TaskInterface ti, RenderContext* render_context)
     auto const y = round_up_div(mask_volume_size.y, CULL_LIGHTS_XYZ);
     auto const z = round_up_div(mask_volume_size.y, CULL_LIGHTS_XYZ);
     ti.recorder.dispatch({x,y,z});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
 }

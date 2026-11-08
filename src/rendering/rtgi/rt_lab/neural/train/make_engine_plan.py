@@ -5,7 +5,7 @@ drift shows up as the difference between the two "off" runs.
   python -P make_engine_plan.py --weights src/rendering/rtgi/rt_lab/neural/weights/rt_lab_neural.bin --views 1,4 --suns sdef > plan.json
 
 Compare in the results json (<out>/<name>_results.json): rt_lab_convergence (rmse, bias vs the reference), rt_lab_measure (instability),
-groups -> RT_LAB timers NEURAL_LATENT / ATROUS0.. . Run it with run_isolated.sh when the user's app is open.
+groups -> RT_LAB timers NEURAL_LATENT / ATROUS . Run it with run_isolated.sh when the user's app is open.
 """
 
 import argparse

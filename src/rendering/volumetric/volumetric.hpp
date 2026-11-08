@@ -44,10 +44,7 @@ inline void raymarch_volumetric_shadow_map_callback(daxa::TaskInterface ti, Rend
 // Debug raymarch is a separate dispatch which launchs a single thread that will perform the raymarch and output debug information.
 inline void raymarch_clouds_callback(daxa::TaskInterface ti, RenderContext * render_context, bool const debug_raymarch)
 {
-    if (! debug_raymarch)
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"CLOUDS", "RAYMARCH">());
-    }
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, debug_raymarch ? RenderTimes::INVALID_RENDER_TIME_INDEX : RenderTimes::index<"CLOUDS", "RAYMARCH">());
 
     RaymarchCloudsPush push = {};
     push.clouds_resolution = render_context->render_data.settings.render_target_size;
@@ -64,11 +61,6 @@ inline void raymarch_clouds_callback(daxa::TaskInterface ti, RenderContext * ren
         daxa_u32vec2{1u, 1u} :
         round_up_div(push.clouds_resolution, {RAYMARCH_CLOUDS_DISPATCH_X, RAYMARCH_CLOUDS_DISPATCH_Y});
     ti.recorder.dispatch({dispatch_size.x, dispatch_size.y, 1});
-
-    if (! debug_raymarch)
-    {
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"CLOUDS", "RAYMARCH">());
-    }
 }
 
 inline void compose_clouds_callback(daxa::TaskInterface ti, RenderContext * render_context)

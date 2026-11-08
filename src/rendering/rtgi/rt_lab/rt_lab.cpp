@@ -1972,20 +1972,7 @@ static void rt_lab_atrous_callback(daxa::TaskInterface ti, RenderContext * rende
     push.variance_bound = variance_bound ? 1u : 0u;
     push.step = 1 << pass;
     push.clamp_input_count = pass == first_pass ? 1u : 0u; // the first pass of a chain reads plain counts
-    u32 const render_time = [&]() -> u32
-    {
-        switch (pass)
-        {
-            case 1: return RenderTimes::index<"RT_LAB", "ATROUS1">();
-            case 2: return RenderTimes::index<"RT_LAB", "ATROUS2">();
-            case 3: return RenderTimes::index<"RT_LAB", "ATROUS3">();
-            case 4: return RenderTimes::index<"RT_LAB", "ATROUS4">();
-            case 5: return RenderTimes::index<"RT_LAB", "ATROUS5">();
-            case 6: return RenderTimes::index<"RT_LAB", "ATROUS6">();
-            case 7: return RenderTimes::index<"RT_LAB", "ATROUS7">();
-            default: return RenderTimes::index<"RT_LAB", "ATROUS0">();
-        }
-    }();
+    u32 const render_time = RenderTimes::index<"RT_LAB", "ATROUS">(); // all passes add up in one timer
     rt_lab_dispatch(ti, render_context, push, AT.dst, RT_LAB_BLUR_X, render_time, rt_lab_atrous_compile_info().name);
 }
 

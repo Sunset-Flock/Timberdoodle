@@ -804,9 +804,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .executes(
                 [=](daxa::TaskInterface ti)
                 {
-                    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
+                    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
                     scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
-                    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
                 }));
 
     ///

@@ -105,7 +105,7 @@ inline void draw_visbuffer_callback(daxa::TaskInterface ti, RenderContext * rend
         render_time_index = RenderTimes::index<"VISBUFFER", "SECOND_PASS_DRAW">();
     }
 
-    render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time_index);
 
     auto const dst_info = ti.info(AT.depth_image).value();
     auto [x, y, z] = dst_info.size;
@@ -159,8 +159,6 @@ inline void draw_visbuffer_callback(daxa::TaskInterface ti, RenderContext * rend
         });
     }
     ti.recorder = std::move(render_cmd).end_renderpass();
-
-    render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
 }
 
 // Implemented inline because this header is only included by rasterize_visbuffer.cpp
@@ -189,7 +187,7 @@ inline void cull_meshlets_draw_visbuffer_callback(daxa::TaskInterface ti, Render
 
     u32 render_time_index = first_pass ? RenderTimes::index<"VISBUFFER", "FIRST_PASS_CULL_AND_DRAW">() : RenderTimes::index<"VISBUFFER", "SECOND_PASS_CULL_AND_DRAW">();
 
-    render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time_index);
     auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
 
     for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
@@ -223,7 +221,6 @@ inline void cull_meshlets_draw_visbuffer_callback(daxa::TaskInterface ti, Render
         });
     }
     ti.recorder = std::move(render_cmd).end_renderpass();
-    render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
 }
 
 inline void cull_meshlets_compute_callback(daxa::TaskInterface ti, RenderContext * render_context, bool first_pass)
@@ -233,7 +230,7 @@ inline void cull_meshlets_compute_callback(daxa::TaskInterface ti, RenderContext
 
     u32 render_time_index = first_pass ? RenderTimes::index<"VISBUFFER", "FIRST_PASS_CULL_MESHLETS_COMPUTE">() : RenderTimes::index<"VISBUFFER", "SECOND_PASS_CULL_MESHLETS_COMPUTE">();
 
-    render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time_index);
 
     for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
     {
@@ -258,7 +255,6 @@ inline void cull_meshlets_compute_callback(daxa::TaskInterface ti, RenderContext
             });
         }
     }
-    render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
 }
 
 struct TaskCullAndDrawVisbufferInfo

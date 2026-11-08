@@ -242,19 +242,7 @@ inline void rtgi_post_blur_callback(daxa::TaskInterface ti, RenderContext * rend
 inline void rtgi_atrous_post_blur_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
 {
     auto const & AT = RtgiPostBlurH::Info::AT;
-    u32 const render_time = [&]() -> u32 {
-        switch (pass)
-        {
-            case 1:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS1">();
-            case 2:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS2">();
-            case 3:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS3">();
-            case 4:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS4">();
-            case 5:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS5">();
-            case 6:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS6">();
-            case 7:  return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS7">();
-            default: return RenderTimes::index<"RTGI", "POST_BLUR_ATROUS0">();
-        }
-    }();
+    u32 const render_time = RenderTimes::index<"RTGI", "POST_BLUR_ATROUS">(); // all passes add up in one timer
     i32 const step_size = 1 << pass;
     dispatch_image_relative(RtgiAtrousPostBlurPush{.step_size = step_size}, ti, render_context, AT.view_cam_half_res_depth, RTGI_POST_BLUR_X, render_time, rtgi_atrous_post_blur_compile_info().name);
 }

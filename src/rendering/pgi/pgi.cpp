@@ -1575,7 +1575,7 @@ void pgi_draw_debug_probes_callback(daxa::TaskInterface ti, RenderContext* rende
 void pgi_update_probe_texels_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
     auto const & AT = PGIUpdateProbeTexelsH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
     auto & gpu_context = render_context->gpu_context;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probe_texels_pipeline_compile_info().name));
     PGIUpdateProbeTexelsPush push = {};
@@ -1595,14 +1595,12 @@ void pgi_update_probe_texels_callback(daxa::TaskInterface ti, RenderContext* ren
         .indirect_buffer = ti.id(AT.probe_indirections),
         .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
     });
-
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
 }
 
 void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
     auto const & AT = PGIUpdateProbesH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
     auto & gpu_context = render_context->gpu_context;
     {
         PGIUpdateProbesPush push = {};
@@ -1615,13 +1613,12 @@ void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_co
             .offset = offsetof(PGIIndirections, probe_update_dispatch),
         });
     }
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
 }
 
 void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
     auto const & AT = PGIPreUpdateProbesH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_pre_update_probes_compute_compile_info().name));
@@ -1637,13 +1634,12 @@ void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* rende
     push.total_workgroups = dispatch_x * dispatch_y * dispatch_z;
     ti.recorder.push_constant(push);
     ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
 }
 
 void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
     auto const & AT = PGITraceProbeLightingH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
     auto & gpu_context = render_context->gpu_context;
     auto& pipeline = gpu_context->ray_tracing_pipelines.at(pgi_trace_probe_lighting_pipeline_compile_info().name);
     ti.recorder.set_pipeline(*pipeline.pipeline);
@@ -1657,13 +1653,12 @@ void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render
         .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
         .shader_binding_table = pipeline.sbt,
     });
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
 }
 
 void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
     auto const & AT = PGIEvalScreenIrradianceH::Info::AT;
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_eval_screen_irradiance_compute_compile_info().name));
@@ -1681,7 +1676,6 @@ void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* 
     auto const dispatch_y = round_up_div(push.irradiance_image_size.y, PGI_EVAL_SCREEN_IRRADIANCE_XY);
     
     ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
 }
 
 auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const & curr) -> bool

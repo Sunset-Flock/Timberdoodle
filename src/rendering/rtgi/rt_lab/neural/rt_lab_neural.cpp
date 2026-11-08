@@ -422,20 +422,7 @@ static void rt_lab_neural_atrous_callback(daxa::TaskInterface ti, RenderContext 
     push.clamp_input_count = pass == 0 ? 1u : 0u;
     push.history_feedback = history_feedback ? 1u : 0u;
     push.target_samples = render_context->render_data.rt_lab_settings.neural_target_samples;
-    u32 const render_time = [&]() -> u32
-    {
-        switch (pass)
-        {
-            case 1: return RenderTimes::index<"RT_LAB", "ATROUS1">();
-            case 2: return RenderTimes::index<"RT_LAB", "ATROUS2">();
-            case 3: return RenderTimes::index<"RT_LAB", "ATROUS3">();
-            case 4: return RenderTimes::index<"RT_LAB", "ATROUS4">();
-            case 5: return RenderTimes::index<"RT_LAB", "ATROUS5">();
-            case 6: return RenderTimes::index<"RT_LAB", "ATROUS6">();
-            case 7: return RenderTimes::index<"RT_LAB", "ATROUS7">();
-            default: return RenderTimes::index<"RT_LAB", "ATROUS0">();
-        }
-    }();
+    u32 const render_time = RenderTimes::index<"RT_LAB", "ATROUS">(); // all passes add up in one timer
     auto const size = ti.info(AT.dst).value().size;
     rt_lab_neural_dispatch(ti, render_context, push, size, size, RT_LAB_NEURAL_X, render_time,
         rt_lab_neural_variant(rt_lab_neural_atrous_compile_info(), 0u, render_context->render_data.rt_lab_settings.neural_use_half != 0).name);

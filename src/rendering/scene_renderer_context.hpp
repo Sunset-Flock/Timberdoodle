@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <set>
 #include <daxa/utils/imgui.hpp>
@@ -113,14 +114,7 @@ namespace RenderTimes
                 "TEMPORAL_ACCUMULATION",
                 "POST_BLUR_VERTICAL",
                 "POST_BLUR_HORIZONTAL",
-                "POST_BLUR_ATROUS0",
-                "POST_BLUR_ATROUS1",
-                "POST_BLUR_ATROUS2",
-                "POST_BLUR_ATROUS3",
-                "POST_BLUR_ATROUS4",
-                "POST_BLUR_ATROUS5",
-                "POST_BLUR_ATROUS6",
-                "POST_BLUR_ATROUS7",
+                "POST_BLUR_ATROUS",
                 "UPSCALE",
             },
         },
@@ -135,14 +129,7 @@ namespace RenderTimes
                 "TEMPORAL",
                 "BLUR_HORIZONTAL",
                 "BLUR_VERTICAL",
-                "ATROUS0",
-                "ATROUS1",
-                "ATROUS2",
-                "ATROUS3",
-                "ATROUS4",
-                "ATROUS5",
-                "ATROUS6",
-                "ATROUS7",
+                "ATROUS",
                 "RESOLVE",
                 "CONVERGENCE_CAPTURE",
                 "CONVERGENCE_ANALYZE",
@@ -424,13 +411,38 @@ namespace RenderTimes
     static constexpr inline u32 test = in_group_timing_index<"VISBUFFER", "FIRST_PASS_GEN_HIZ">();
     static constexpr inline u32 test2 = flat_timing_index<"VISBUFFER", "FIRST_PASS_GEN_HIZ">();
 
+    // Index of one timed range (start and end timestamp) within the current frame's range pool.
+    using TimerHandle = u32;
+    static constexpr inline TimerHandle INVALID_TIMER_HANDLE = ~0u;
+    // Max number of timed ranges per frame over all timers. Ranges past this are dropped.
+    static constexpr inline u32 MAX_TIMER_RANGES = 4096;
+
     struct State
     {
+        // Every timer slot owns a linked list of ranges. A slot can be started and ended many times per frame, the ranges are summed on readback.
+        // One set per frame in flight: a version is read back long after it was recorded.
+        struct FrameRanges
+        {
+            std::array<u32, FLAT_TIMINGS_COUNT> slot_head = {};
+            std::array<u32, MAX_TIMER_RANGES> next = {};
+            u32 count = {};
+            bool overflow_reported = {};
+
+            FrameRanges()
+            {
+                slot_head.fill(INVALID_TIMER_HANDLE);
+            }
+        };
+
         bool enable_render_times = {};
         u32 query_version_index = {};
         u32 query_version_count = {};
         f64 time_scale = {};
         daxa::TimelineQueryPool timeline_query_pool = {};
+        std::vector<FrameRanges> frame_ranges = {};
+        // Range that spans several task callbacks (VSM point/spot mesh culling, one callback per mip).
+        TimerHandle point_spot_cull_range = INVALID_TIMER_HANDLE;
+        // Slot had at least one range in the frame that was read back last.
         std::array<bool, FLAT_TIMINGS_COUNT> timer_set = {};
         std::array<f64, FLAT_TIMINGS_COUNT> current_times = {};
         std::array<f64, FLAT_TIMINGS_COUNT> smooth_times = {};
@@ -443,36 +455,57 @@ namespace RenderTimes
         {
             query_version_count = frames_in_flight;
             timeline_query_pool = device.create_timeline_query_pool({
-                .query_count = 2 * FLAT_TIMINGS_COUNT * query_version_count,
+                .query_count = 2 * MAX_TIMER_RANGES * query_version_count,
                 .name = "render times query pool",
             });
+            frame_ranges.resize(query_version_count);
             time_scale = device.properties().limits.timestamp_period;
         }
 
         void readback_render_times(u32 frame_index)
         {
             query_version_index = frame_index % query_version_count;
-            auto const frames_in_flight_query_pool_offset = FLAT_TIMINGS_COUNT * 2 * query_version_index;
-            std::vector<u64> results = timeline_query_pool.get_query_results(frames_in_flight_query_pool_offset, FLAT_TIMINGS_COUNT * 2);
+            auto const & ranges = frame_ranges[query_version_index];
+            std::vector<u64> results = {};
+            if (ranges.count > 0)
+            {
+                results = timeline_query_pool.get_query_results(MAX_TIMER_RANGES * 2 * query_version_index, ranges.count * 2);
+            }
 
             for (u32 i = 0; i < FLAT_TIMINGS_COUNT; ++i)
             {
+                timer_set[i] = ranges.slot_head[i] != INVALID_TIMER_HANDLE;
                 if (!timer_set[i])
                 {
                     current_times[i] = 0;
+                    continue;
                 }
-                // The query results layout:
+                // The query results layout per range:
                 // [0] start timestamp value
                 // [1] start timestamp readyness
                 // [2] end timestamp value
                 // [3] end timestamp readyness
-                f64 start = s_cast<f64>(results[i * 4 + 0]);
-                f64 start_ready = s_cast<f64>(results[i * 4 + 1]);
-                f64 end = s_cast<f64>(results[i * 4 + 2]);
-                f64 end_ready = s_cast<f64>(results[i * 4 + 3]);
-                if (start_ready && end_ready)
+                f64 sum = 0.0;
+                bool all_ready = true;
+                for (u32 range = ranges.slot_head[i]; range != INVALID_TIMER_HANDLE; range = ranges.next[range])
                 {
-                    current_times[i] = (end - start) * time_scale;
+                    f64 start = s_cast<f64>(results[range * 4 + 0]);
+                    f64 start_ready = s_cast<f64>(results[range * 4 + 1]);
+                    f64 end = s_cast<f64>(results[range * 4 + 2]);
+                    f64 end_ready = s_cast<f64>(results[range * 4 + 3]);
+                    if (start_ready && end_ready)
+                    {
+                        sum += (end - start) * time_scale;
+                    }
+                    else
+                    {
+                        all_ready = false;
+                    }
+                }
+                // Keep the previous value while any range is still in flight.
+                if (all_ready)
+                {
+                    current_times[i] = sum;
                 }
             }
             for (u32 i = 0; i < FLAT_TIMINGS_COUNT; ++i)
@@ -510,51 +543,66 @@ namespace RenderTimes
             }
         }
 
-        void write_timestamp(daxa::CommandRecorder & recorder, u32 frame_timestamp)
+        // query_in_version: query index within the current frame's version of the pool.
+        void write_timestamp(daxa::CommandRecorder & recorder, u32 query_in_version)
         {
             if (enable_render_times)
             {
-                auto const query_pool_offset = FLAT_TIMINGS_COUNT * 2 * query_version_index;
+                auto const query_pool_offset = MAX_TIMER_RANGES * 2 * query_version_index;
                 recorder.write_timestamp({
                     .query_pool = timeline_query_pool,
                     .pipeline_stage = daxa::PipelineStageFlagBits::ALL_COMMANDS,
-                    .query_index = frame_timestamp + query_pool_offset,
+                    .query_index = query_in_version + query_pool_offset,
                 });
             }
         }
-        void start_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index)
+        // Opens a new range in the slot's list. Pass the returned handle to end_gpu_timer.
+        auto start_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index) -> TimerHandle
         {
-            if (render_time_index == INVALID_RENDER_TIME_INDEX)
+            if (render_time_index == INVALID_RENDER_TIME_INDEX || !enable_render_times)
             {
-                return;
+                return INVALID_TIMER_HANDLE;
             }
-            write_timestamp(recorder, render_time_index * 2);
-            timer_set[render_time_index] = true;
+            auto & ranges = frame_ranges[query_version_index];
+            if (ranges.count >= MAX_TIMER_RANGES)
+            {
+                if (!ranges.overflow_reported)
+                {
+                    ranges.overflow_reported = true;
+                    std::cout << fmt::format("[RenderTimes] more than {} timer ranges in one frame, dropping the rest\n", MAX_TIMER_RANGES);
+                }
+                return INVALID_TIMER_HANDLE;
+            }
+            TimerHandle const handle = ranges.count++;
+            ranges.next[handle] = ranges.slot_head[render_time_index];
+            ranges.slot_head[render_time_index] = handle;
+            write_timestamp(recorder, handle * 2);
+            return handle;
         }
-        void end_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index)
+        void end_gpu_timer(daxa::CommandRecorder & recorder, TimerHandle handle)
         {
-            if (render_time_index == INVALID_RENDER_TIME_INDEX)
+            if (handle == INVALID_TIMER_HANDLE)
             {
                 return;
             }
-            write_timestamp(recorder, render_time_index * 2 + 1);
+            write_timestamp(recorder, handle * 2 + 1);
         }
         struct ScopedGPUTimer
         {
             daxa::CommandRecorder * recorder = {};
             State * state = {};
-            u32 render_time_index = {};
+            TimerHandle handle = INVALID_TIMER_HANDLE;
 
             ScopedGPUTimer(ScopedGPUTimer const &) = delete;
             ScopedGPUTimer(ScopedGPUTimer &&) = delete;
             ScopedGPUTimer(daxa::CommandRecorder * recorder, u32 render_time_index, State * state)
-                : recorder{recorder}, render_time_index{render_time_index}, state{state}
+                : recorder{recorder}, state{state}
             {
-                state->start_gpu_timer(*recorder, render_time_index);
+                handle = state->start_gpu_timer(*recorder, render_time_index);
             }
             ~ScopedGPUTimer()
             {
-                state->end_gpu_timer(*recorder, render_time_index);
+                state->end_gpu_timer(*recorder, handle);
             }
         };
         auto scoped_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index) -> ScopedGPUTimer
@@ -587,15 +635,16 @@ namespace RenderTimes
         }
         void reset_timestamps_for_current_frame(daxa::CommandRecorder & recorder)
         {
-            for (u32 i = 0; i < FLAT_TIMINGS_COUNT; ++i)
-            {
-                timer_set[i] = false;
-            }
-            auto const query_pool_offset = FLAT_TIMINGS_COUNT * 2 * query_version_index;
+            auto & ranges = frame_ranges[query_version_index];
+            ranges.slot_head.fill(INVALID_TIMER_HANDLE);
+            ranges.count = 0;
+            ranges.overflow_reported = false;
+            point_spot_cull_range = INVALID_TIMER_HANDLE;
+            auto const query_pool_offset = MAX_TIMER_RANGES * 2 * query_version_index;
             recorder.reset_timestamps({
                 .query_pool = timeline_query_pool,
                 .start_index = query_pool_offset,
-                .count = FLAT_TIMINGS_COUNT * 2,
+                .count = MAX_TIMER_RANGES * 2,
             });
         }
     };

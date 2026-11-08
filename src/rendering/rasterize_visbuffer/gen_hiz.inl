@@ -133,9 +133,8 @@ inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
             };
             ti.recorder.push_constant(push);
             
-            render_context->render_times.start_gpu_timer(ti.recorder, info.render_time_index);
+            auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, info.render_time_index);
             ti.recorder.dispatch({ dispatch_x, dispatch_y, 1 });
-            render_context->render_times.end_gpu_timer(ti.recorder, info.render_time_index);
         });
     info.tg.add_task(hiz_task);
 }

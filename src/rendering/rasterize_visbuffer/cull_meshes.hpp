@@ -126,22 +126,18 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
                     {
                         dispatch_info.y = VSM_CLIP_LEVELS;
                     }
+                    auto & render_times = info_copy.render_context->render_times;
+                    // The point spot range spans the callbacks of all mips: it opens in mip 0 and closes in mip 6.
                     if(info_copy.is_point_spot_light && info_copy.mip_level == 0)
                     {
-                        info_copy.render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_MESHES_POINT_SPOT">());
+                        render_times.point_spot_cull_range = render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_MESHES_POINT_SPOT">());
                     }
-                    else
-                    {
-                        info_copy.render_context->render_times.start_gpu_timer(ti.recorder, info_copy.render_time_index);
-                    }
+                    auto gpu_timer = render_times.scoped_gpu_timer(ti.recorder, info_copy.render_time_index);
                     ti.recorder.dispatch(dispatch_info);
                     if(info_copy.is_point_spot_light && info_copy.mip_level == 6)
                     {
-                        info_copy.render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_MESHES_POINT_SPOT">());
-                    }
-                    else
-                    {
-                        info_copy.render_context->render_times.end_gpu_timer(ti.recorder, info_copy.render_time_index);
+                        render_times.end_gpu_timer(ti.recorder, render_times.point_spot_cull_range);
+                        render_times.point_spot_cull_range = RenderTimes::INVALID_TIMER_HANDLE;
                     }
 
                 }));
