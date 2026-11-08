@@ -411,8 +411,8 @@ auto tasks_rt_lab2_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .ray_demand = ray_demand,
             .ray_counters = ray_counters,
             .debug_image = info.debug_image,
-            .temporal_gradient = daxa::NullTaskImage,
             .variance_history = daxa::NullTaskImage,
+            .gradient2 = daxa::NullTaskImage,
         })
         .executes(rt_lab_demand_callback, &render_context, false, false));
 

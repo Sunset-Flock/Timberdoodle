@@ -280,6 +280,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT 79
 #define DEBUG_DRAW_MODE_RT_LAB_SPLIT_ERROR 80
 #define DEBUG_DRAW_MODE_RT_LAB_SPLIT_RELATIVE_ERROR 81
+// 82: the old temporal gradient lambda view, removed with the old gradient (2026-11-06), the number stays so the following modes keep theirs.
 #define DEBUG_DRAW_MODE_RT_LAB_TEMPORAL_GRADIENT 82
 // RT Lab coarse temporal anti-lag: history length removed + coarse temporal mean, per pixel (rt_lab_temporal.hlsl);
 // frame mean + temporal / frame relative std at cell res (rt_lab_anti_lag.hlsl, vertical blur pass)
@@ -315,7 +316,25 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT_LOSS 108
 // RT Lab 3 (rt_lab3.hlsl)
 #define DEBUG_DRAW_MODE_RT_LAB3_SAMPLE_COUNT 109
-#define DEBUG_DRAW_MODE_COUNT 110
+// RT Lab temporal gradient 2 (rt_lab_gradient_oct.hlsl): the re-trace samples as a pyramid of octahedral maps, drawn as little balls
+// (a half sphere facing the camera per area, grey unchanged / red brighter / blue darker): MAP = the convolved maps of level 0 / 1 / 2
+// (areas of 16 / 64 / 256 lab pixels), RAW_BEFORE = the unconvolved mean old radiance, RAW_DIFFERENCE = the unconvolved ratio new / old.
+// The views are contiguous (MAP0 .. RAW_DIFFERENCE2), RAW index = kind * 3 + level.
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_MAP0 110
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_MAP1 111
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_MAP2 112
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_BEFORE0 113
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_BEFORE1 114
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_BEFORE2 115
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE0 116
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE1 117
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE2 118
+// The per pixel result of the oct pyramid (the shrunk log change at the pixel's normal): the change (grey unchanged / red brighter / blue darker),
+// the level that won (red 16 px, green 64 px, blue 256 px areas), the remaining bias (std heatmap).
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT2_CHANGE 119
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT2_LEVEL 120
+#define DEBUG_DRAW_MODE_RT_LAB_GRADIENT2_BIAS 121
+#define DEBUG_DRAW_MODE_COUNT 122
 
 struct Settings
 {

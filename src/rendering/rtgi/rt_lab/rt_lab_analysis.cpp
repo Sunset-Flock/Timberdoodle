@@ -677,6 +677,77 @@ static auto picker_window(RtLabPicker const & picker, i32 window) -> PickerSampl
     return {picker.samples.end() - std::min<i64>(count, std::max(window, 2)), picker.samples.end()};
 }
 
+// Statistics of a series of values (the temporal samples of a picked pixel). Sample (n - 1) variance, moments from the biased central moments.
+struct RtLabSeriesStats
+{
+    u64 count = 0;
+    f64 mean = 0.0;
+    f64 std_dev = 0.0;
+    f64 relative_std_percent = 0.0;
+    f64 min = 0.0;
+    f64 p10 = 0.0;
+    f64 median = 0.0;
+    f64 p90 = 0.0;
+    f64 max = 0.0;
+    f64 geometric_mean = 0.0; // over the positive values
+    f64 skewness = 0.0;
+    f64 excess_kurtosis = 0.0;
+};
+
+static auto rt_lab_series_stats(std::vector<f64> values) -> RtLabSeriesStats
+{
+    RtLabSeriesStats out = {};
+    out.count = values.size();
+    if (values.empty())
+    {
+        return out;
+    }
+    f64 const n = static_cast<f64>(values.size());
+    f64 sum = 0.0, log_sum = 0.0;
+    u64 positive = 0;
+    for (f64 v : values)
+    {
+        sum += v;
+        if (v > 0.0)
+        {
+            log_sum += std::log(v);
+            ++positive;
+        }
+    }
+    out.mean = sum / n;
+    f64 m2 = 0.0, m3 = 0.0, m4 = 0.0;
+    for (f64 v : values)
+    {
+        f64 const d = v - out.mean;
+        m2 += d * d;
+        m3 += d * d * d;
+        m4 += d * d * d * d;
+    }
+    out.std_dev = values.size() > 1 ? std::sqrt(m2 / (n - 1.0)) : 0.0;
+    out.relative_std_percent = out.mean > 0.0 ? 100.0 * out.std_dev / out.mean : 0.0;
+    f64 const variance_biased = m2 / n;
+    if (variance_biased > 0.0)
+    {
+        out.skewness = (m3 / n) / std::pow(variance_biased, 1.5);
+        out.excess_kurtosis = (m4 / n) / (variance_biased * variance_biased) - 3.0;
+    }
+    out.geometric_mean = positive > 0 ? std::exp(log_sum / static_cast<f64>(positive)) : 0.0;
+    std::sort(values.begin(), values.end());
+    auto percentile = [&](f64 p)
+    {
+        f64 const position = p * (n - 1.0);
+        size_t const low = static_cast<size_t>(std::floor(position));
+        size_t const high = std::min(low + 1, values.size() - 1);
+        return values[low] + (values[high] - values[low]) * (position - static_cast<f64>(low));
+    };
+    out.min = values.front();
+    out.max = values.back();
+    out.p10 = percentile(0.1);
+    out.median = percentile(0.5);
+    out.p90 = percentile(0.9);
+    return out;
+}
+
 void rt_lab_picker_ui(RenderContext & render_context)
 {
     auto & s = render_context.rt_lab.analysis;
@@ -752,27 +823,60 @@ void rt_lab_picker_ui(RenderContext & render_context)
                     swatch(picker.samples[picker.samples.size() - 1 - ago], fmt::format("##ago{}", ago).c_str(), ImVec2(40.0f, 40.0f));
                 }
             }
-            // Temporal statistics of the pixel.
-            f64 sum = 0.0, sum_squares = 0.0, value_min = std::numeric_limits<f64>::max(), value_max = 0.0;
-            u64 count = 0;
+            // Temporal statistics of the pixel over the window: luminance and the three channels.
+            std::array<std::vector<f64>, 4> series = {};
             for (RtLabPickerSample const & sample : picker_window(picker, s.temporal_window))
             {
                 if (sample.geometry)
                 {
-                    f64 const v = sample.luma * (s.exposed_units ? sample.exposure * std::numbers::pi : 1.0);
-                    value_min = std::min(value_min, v);
-                    value_max = std::max(value_max, v);
-                    sum += v;
-                    sum_squares += v * v;
-                    ++count;
+                    f64 const unit = s.exposed_units ? sample.exposure * std::numbers::pi : 1.0;
+                    series[0].push_back(sample.luma * unit);
+                    for (u32 c = 0; c < 3; ++c)
+                    {
+                        series[1 + c].push_back(sample.rgb[c] * unit);
+                    }
                 }
             }
-            if (count > 1)
+            if (series[0].size() > 1)
             {
-                f64 const mean = sum / static_cast<f64>(count);
-                f64 const variance = std::max(sum_squares - static_cast<f64>(count) * mean * mean, 0.0) / static_cast<f64>(count - 1);
-                ImGui::Text("last %llu frames: mean %.4g   std %.4g   relative std %.2f%%   min %.4g   max %.4g", static_cast<unsigned long long>(count), mean, std::sqrt(variance),
-                    mean > 0.0 ? 100.0 * std::sqrt(variance) / mean : 0.0, value_min, value_max);
+                std::array<RtLabSeriesStats, 4> stats = {};
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    stats[i] = rt_lab_series_stats(series[i]);
+                }
+                ImGui::Text("last %llu frames", static_cast<unsigned long long>(stats[0].count));
+                if (ImGui::BeginTable("##temporal stats", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
+                {
+                    char const * columns[] = {"", "Luminance", "R", "G", "B"};
+                    for (char const * column : columns)
+                    {
+                        ImGui::TableSetupColumn(column);
+                    }
+                    ImGui::TableHeadersRow();
+                    auto row = [&](char const * name, char const * format, f64 RtLabSeriesStats::*field)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextUnformatted(name);
+                        for (u32 i = 0; i < 4; ++i)
+                        {
+                            ImGui::TableSetColumnIndex(1 + i);
+                            ImGui::Text(format, stats[i].*field);
+                        }
+                    };
+                    row("Mean", "%.4g", &RtLabSeriesStats::mean);
+                    row("Std Dev", "%.4g", &RtLabSeriesStats::std_dev);
+                    row("Rel. Std Dev %", "%.2f", &RtLabSeriesStats::relative_std_percent);
+                    row("Min", "%.4g", &RtLabSeriesStats::min);
+                    row("P10", "%.4g", &RtLabSeriesStats::p10);
+                    row("Median", "%.4g", &RtLabSeriesStats::median);
+                    row("P90", "%.4g", &RtLabSeriesStats::p90);
+                    row("Max", "%.4g", &RtLabSeriesStats::max);
+                    row("Geometric Mean", "%.4g", &RtLabSeriesStats::geometric_mean);
+                    row("Skewness", "%.3g", &RtLabSeriesStats::skewness);
+                    row("Excess Kurtosis", "%.3g", &RtLabSeriesStats::excess_kurtosis);
+                    ImGui::EndTable();
+                }
             }
         }
         else if (picker.active)

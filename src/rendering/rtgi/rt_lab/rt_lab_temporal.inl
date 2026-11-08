@@ -47,8 +47,6 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, sh_y_history)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, sh_y_accumulated)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, cocg_history)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, cocg_accumulated)
-// Temporal gradient lambda per cell (rt_lab_rays.inl), null when off: reprojected lengths x (1 - lambda).
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, temporal_gradient)
 // Coarse temporal anti-lag statistics per cell (rt_lab_anti_lag.inl), null when off: caps the reprojected lengths.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, coarse_anti_lag)
 // Perceptual luma moments (RtLabSettings::luma_moments_enabled, null when off), reprojected like the history and blended
@@ -78,6 +76,8 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, dist_c)
 // COLOR accumulation step (push.color_pass, null in the statistics step): the first a-trous pass's output, the filtered frame. Its rgb replaces the raw
 // mean as the new sample of the color history; the ray counts, the statistics and everything else still come from the raw rays.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, lab_prefiltered)
+// Temporal gradient 2 (rt_lab_gradient_oct.inl, null when the gradient is off): per pixel (shrunk log change of the lighting, bias variance, level, valid).
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, gradient2)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLabTemporalPush
@@ -86,12 +86,12 @@ struct RtLabTemporalPush
     daxa_u32vec2 size;
     daxa_u32 split_enabled; // the split images are bound (graph built with split_history_enabled)
     daxa_u32 sh_enabled;    // the SH-Y + CoCg images are bound (graph built with an SH consumer)
-    daxa_u32 gradient_bound; // temporal_gradient is bound
     daxa_u32 anti_lag_bound;    // coarse_anti_lag is bound
     daxa_u32 moments_bound;       // moments_history / moments are bound
     daxa_u32 sh_m2_bound;         // sh_m2_history / sh_m2_accumulated are bound
     daxa_u32 sq_bound;            // sq_history / sq_accumulated are bound
     daxa_u32 color_pass;          // 1 = the color accumulation step (lab_prefiltered is the new sample), 0 = the statistics step (the raw rays)
     daxa_u32 dist_mode;           // dist_* images are bound: RT_LAB_DISTRIBUTION_* (0 = not bound)
+    daxa_u32 gradient2_bound;     // gradient2 is bound
 };
 

@@ -130,6 +130,18 @@ namespace
         "RT_LAB2_TEMPORAL_GRADIENT",
         "RT_LAB2_TEMPORAL_GRADIENT_LOSS",
         "RT_LAB3_SAMPLE_COUNT",
+        "RT_LAB_GRADIENT_OCT_MAP0",
+        "RT_LAB_GRADIENT_OCT_MAP1",
+        "RT_LAB_GRADIENT_OCT_MAP2",
+        "RT_LAB_GRADIENT_OCT_RAW_BEFORE0",
+        "RT_LAB_GRADIENT_OCT_RAW_BEFORE1",
+        "RT_LAB_GRADIENT_OCT_RAW_BEFORE2",
+        "RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE0",
+        "RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE1",
+        "RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE2",
+        "RT_LAB_GRADIENT2_CHANGE",
+        "RT_LAB_GRADIENT2_LEVEL",
+        "RT_LAB_GRADIENT2_BIAS",
     };
 
     static_assert(DEBUG_DRAW_MODE_NAMES.back() != nullptr, "DEBUG_DRAW_MODE_NAMES is missing entries for DEBUG_DRAW_MODE_COUNT");
@@ -1976,89 +1988,28 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     ImGui::PushID("temporal gradient");
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&settings.temporal_gradient_enabled));
                     ImGui::SameLine();
-                    ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_TRACE">()) +
-                                                                      render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_H">()) +
-                                                                      render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_BLUR_V">())) * 0.001f);
-                    ImGui::SetItemTooltip("A-SVGF style: one ray per 4x4 pixels is re-traced next frame with the exact same launch data.\n"
-                                          "The luminance changes, blurred in screen space (edge aware, coarse plane + normal tests), give lambda = |sum delta| / sum max(old, new).\n"
-                                          "Reprojected history lengths are scaled by 1 - lambda before the ray redistribution and in the temporal pass.\n"
-                                          "Debug view RT_LAB_TEMPORAL_GRADIENT.");
+                    ImGui::TextDisabled("%8.1f us", static_cast<f32>(render_context.render_times.get_average(RenderTimes::index<"RT_LAB", "GRADIENT_TRACE">())) * 0.001f);
+                    ImGui::SetItemTooltip("One ray per 4x4 pixels is re-traced next frame with the exact same launch data. The old / new luminance, the direction and\n"
+                                          "the surface position of these samples feed the oct pyramid (Oct settings below), which resolves a per pixel lighting change.\n"
+                                          "Debug views RT_LAB_GRADIENT_OCT_* / RT_LAB_GRADIENT2_*.");
                     ImGui::BeginDisabled(settings.temporal_gradient_enabled == 0);
-                    ImGui::SliderInt("Blur Radius (cells)", &settings.temporal_gradient_blur_radius, 0, RT_LAB_GRADIENT_MAX_BLUR_RADIUS);
-                    ImGui::SetItemTooltip("Separable gaussian over the 4x4 pixel gradient cells (1/4 res), sigma = radius / 2.\nReach = 4 x radius pixels.");
                     ImGui::Checkbox("Re-trace Base Rays", reinterpret_cast<bool *>(&settings.temporal_gradient_all_base_rays));
                     ImGui::SetItemTooltip("On: the base rays (ray 0 of the guaranteed base share, rate Min Ray Budget, 0.125 = 2 per 4x4 cell) are recorded\n"
                                           "and re-traced next frame, the samples summed per 4x4 cell. Off: one ray per 4x4 cell. Graph shape.");
-                    {
-                        char const * relative_modes[] = {"Samples (A-SVGF)", "Pixel", "Min (Samples, Pixel)"};
-                        ImGui::Combo("Lambda Relative To", &settings.temporal_gradient_pixel_relative, relative_modes, 3);
-                        ImGui::SetItemTooltip("Samples: A-SVGF, lambda = |sum w delta| / sum w max of the re-traced samples.\n"
-                                              "Pixel: the blur carries the ABSOLUTE luminance change (mean delta of the re-traced samples), made relative\n"
-                                              "only at each pixel against its own previous history luminance L: lambda = |delta| / max(old, new) of the pixel,\n"
-                                              "rescale ratio = (L + delta) / L. A small change in the dark no longer cuts a bright pixel's history.\n"
-                                              "Min: the smaller of both (a bright change no longer cuts dark neighbors fully either).");
-                    }
-                    ImGui::SliderFloat("Temporal Alpha", &settings.temporal_gradient_history_alpha, 0.05f, 1.0f);
-                    ImGui::SetItemTooltip("1 = off. Settle / scale modes: temporal EMA of the blurred gradient sums per cell (reprojected), before lambda:\n"
-                                          "the re-trace's frame to frame noise averages over ~1 / alpha frames, a real step still shows alpha x lambda at once.\n"
-                                          "Kalman mode: GLIDE, the fraction of the correction applied per frame (the rest stays pending in the cell), ramping\n"
-                                          "to 1 for big changes (ratio 2x .. 5x): shocks stay instant, moderate changes glide in over ~1 / alpha frames.");
-                    if (settings.temporal_gradient_history_alpha < 1.0f)
-                    {
-                        ImGui::SliderFloat("Temporal Shock Lambda", &settings.temporal_gradient_history_shock, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                        ImGui::SetItemTooltip("Smoothing bypass: alpha ramps to 1 (reset to this frame) as this frame's lambda goes from shock / 2 to shock,\n"
-                                              "so single frame flashes still cut at once (both edges).");
-                    }
-                    ImGui::SliderFloat("Lambda Deadzone", &settings.temporal_gradient_deadzone, 0.0f, 0.5f);
-                    ImGui::SetItemTooltip("lambda' = (lambda - d) / (1 - d) before the scale / cap: removes small, noise level lambdas, keeps big ones\n"
-                                          "(single frame flashes) almost unchanged. The history rescale stays on the raw signed lambda.");
-                    ImGui::SliderFloat("Scale", &settings.temporal_gradient_scale, 0.0f, 8.0f);
-                    ImGui::SetItemTooltip("lambda multiplier (saturated): history kept = 1 - saturate(lambda x scale).");
-                    {
-                        bool cap_mse = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_MSE) != 0;
-                        bool cap_settle = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_SETTLE) != 0;
-                        bool changed = ImGui::Checkbox("MSE Cap", &cap_mse);
-                        ImGui::SetItemTooltip("Replaces the scale: history capped (same frame) at k x perceptual variance / (lambda^2 - floor^2), floored at Cap Min.\n"
-                                              "k folds in the spatial filter's noise reduction (k << 1).");
-                        changed |= ImGui::Checkbox("Settle Cap", &cap_settle);
-                        bool cap_kalman = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0;
-                        changed |= ImGui::Checkbox("Kalman (correct + information loss)", &cap_kalman);
-                        ImGui::SetItemTooltip("Replaces the other caps: the gradient measures the change (log ratio + variance), a per cell Kalman filter tracks it\n"
-                                              "(innovation gate = instant reset on shocks), the history is CORRECTED by the shrunk change (History Rescale) and only\n"
-                                              "the remaining uncertainty L cuts it continuously: N' = N / (1 + N k L / v). No deadzone / smoothing thresholds.");
-                        ImGui::SetItemTooltip("Replaces the scale: history capped so the remaining lag lambda x (N / (N + 1))^K drops below the tolerance\n"
-                                              "within K frames: N = 1 / ((lambda / tolerance)^(1 / K) - 1). Combined with the MSE cap: the smaller one.");
-                        if (changed)
-                        {
-                            settings.temporal_gradient_cap_mode = (cap_mse ? RT_LAB_GRADIENT_CAP_MSE : 0) | (cap_settle ? RT_LAB_GRADIENT_CAP_SETTLE : 0) | (cap_kalman ? RT_LAB_GRADIENT_CAP_KALMAN : 0);
-                        }
-                        if (cap_mse)
-                        {
-                            ImGui::SliderFloat("Cap k", &settings.temporal_gradient_cap_k, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                        }
-                        if (cap_kalman)
-                        {
-                            ImGui::SliderFloat("Kalman Process Noise q", &settings.temporal_gradient_kalman_q, 1e-7f, 1e-1f, "%.2e", ImGuiSliderFlags_Logarithmic);
-                            ImGui::SliderFloat("Kalman Gate (sigmas)", &settings.temporal_gradient_kalman_gate, 1.0f, 10.0f);
-                            ImGui::SliderFloat("Kalman Loss k", &settings.temporal_gradient_kalman_k, 0.1f, 1000.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-                        }
-                        if (cap_settle)
-                        {
-                            ImGui::SliderFloat("Settle Frames (K)", &settings.temporal_gradient_settle_frames, 1.0f, 64.0f, "%.1f");
-                            ImGui::SliderFloat("Settle Tolerance", &settings.temporal_gradient_settle_tolerance, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                        }
-                        if (cap_mse || cap_settle)
-                        {
-                            ImGui::SliderFloat("Cap Min (samples)", &settings.temporal_gradient_cap_min, 0.0f, 32.0f, "%.1f");
-                        }
-                        ImGui::Checkbox("History Rescale", reinterpret_cast<bool *>(&settings.temporal_gradient_rescale));
-                        ImGui::SetItemTooltip("Multiplies the reprojected histories by the gradient's luminance ratio sum new / sum old (signed\n"
-                                              "lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening): jumps to the new lighting without losing samples.");
-                        if (settings.temporal_gradient_rescale)
-                        {
-                            ImGui::SliderFloat("Rescale Strength", &settings.temporal_gradient_rescale_strength, 0.0f, 1.0f);
-                        }
-                    }
+                    ImGui::Checkbox("Oct Pyramid Denoise (5x5)", reinterpret_cast<bool *>(&settings.temporal_gradient_oct_denoise));
+                    ImGui::SetItemTooltip("Temporal gradient 2: the re-trace samples are binned by direction into small octahedral maps per area (16x16, 64x64, 256x256 pixels).\n"
+                                          "Per level the unconvolved old / new sums of every texel are accumulated over the 5x5 neighbouring areas before the cosine convolution.\n"
+                                          "A neighbour counts by a gaussian of the world space distance between the two area positions (the smooth majority of their samples).\n"
+                                          "Debug views RT_LAB_GRADIENT_OCT_* / RT_LAB_GRADIENT2_*, the RAW views then show the denoised sums.");
+                    ImGui::Checkbox("Oct Gradient: Cut History", reinterpret_cast<bool *>(&settings.temporal_gradient2_scale_history));
+                    ImGui::SetItemTooltip("Temporal gradient 2: every pixel reads the 3 levels of the oct pyramid at its normal (gated by the world space distance to the area\n"
+                                          "positions), shrinks each level's log change by its standard error and takes the valid level with the largest remaining change.\n"
+                                          "Only the history LENGTH is cut (reprojected color, split and the lengths of the guides): N' = N / (1 + N loss / v), loss = change^2 + bias.\n"
+                                          "Debug views RT_LAB_GRADIENT2_CHANGE / _LEVEL / _BIAS. Needs the gradient (re-trace) enabled.");
+                    ImGui::SliderFloat("Oct Position Tolerance", &settings.temporal_gradient_oct_distance_scale, 0.1f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SetItemTooltip("World space tolerance of the oct pyramid's position gates, in area footprints (area pixels x pixel width at its depth).\n"
+                                          "Samples and child areas are accepted by a gaussian of their distance to the area position (sigma = 0.5 x tolerance),\n"
+                                          "the 5x5 denoise reaches 2.5 x tolerance.");
                     ImGui::EndDisabled();
                     ImGui::PopID();
                     ImGui::SeparatorText("Coarse Temporal Anti-Lag");
@@ -2365,7 +2316,6 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 DEBUG_DRAW_MODE_RTGI_DIFFUSE_RAYS_SHOT,
                 DEBUG_DRAW_MODE_RT_LAB_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_HISTORY_CUTS,
-                DEBUG_DRAW_MODE_RT_LAB_TEMPORAL_GRADIENT,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_MEAN,
                 DEBUG_DRAW_MODE_RT_LAB_COARSE_ANTI_LAG_FRAME_MEAN,
@@ -2393,6 +2343,18 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                 DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT,
                 DEBUG_DRAW_MODE_RT_LAB2_TEMPORAL_GRADIENT_LOSS,
                 DEBUG_DRAW_MODE_RT_LAB3_SAMPLE_COUNT,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_MAP0,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_MAP1,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_MAP2,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_BEFORE0,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_BEFORE1,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_BEFORE2,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE0,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE1,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT_OCT_RAW_DIFFERENCE2,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT2_CHANGE,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT2_LEVEL,
+                DEBUG_DRAW_MODE_RT_LAB_GRADIENT2_BIAS,
                 DEBUG_DRAW_MODE_RT_LAB_SPATIAL_SAMPLE_COUNT,
                 DEBUG_DRAW_MODE_RT_LAB_SPLIT_ERROR,
                 DEBUG_DRAW_MODE_RT_LAB_SPLIT_RELATIVE_ERROR,
@@ -2424,6 +2386,17 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
             ImGui::SetItemTooltip("RT_LAB_SPATIAL_SAMPLE_COUNT heatmap saturates at this count.");
             ImGui::SliderFloat("Temporal Count Clamp", &lab.sample_count_input_clamp, 0.0f, 512.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
             ImGui::SetItemTooltip("The temporal history length is clamped to this before the spatial passes accumulate it.\n0 = off, 1 = count only the spatial samples. Metric only, the filtering is unchanged.");
+            ImGui::SeparatorText("Synthetic Gradient (test data)");
+            ImGui::Checkbox("Re-trace With Another Sun", &lab.gradient_synthetic_sun);
+            ImGui::SetItemTooltip("The temporal gradient re-trace shades its samples with the sun below instead of the real one, so the gradient (views, history cut)\n"
+                                  "sees a lighting change every frame that is not in the image. Only the direct sun term (and its shadow ray) changes, the sky / PGI the\n"
+                                  "hits read still belong to the real sun. Needs the temporal gradient enabled.");
+            ImGui::BeginDisabled(!lab.gradient_synthetic_sun);
+            ImGui::SliderFloat("Synthetic Sun Angle X", &lab.gradient_synthetic_sun_angle_x, 0.0f, 360.0f, "%.1f deg");
+            ImGui::SliderFloat("Synthetic Sun Angle Y", &lab.gradient_synthetic_sun_angle_y, 0.0f, 180.0f, "%.1f deg");
+            ImGui::SetItemTooltip("Same angles as the sun panel: Angle X = azimuth, Angle Y = zenith angle (0 = straight down).");
+            ImGui::SliderFloat("Synthetic Sun Brightness", &lab.gradient_synthetic_sun_brightness, 0.0f, 4.0f, "%.2f x");
+            ImGui::EndDisabled();
         }
         // Pixel picker: a viewport click while a picker is picking sets its pixel (read every frame, also with the header collapsed).
         bool const viewport_click = window->button_pressed(0 /* left */) && !window->is_cursor_captured() && !ImGui::GetIO().WantCaptureMouse;

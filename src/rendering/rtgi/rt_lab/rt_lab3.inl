@@ -78,6 +78,8 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, history_c)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_a)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_b)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32vec4>, out_c)
+// ReTIR only (rt_lab_retir.hpp, null otherwise): .rgb mean of the estimates after each of the pixel's rays, .a their count.
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_samples)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
@@ -122,6 +124,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, in_a)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, in_b)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, in_c)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, shaded)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, samples) // ReTIR (null otherwise): read instead of the final reservoir
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLab3ShadePush
@@ -129,6 +132,7 @@ struct RtLab3ShadePush
     daxa_BufferPtr(RtLab3ShadeH::AttachmentShaderBlob) attach;
     daxa_BufferPtr(RtLab3Settings) settings;
     daxa_u32vec2 size;
+    daxa_u32 samples_bound; // ReTIR: `samples` holds the per ray estimates (rt_lab_retir.hpp)
 };
 
 // Ray filter after the reuse.
@@ -151,4 +155,5 @@ struct RtLab3FilterPush
     daxa_u32 cell_input_bound; // cell_input is written
     daxa_u32 cell_weight_mode; // RT_LAB3_CELL_WEIGHT_* (cell_source RESTIR)
     daxa_u32 cell_source;      // RT_LAB3_CELL_SOURCE_*
+    daxa_u32 sample_weights;   // ReTIR: the cell weight of a pixel is its fresh sample count
 };

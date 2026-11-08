@@ -1,4 +1,5 @@
 #include "rt_lab3.hpp"
+#include "rt_lab_retir.hpp"
 #include "rt_lab_internal.hpp"
 #include "rt_lab_integrator.hpp"
 
@@ -18,14 +19,14 @@ auto rt_lab3_default_settings() -> RtLab3Settings
 {
     return RtLab3Settings{
         .temporal_enabled = 1,
-        .temporal_max_m = 16.0f,
+        .temporal_max_m = 32.0f,
         .temporal_plane_tolerance = 2.0f,
         .temporal_normal_threshold = 0.9f,
         .temporal_visibility = 0,
-        .temporal_max_age = 16,
+        .temporal_max_age = 32,
         .temporal_partial_scale = 1.0f,
-        .spatial_passes = 1,
-        .spatial_taps = 4,
+        .spatial_passes = 3,
+        .spatial_taps = 6,
         .spatial_radius = 30.0f,
         .spatial_max_m = 30.0f,
         .spatial_plane_tolerance = 2.0f,
@@ -85,10 +86,12 @@ auto rt_lab3_frame_update(RenderContext & render_context, bool reference_phase) 
     bool rebuild = lab3.active != lab3.built_active;
     lab3.built_active = lab3.active;
     // The number of spatial passes is part of the graph.
-    if (lab3.settings.spatial_passes != lab3.built_spatial_passes)
+    // (the effective number: ReTIR has no spatial reuse)
+    i32 const effective_spatial_passes = settings.retir_enabled != 0 ? 0 : lab3.settings.spatial_passes;
+    if (effective_spatial_passes != lab3.built_spatial_passes)
     {
         rebuild = true;
-        lab3.built_spatial_passes = lab3.settings.spatial_passes;
+        lab3.built_spatial_passes = effective_spatial_passes;
     }
     return rebuild;
 }
@@ -155,17 +158,19 @@ static void rt_lab3_spatial_callback(daxa::TaskInterface ti, RenderContext * ren
     rt_lab3_dispatch_pixels(ti, render_context, push, AT.out_a, RenderTimes::index<"RT_LAB", "LAB3_SPATIAL">(), rt_lab3_spatial_compile_info().name);
 }
 
-static void rt_lab3_shade_callback(daxa::TaskInterface ti, RenderContext * render_context)
+static void rt_lab3_shade_callback(daxa::TaskInterface ti, RenderContext * render_context, bool samples_bound)
 {
     auto const & AT = RtLab3ShadeH::Info::AT;
     RtLab3ShadePush push = {};
+    push.samples_bound = samples_bound ? 1u : 0u;
     rt_lab3_dispatch_pixels(ti, render_context, push, AT.shaded, RenderTimes::index<"RT_LAB", "LAB3_SHADE">(), rt_lab3_shade_compile_info().name);
 }
 
-static void rt_lab3_filter_callback(daxa::TaskInterface ti, RenderContext * render_context, bool cell_input_bound, u32 cell_weight_mode, u32 cell_source)
+static void rt_lab3_filter_callback(daxa::TaskInterface ti, RenderContext * render_context, bool cell_input_bound, u32 cell_weight_mode, u32 cell_source, bool sample_weights)
 {
     auto const & AT = RtLab3FilterH::Info::AT;
     RtLab3FilterPush push = {};
+    push.sample_weights = sample_weights ? 1u : 0u;
     push.cell_input_bound = cell_input_bound ? 1u : 0u;
     push.cell_weight_mode = cell_weight_mode;
     push.cell_source = cell_source;
@@ -232,7 +237,8 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
     auto history_c = create_reservoir_image("rt_lab3_reservoir_c_persistent", daxa::Format::R32G32B32A32_UINT, true);
     Reservoirs const temporal = {history_a.current(), history_b.current(), history_c.current()};
     Reservoirs const previous = {history_a.previous(), history_b.previous(), history_c.previous()};
-    i32 const spatial_passes = std::clamp(lab_state.lab3.settings.spatial_passes, 0, RT_LAB3_MAX_SPATIAL_PASSES);
+    bool const retir = settings.retir_enabled != 0;
+    i32 const spatial_passes = retir ? 0 : std::clamp(lab_state.lab3.settings.spatial_passes, 0, RT_LAB3_MAX_SPATIAL_PASSES);
     Reservoirs ping = {};
     Reservoirs pong = {};
     if (spatial_passes >= 1)
@@ -290,8 +296,8 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .ray_demand = ray_demand,
             .ray_counters = ray_counters,
             .debug_image = info.debug_image,
-            .temporal_gradient = daxa::NullTaskImage,
             .variance_history = daxa::NullTaskImage,
+            .gradient2 = daxa::NullTaskImage,
         })
         .executes(rt_lab3_demand_callback, &render_context));
     info.tg.add_task(daxa::HeadTask<RtLabDistributeH::Info>()
@@ -331,6 +337,17 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
         })
         .executes(rt_lab3_trace_callback, &render_context, ray_capacity));
 
+    // ReTIR only: mean of the per ray estimates of the temporal pass.
+    daxa::TaskImageView temporal_samples = daxa::NullTaskImage;
+    if (retir)
+    {
+        temporal_samples = info.tg.create_task_image({
+            .format = daxa::Format::R32G32B32A32_SFLOAT,
+            .size = size,
+            .name = "rt_lab_retir_samples",
+        });
+    }
+
     // Initial candidates + temporal reuse.
     info.tg.add_task(daxa::HeadTask<RtLab3TemporalH::Info>()
         .head_views(RtLab3TemporalH::Info::Views{
@@ -347,10 +364,11 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .out_a = temporal.a,
             .out_b = temporal.b,
             .out_c = temporal.c,
+            .out_samples = temporal_samples,
             .mesh_instances = info.mesh_instances,
             .tlas = info.tlas,
         })
-        .executes(rt_lab3_temporal_callback, &render_context));
+        .executes(retir ? rt_lab_retir_temporal_callback : rt_lab3_temporal_callback, &render_context));
 
     // Spatial reuse: ping pong, not fed back into the history.
     Reservoirs final_reservoirs = temporal;
@@ -391,8 +409,9 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .in_b = final_reservoirs.b,
             .in_c = final_reservoirs.c,
             .shaded = shaded,
+            .samples = temporal_samples,
         })
-        .executes(rt_lab3_shade_callback, &render_context));
+        .executes(rt_lab3_shade_callback, &render_context, retir));
     bool const cell_input_bound = cell_weight_mode >= 0;
     daxa::TaskImageView cell_input = daxa::NullTaskImage;
     if (cell_input_bound)
@@ -413,7 +432,7 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .ray_alloc = ray_alloc,
             .rays = rays,
         })
-        .executes(rt_lab3_filter_callback, &render_context, cell_input_bound, static_cast<u32>(std::max(cell_weight_mode, 0)), static_cast<u32>(std::max(cell_source, 0))));
+        .executes(rt_lab3_filter_callback, &render_context, cell_input_bound, static_cast<u32>(std::max(cell_weight_mode, 0)), static_cast<u32>(std::max(cell_source, 0)), retir));
 
     return RtLab3Stage{
         .lab_depth = lab_depth,

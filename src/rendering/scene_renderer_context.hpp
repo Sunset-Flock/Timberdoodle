@@ -128,8 +128,6 @@ namespace RenderTimes
             "RT_LAB",
             {
                 "GRADIENT_TRACE",
-                "GRADIENT_BLUR_H",
-                "GRADIENT_BLUR_V",
                 "RAY_DEMAND",
                 "RAY_DISTRIBUTE",
                 "TRACE",
@@ -173,6 +171,7 @@ namespace RenderTimes
                 "LAB3_SHADE",
                 "LAB3_FILTER",
                 "INTEGRATOR",
+                "GRADIENT_OCT",
             },
         },
         GroupNames{

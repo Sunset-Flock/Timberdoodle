@@ -264,26 +264,14 @@ func entry_rt_lab_gradient_trace(uint2 dtid : SV_DispatchThreadID)
     const float new_luminance = rt_lab_luminance(rt_lab_trace_radiance(ctx, settings, ray, data.w & RT_LAB_HIT_SEED_MASK, hit_t) * RTGI_RADIANCE_SCALE);
     const float old_luminance = surface.w;
     const float exposure = push.attach.globals.exposure;
-    const float delta = rt_lab_exposed(new_luminance - old_luminance, exposure);
-    const float maximum = rt_lab_exposed(max(new_luminance, old_luminance), exposure);
-    if (!isfinite(delta) || !(maximum > 0.0f))
+    if (!isfinite(new_luminance) || !isfinite(old_luminance))
     {
         return;
     }
     const uint2 sample_cell = uint2(pixel) / RT_LAB_GRADIENT_CELL;
-    if (push.per_pixel != 0u)
-    {
-        // Every base ray: summed per cell (fixed point atomics; lambda = |sum delta| / sum max is a ratio).
-        const int delta_fixed = int(round(clamp(delta, -RT_LAB_GRADIENT_SUM_CLAMP, RT_LAB_GRADIENT_SUM_CLAMP) * RT_LAB_GRADIENT_SUM_SCALE));
-        const uint max_fixed = uint(round(min(maximum, RT_LAB_GRADIENT_SUM_CLAMP) * RT_LAB_GRADIENT_SUM_SCALE));
-        InterlockedAdd(push.attach.gradient_delta_sum.get()[sample_cell], asuint(delta_fixed));
-        InterlockedAdd(push.attach.gradient_max_sum.get()[sample_cell], max_fixed);
-        InterlockedAdd(push.attach.gradient_count_sum.get()[sample_cell], 1u);
-        const float old_exposed = rt_lab_exposed(old_luminance, exposure);
-        InterlockedAdd(push.attach.gradient_old_sum.get()[sample_cell], uint(round(clamp(old_exposed, 0.0f, RT_LAB_GRADIENT_SUM_CLAMP) * RT_LAB_GRADIENT_SUM_SCALE)));
-        return;
-    }
-    // f16 packed: one 32 bit store, so colliding cells keep one whole sample.
-    const uint packed = (f32tof16(clamp(delta, -65000.0f, 65000.0f)) & 0xFFFFu) | (f32tof16(min(maximum, 65000.0f)) << 16u);
-    push.attach.gradient_samples.get()[sample_cell] = packed;
+    // Direction as octahedral coordinates, .z + 1 so that a cleared texel (z = 0) reads as no sample.
+    const float2 sample_direction_oct = map_octahedral(ray.Direction);
+    push.attach.gradient_oct_sample.get()[sample_cell] = float4(rt_lab_exposed(old_luminance, exposure), rt_lab_exposed(new_luminance, exposure),
+        sample_direction_oct.x + 1.0f, sample_direction_oct.y);
+    push.attach.gradient_oct_position.get()[sample_cell] = float4(position, 1.0f);
 }

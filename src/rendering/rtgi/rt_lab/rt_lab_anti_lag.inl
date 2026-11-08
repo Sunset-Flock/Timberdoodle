@@ -64,9 +64,6 @@ DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, de
 // with the same weights as the slow history.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, fast_history_previous)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, fast_history)
-// Vertical pass: the temporal gradient (rt_lab_rays.inl, same 4x4 cells), null when off. Its history rescale is applied to
-// the reprojected coarse means too, so the anti-lag does not see (and correct again) a change the gradient corrected.
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, temporal_gradient)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLabAntiLagBlurPush
@@ -75,5 +72,4 @@ struct RtLabAntiLagBlurPush
     daxa_u32vec2 size;     // cells
     daxa_u32vec2 lab_size; // lab pixels
     daxa_u32 vertical;     // 0 = horizontal pass, 1 = vertical pass + temporal
-    daxa_u32 gradient_bound; // temporal_gradient is bound
 };

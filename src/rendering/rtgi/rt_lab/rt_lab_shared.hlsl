@@ -201,92 +201,13 @@ func rt_lab_coarse_anti_lag_cap(float history_length, float alpha) -> float
     return min(history_length, max(1.0f / alpha - 1.0f, 0.0f));
 }
 
-// temporal_gradient_deadzone: lambda' = saturate((lambda - d) / (1 - d)).
-func rt_lab_gradient_deadzone(RtLabSettings settings, float lambda) -> float
-{
-    const float d = clamp(settings.temporal_gradient_deadzone, 0.0f, 0.99f);
-    return saturate((lambda - d) / (1.0f - d));
-}
-
-// The temporal gradient's .x / .w are f16 pairs (pixel relative modes; the Kalman mode always uses the plain layout).
-func rt_lab_gradient_packed(RtLabSettings settings) -> bool
-{
-    return settings.temporal_gradient_pixel_relative != RT_LAB_GRADIENT_RELATIVE_SAMPLES && (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) == 0;
-}
-
-// f16 pair packing of the temporal gradient's .x / .w (temporal_gradient_pixel_relative != 0).
-func rt_lab_gradient_pack_pair(float a, float b) -> uint
-{
-    return (f32tof16(clamp(a, -65000.0f, 65000.0f)) & 0xFFFFu) | (f32tof16(clamp(b, -65000.0f, 65000.0f)) << 16u);
-}
-
-func rt_lab_gradient_unpack_pair(uint packed) -> float2
-{
-    return float2(f16tof32(packed & 0xFFFFu), f16tof32(packed >> 16u));
-}
-
-// The temporal gradient cell's (lambda, |mean delta|, signed lambda, signed mean delta); unpacked layout (mode 0):
-// deltas 0.
-func rt_lab_gradient_cell_values(uint4 data, bool packed) -> float4
-{
-    if (packed)
-    {
-        const float2 x = rt_lab_gradient_unpack_pair(data.x);
-        const float2 w = rt_lab_gradient_unpack_pair(data.w);
-        return float4(x, w);
-    }
-    return float4(asfloat(data.x), 0.0f, asfloat(data.w), 0.0f);
-}
-
-// Temporal gradient at a lab pixel: (lambda (unscaled), |mean delta|, signed lambda, signed mean delta), deltas only with packed (temporal_gradient_pixel_relative != 0). Edge aware 2x2 bilinear
-// upscale of the cells: bilinear weight x the pixel vs cell distance + loose normal weight (rt_lab_gradient_distance_weight,
-// no plane test), renormalized; no matching cell -> plain bilinear.
-func rt_lab_temporal_gradient_full(Texture2D<uint4> temporal_gradient, CameraInfo camera, uint2 lab_size, uint2 pixel, float3 position,
-    float3 normal, float rcp_pixel_width_ws, bool packed) -> float4
-{
-    uint2 cells;
-    temporal_gradient.GetDimensions(cells.x, cells.y);
-    const float2 inv_lab_size = rcp(float2(lab_size));
-    const float2 cell_position = (float2(pixel) + 0.5f) / float(RT_LAB_GRADIENT_CELL) - 0.5f;
-    const int2 origin = int2(floor(cell_position));
-    const float2 f = cell_position - float2(origin);
-    float4 plain = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float4 lambda_sum = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float weight_sum = 0.0f;
-    [unroll] for (uint i = 0u; i < 4u; ++i)
-    {
-        const int2 offset = int2(i & 1u, i >> 1u);
-        const uint2 cell = uint2(clamp(origin + offset, int2(0, 0), int2(cells) - 1));
-        const float bilinear_weight = (offset.x == 1 ? f.x : 1.0f - f.x) * (offset.y == 1 ? f.y : 1.0f - f.y);
-        const uint4 data = temporal_gradient[cell];
-        const float4 lambda = rt_lab_gradient_cell_values(data, packed);
-        const float cell_depth = asfloat(data.y);
-        plain += lambda * bilinear_weight;
-        if (cell_depth > 0.0f)
-        {
-            const uint2 cell_pixel = rt_lab_gradient_cell_pixel(cell, lab_size);
-            const float3 cell_world = linear_depth_to_world_space(camera, rt_lab_ndc(cell_pixel, inv_lab_size), cell_depth);
-            const float weight = bilinear_weight * rt_lab_gradient_distance_weight(camera.position, position, normal, cell_world,
-                uncompress_normal_octahedral_32(data.z), rcp_pixel_width_ws, rcp(rt_lab_pixel_width_ws(camera, float(lab_size.y), cell_depth)),
-                length(float2(cell_pixel) - float2(pixel)));
-            lambda_sum += lambda * weight;
-            weight_sum += weight;
-        }
-    }
-    return weight_sum > 1e-3f ? lambda_sum / weight_sum : plain;
-}
-
-// Temporal gradient lambda scaled by temporal_gradient_scale (scale mode: reprojected history lengths x (1 - this)).
-func rt_lab_temporal_gradient(Texture2D<uint4> temporal_gradient, CameraInfo camera, uint2 lab_size, uint2 pixel, float3 position,
-    float3 normal, float rcp_pixel_width_ws, float scale) -> float
-{
-    return saturate(rt_lab_temporal_gradient_full(temporal_gradient, camera, lab_size, pixel, position, normal, rcp_pixel_width_ws, false).x * scale);
-}
-
 // Per sample perceptual variance luma var / (mean + floor)^2 (std of log(L + floor)) from last frame's variance guide
-// estimate and history mean at the nearest previous pixel; floor = RT_LAB_PERCEPTUAL_VARIANCE_FLOOR x display white.
+// estimate and history mean at the nearest previous pixel; floor = RT_LAB_GRADIENT_PERCEPTUAL_FLOOR x display white.
 // < 0 = unknown (off screen last frame / broken).
-#define RT_LAB_PERCEPTUAL_VARIANCE_FLOOR 0.05f
+// ONE perceptual floor for the whole temporal gradient 2 (the resolve's log ratio and this variance), in display white units, so in radiance it
+// scales with the exposure (floor / exposure): the change and the noise it is compared with live in the same space. A little lower than the old
+// floors (0.01 for the ratio, 0.05 here) so dark pixels still see their changes and their noise is not under estimated.
+#define RT_LAB_GRADIENT_PERCEPTUAL_FLOOR 0.005f
 func rt_lab_previous_perceptual_variance(Texture2D<float4> history, Texture2D<float4> variance, CameraInfo* prev_camera,
     RtLabSettings settings, uint2 size, float3 position, float exposure) -> float
 {
@@ -299,56 +220,26 @@ func rt_lab_previous_perceptual_variance(Texture2D<float4> history, Texture2D<fl
     const uint2 pixel = min(uint2(prev_uv * float2(size)), size - 1u);
     const float3 sample_variance = variance[pixel].rgb;
     const float mean = rt_lab_luminance(history[pixel].rgb);
-    const float perceptual_floor = RT_LAB_PERCEPTUAL_VARIANCE_FLOOR * RTGI_RADIANCE_SCALE / (PI * exposure);
+    const float perceptual_floor = RT_LAB_GRADIENT_PERCEPTUAL_FLOOR * RTGI_RADIANCE_SCALE / (PI * exposure);
     const float perceptual_variance = dot(max(sample_variance, 0.0f), square(float3(0.2126f, 0.7152f, 0.0722f))) / square(max(mean, 0.0f) + perceptual_floor);
     return isfinite(perceptual_variance) ? perceptual_variance : -1.0f;
 }
 
-// Temporal gradient history cap (temporal_gradient_cap_mode, see rt_lab_settings.inl): the history length limit for an
-// unscaled lambda; 1e30 = no cap. perceptual_variance < 0 (unknown) skips the MSE cap.
-func rt_lab_gradient_history_cap(RtLabSettings settings, float lambda, float perceptual_variance, float history_length) -> float
+// Temporal gradient 2 (rt_lab_gradient_oct.hlsl): how much of the history LENGTH survives (the color is never touched). gradient2 = (shrunk log
+// change, unexplained bias + variance, level, valid). The history is off by about the change, its expected squared error is
+// loss = change^2 + bias; the history's own noise is v / N (v = per sample perceptual variance, unknown: 1), the MSE optimal length keeps
+// N' = N / (1 + N k loss / v), continuous, no threshold. Returns the kept fraction N' / N (1 = no information).
+// k scales the loss against the history's noise: > 1 trusts the spatial filter to hide the extra noise of a shorter history, the history adapts faster.
+#define RT_LAB_GRADIENT2_CUT_K 8.0f
+func rt_lab_gradient2_history_keep(float4 gradient2, float history_length, float perceptual_variance) -> float
 {
-    if ((settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0)
+    if (gradient2.w < 0.5f || !(history_length > 0.0f) || any(!isfinite(gradient2)))
     {
-        // lambda = the information loss L: N' = N / (1 + N k L / v) (continuous, no threshold). Unknown v: 1.
-        const float v = perceptual_variance >= 0.0f ? max(perceptual_variance, 1e-4f) : 1.0f;
-        const float kept = history_length / (1.0f + history_length * max(settings.temporal_gradient_kalman_k, 0.0f) * max(lambda, 0.0f) / v);
-        return max(kept, min(history_length, max(settings.temporal_gradient_cap_min, 0.0f)));
+        return 1.0f;
     }
-    float cap = 1e30f;
-    if ((settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_MSE) != 0 && perceptual_variance >= 0.0f)
-    {
-        const float excess = square(lambda) - square(RT_LAB_GRADIENT_CAP_LAMBDA_FLOOR);
-        if (excess > 0.0f)
-        {
-            cap = min(cap, max(settings.temporal_gradient_cap_k, 0.0f) * perceptual_variance / excess);
-        }
-    }
-    const float tolerance = max(settings.temporal_gradient_settle_tolerance, 1e-4f);
-    if ((settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_SETTLE) != 0 && lambda > tolerance)
-    {
-        const float growth = pow(lambda / tolerance, 1.0f / max(settings.temporal_gradient_settle_frames, 1.0f));
-        cap = min(cap, 1.0f / max(growth - 1.0f, 1e-6f));
-    }
-    if (cap < 1e30f)
-    {
-        cap = max(cap, max(settings.temporal_gradient_cap_min, 0.0f));
-    }
-    return cap;
-}
-
-// History rescale factor (temporal_gradient_rescale) from the signed lambda: sum new / sum old of the re-traced
-// rays assuming one change direction in the footprint.
-func rt_lab_gradient_rescale(RtLabSettings settings, float signed_lambda) -> float
-{
-    if ((settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0)
-    {
-        // signed_lambda = the log correction c (already Wiener shrunk + clamped).
-        return exp(signed_lambda * clamp(settings.temporal_gradient_rescale_strength, 0.0f, 1.0f));
-    }
-    const float s = clamp(signed_lambda, -RT_LAB_GRADIENT_RESCALE_MAX_LAMBDA, RT_LAB_GRADIENT_RESCALE_MAX_LAMBDA);
-    const float ratio = s >= 0.0f ? 1.0f / (1.0f - s) : 1.0f + s;
-    return pow(ratio, clamp(settings.temporal_gradient_rescale_strength, 0.0f, 1.0f));
+    const float v = perceptual_variance >= 0.0f ? max(perceptual_variance, 1e-4f) : 1.0f;
+    const float loss = gradient2.x * gradient2.x + max(gradient2.y, 0.0f);
+    return 1.0f / (1.0f + history_length * RT_LAB_GRADIENT2_CUT_K * loss / v);
 }
 
 // Half res lab: lab_depth carries the index (0..3, x + 2y) of the full res sub-pixel the gen_gbuffer representative
@@ -412,41 +303,6 @@ func rt_lab_hit_seed(uint ray_seed) -> uint
 func rt_lab_relative_difference(float a, float b) -> float
 {
     return abs(a - b) / max(min(a, b), RT_LAB_RELATIVE_DIFFERENCE_FLOOR);
-}
-
-// Temporal gradient at a pixel as (lambda, signed lambda) from rt_lab_temporal_gradient_full's output
-// (temporal_gradient_pixel_relative, RT_LAB_GRADIENT_RELATIVE_*). SAMPLES: the samples relative lambda unchanged.
-// PIXEL: the absolute exposed (|delta|, signed delta) divided by the pixel's own previous history luminance L (nearest
-// previous pixel, like rt_lab_previous_perceptual_variance): max(L + max(delta, 0), floor) = max(old, new) of the pixel,
-// so the rescale ratio (rt_lab_gradient_rescale) is exactly (L + delta) / L. MIN: the smaller of both (signed: smaller
-// magnitude). No history there: (0, 0) (nothing to keep or cut).
-func rt_lab_gradient_pixel_relative(RtLabSettings settings, float4 gradient, Texture2D<float4> history, CameraInfo* prev_camera,
-    uint2 size, float3 position, float exposure) -> float2
-{
-    const int mode = settings.temporal_gradient_pixel_relative;
-    if (!rt_lab_gradient_packed(settings))
-    {
-        return gradient.xz;
-    }
-    const float4 prev_clip = mul(prev_camera.view_proj, float4(position, 1.0f));
-    const float2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5f + 0.5f;
-    if (!(prev_clip.w > 0.0f) || any(prev_uv <= 0.0f) || any(prev_uv >= 1.0f))
-    {
-        return float2(0.0f, 0.0f);
-    }
-    const float4 previous = history[min(uint2(prev_uv * float2(size)), size - 1u)];
-    if (!(previous.a > 0.0f) || any(!isfinite(previous.rgb)))
-    {
-        return float2(0.0f, 0.0f);
-    }
-    const float luminance = rt_lab_exposed(max(rt_lab_luminance(previous.rgb), 0.0f), exposure);
-    const float denominator = max(luminance + max(gradient.w, 0.0f), RT_LAB_RELATIVE_DIFFERENCE_FLOOR);
-    const float2 pixel_relative = float2(saturate(gradient.y / denominator), clamp(gradient.w / denominator, -1.0f, 1.0f));
-    if (mode == RT_LAB_GRADIENT_RELATIVE_MIN)
-    {
-        return float2(min(gradient.x, pixel_relative.x), abs(gradient.z) < abs(pixel_relative.y) ? gradient.z : pixel_relative.y);
-    }
-    return pixel_relative;
 }
 
 // Variance guide (fine + coarse spatial filters): likelihood that center and tap estimate the same mean. Both are

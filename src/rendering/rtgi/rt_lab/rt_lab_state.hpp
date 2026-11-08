@@ -19,6 +19,7 @@
 #include "rt_lab_telemetry.hpp"
 #include "rt_lab2_state.hpp"
 #include "rt_lab3_state.hpp"
+#include "rt_lab_retir_state.hpp"
 #include "rt_lab4_state.hpp"
 #include "rt_lab_integrator_state.hpp"
 
@@ -230,6 +231,7 @@ struct RtLabPresetConfig
     RtLab3Config lab3 = {};
     RtLab4Config lab4 = {};
     RtLabIntegratorConfig integrator = {};
+    RtLabRetirConfig retir = {};
 };
 
 struct RtLabState
@@ -244,6 +246,14 @@ struct RtLabState
     // Effective sample count metric (RT_LAB_SPATIAL_SAMPLE_COUNT debug view), applied to rt_lab_settings every frame.
     f32 sample_count_input_clamp = 0.0f; // 0 = off
     f32 sample_count_debug_max = 4096.0f;
+
+    // Synthetic gradient data (debug UI): the temporal gradient re-trace shades its samples with another sun (a copy of the globals with a different
+    // sun direction / brightness), so the gradient (debug views, history cut) sees a lighting change that is not in the image. Direct sun term only:
+    // the sky / PGI the hits read still belong to the real sun. Angles like the sun panel (Angle X azimuth, Angle Y zenith, degrees).
+    bool gradient_synthetic_sun = false;
+    f32 gradient_synthetic_sun_angle_x = 94.85f;
+    f32 gradient_synthetic_sun_angle_y = 40.0f;
+    f32 gradient_synthetic_sun_brightness = 1.0f;
 
     // == Test (RtLabTestSetup) ==
     RtLabTestSetup test = {};          // edited by the UI / automation, copied into `running` at the start
@@ -342,6 +352,8 @@ struct RtLabState
     RtLab3State lab3 = {};
     // RT Lab 4 (rt_lab4.hpp): the ReSTIR stage of lab 3 feeding the cells of lab 2.
     RtLab4State lab4 = {};
+    // ReTIR (rt_lab_retir.hpp): the temporal only alternative to the ReSTIR stage; live copy of the active preset config.
+    RtLabRetirState retir = {};
     // Temporal resolve of the original lab (rt_lab_integrator.hpp), runs on the final lab image right before the resolve. Not part of the presets.
     RtLabIntegratorState integrator = {};
     bool pgi_update_rate_overridden = false;
@@ -356,7 +368,7 @@ inline auto rt_lab_test_running(RtLabState const & lab) -> bool
 // The live config (what the passes read) as a preset config / the other way round.
 inline auto rt_lab_config_gather(RtLabState const & lab) -> RtLabPresetConfig
 {
-    return RtLabPresetConfig{lab.lab2, lab.lab3, lab.lab4, lab.integrator};
+    return RtLabPresetConfig{lab.lab2, lab.lab3, lab.lab4, lab.integrator, lab.retir};
 }
 
 inline void rt_lab_config_apply(RtLabState & lab, RtLabPresetConfig const & config)
@@ -365,4 +377,5 @@ inline void rt_lab_config_apply(RtLabState & lab, RtLabPresetConfig const & conf
     static_cast<RtLab3Config &>(lab.lab3) = config.lab3;
     static_cast<RtLab4Config &>(lab.lab4) = config.lab4;
     static_cast<RtLabIntegratorConfig &>(lab.integrator) = config.integrator;
+    static_cast<RtLabRetirConfig &>(lab.retir) = config.retir;
 }

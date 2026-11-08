@@ -2,6 +2,7 @@
 #include "rendering/rtgi/rt_lab/rt_lab.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab2.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab3.hpp"
+#include "rendering/rtgi/rt_lab/rt_lab_retir.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab4.hpp"
 #include "rendering/rtgi/rt_lab/rt_lab_integrator.hpp"
 
@@ -48,6 +49,7 @@
 //       "lab4": { "enabled": true, "cell_source": 0, "cell_weight_mode": 1 },   RT Lab 4 = RT Lab 3 (ReSTIR GI, "lab3" settings) in front of RT Lab 2 (cells + temporal resolve,
 //                                                           "lab2" settings, no temporal gradient); default off, takes priority over "lab3" / "lab2".
 //                                                           cell_weight_mode: 0 one per pixel with a reservoir, 1 fresh rays, 2 reservoir confidence M
+//       "retir": { "temporal_max_m": 8, "temporal_max_age": 8, ... },   ReTIR settings (any RtLabRetirSettings field); pipeline switch: "custom": { "retir_enabled": 1 } (excludes "restir_enabled").
 //       "lab3": { "enabled": true, "ray_budget": 1.0, "spatial_passes": 1, ... },   RT Lab 3 (ReSTIR GI): keys = "enabled" (legacy), "half_res" (sets the preset),
 //                                                           "ray_budget", "redistribution_enabled", "max_rays_per_pixel", "target_sample_count", "min_base_coverage"
 //                                                           and the RtLab3Settings field names (rt_lab3_settings.inl); default off, takes priority over "lab2"
@@ -239,6 +241,16 @@ auto Application::start_test_plan(std::filesystem::path const & path) -> bool
                 return fail(fmt::format("unknown \"lab4\" setting \"{}\"", unknown.front()));
             }
         }
+        if (spec.contains("retir"))
+        {
+            RtLabRetirState scratch = {};
+            std::vector<std::string> unknown = {};
+            rt_lab_retir_apply_json(scratch, spec["retir"], unknown);
+            if (!unknown.empty())
+            {
+                return fail(fmt::format("unknown \"retir\" setting \"{}\"", unknown.front()));
+            }
+        }
         if (spec.contains("lab3"))
         {
             RtLab3State scratch = {};
@@ -320,6 +332,15 @@ void Application::test_plan_setup(TestPlanEntry const & entry)
     set_debug_draw_mode(entry.debug_draw);
     lab.presets = entry.presets;
     lab.force_full_pgi_update = entry.force_full_pgi_update;
+    // "gradient_synthetic_sun": { "angle_x": 274.85, "angle_y": 50, "brightness": 1 }: the gradient re-trace shades with another sun (RtLabState::gradient_synthetic_sun).
+    lab.gradient_synthetic_sun = entry.spec.contains("gradient_synthetic_sun");
+    if (lab.gradient_synthetic_sun)
+    {
+        nlohmann::json const & synthetic = entry.spec["gradient_synthetic_sun"];
+        lab.gradient_synthetic_sun_angle_x = synthetic.value("angle_x", 274.85f);
+        lab.gradient_synthetic_sun_angle_y = synthetic.value("angle_y", 50.0f);
+        lab.gradient_synthetic_sun_brightness = synthetic.value("brightness", 1.0f);
+    }
     lab.lag_tolerance = entry.lag_tolerance;
     lab.active_preset = entry.active_preset;
     {
@@ -337,6 +358,9 @@ void Application::test_plan_setup(TestPlanEntry const & entry)
         RtLab3State lab3 = {};
         rt_lab3_apply_json(lab3, section("lab3"), unknown);
         config.lab3 = lab3;
+        RtLabRetirState retir = {};
+        rt_lab_retir_apply_json(retir, section("retir"), unknown);
+        config.retir = retir;
         RtLab4State lab4 = {};
         rt_lab4_apply_json(lab4, section("lab4"), unknown);
         config.lab4 = lab4;

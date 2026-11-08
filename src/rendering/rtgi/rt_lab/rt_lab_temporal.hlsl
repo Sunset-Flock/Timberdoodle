@@ -612,19 +612,8 @@ func entry_rt_lab_temporal(uint2 dtid : SV_DispatchThreadID)
     const bool has_history = weight_sum > 1e-3f && settings.reset_history == 0;
 
     const float max_length = rt_lab_max_history_length(&push.attach.globals.rt_lab_settings);
-    // Temporal gradient: scale mode = the reprojected lengths shrink by (1 - lambda x scale), like in the ray demand; cap
-    // mode = capped below (rt_lab_gradient_history_cap). .y = signed lambda (history rescale).
-    const bool gradient_cap = push.gradient_bound != 0u && settings.temporal_gradient_cap_mode != 0;
-    // temporal_gradient_pixel_relative: made relative to this pixel's own previous history luminance (same as the demand).
-    const float2 gradient = push.gradient_bound != 0u
-        ? rt_lab_gradient_pixel_relative(settings,
-              rt_lab_temporal_gradient_full(push.attach.temporal_gradient.get(), camera, push.size, dtid, position, normal, rcp_pixel_width_ws,
-                  rt_lab_gradient_packed(settings)),
-              push.attach.history.get(), &push.attach.globals.view_camera_prev_frame, push.size, position, push.attach.globals.exposure)
-        : float2(0.0f, 0.0f);
-    // .y (rescale) stays raw. Kalman: .x = the information loss L, no deadzone.
-    const float gradient_lambda = (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0 ? max(gradient.x, 0.0f) : rt_lab_gradient_deadzone(settings, gradient.x);
-    float gradient_keep = push.gradient_bound != 0u && !gradient_cap ? 1.0f - saturate(gradient_lambda * settings.temporal_gradient_scale) : 1.0f;
+    // Temporal gradient 2 cut of the reprojected lengths (1 = none), applied below once the lengths are known.
+    float gradient_keep = 1.0f;
     const float split_max_length = max(max_length * 0.5f, 1.0f);
     // Bilinear results first, so the per-tap values are dead before the (register hungry) bicubic below.
     float4 reprojected = float4(0.0f, 0.0f, 0.0f, 0.0f); // .a = 0: disocclusion
@@ -636,23 +625,24 @@ func entry_rt_lab_temporal(uint2 dtid : SV_DispatchThreadID)
         // History lengths: occluder aware soft normalize (tido RTGI) or soft normalize (old RTGI / ReLAX style).
         const float occluder_coverage = dot(get_bilinear_custom_weights(bilinear, float4(1.0f, 1.0f, 1.0f, 1.0f)), occluder_taps);
         const bool occluder_aware = settings.occluder_aware_soft_normalize != 0;
-        reprojected.a = min(rt_lab_reproject_count(float4(taps[0].a, taps[1].a, taps[2].a, taps[3].a), weights, occluder_coverage, occluder_aware), max_length) * gradient_keep;
+        reprojected.a = min(rt_lab_reproject_count(float4(taps[0].a, taps[1].a, taps[2].a, taps[3].a), weights, occluder_coverage, occluder_aware), max_length);
         if (split)
         {
             split_a = apply_bilinear_custom_weights(taps_a[0], taps_a[1], taps_a[2], taps_a[3], weights);
             split_b = apply_bilinear_custom_weights(taps_b[0], taps_b[1], taps_b[2], taps_b[3], weights);
-            split_a.a = min(rt_lab_reproject_count(float4(taps_a[0].a, taps_a[1].a, taps_a[2].a, taps_a[3].a), weights, occluder_coverage, occluder_aware), split_max_length) * gradient_keep;
-            split_b.a = min(rt_lab_reproject_count(float4(taps_b[0].a, taps_b[1].a, taps_b[2].a, taps_b[3].a), weights, occluder_coverage, occluder_aware), split_max_length) * gradient_keep;
+            split_a.a = min(rt_lab_reproject_count(float4(taps_a[0].a, taps_a[1].a, taps_a[2].a, taps_a[3].a), weights, occluder_coverage, occluder_aware), split_max_length);
+            split_b.a = min(rt_lab_reproject_count(float4(taps_b[0].a, taps_b[1].a, taps_b[2].a, taps_b[3].a), weights, occluder_coverage, occluder_aware), split_max_length);
         }
-        if (gradient_cap && reprojected.a > 0.0f)
+        // Temporal gradient 2 (rt_lab_gradient_oct.hlsl): only the history LENGTH is cut by the pyramid's per pixel change (the color stays).
+        if (push.gradient2_bound != 0u && settings.temporal_gradient2_scale_history != 0 && reprojected.a > 0.0f)
         {
-            // Same cap as the ray demand (same inputs); the split lengths shrink by the same ratio.
             const float perceptual_variance = rt_lab_previous_perceptual_variance(push.attach.history.get(), push.attach.variance_history.get(),
                 &push.attach.globals.view_camera_prev_frame, settings, push.size, position, push.attach.globals.exposure);
-            gradient_keep = min(1.0f, rt_lab_gradient_history_cap(settings, gradient_lambda, perceptual_variance, reprojected.a) / reprojected.a);
-            reprojected.a *= gradient_keep;
-            split_a.a *= gradient_keep;
-            split_b.a *= gradient_keep;
+            const float gradient2_keep = rt_lab_gradient2_history_keep(push.attach.gradient2.get()[dtid], reprojected.a, perceptual_variance);
+            gradient_keep = gradient2_keep;
+            reprojected.a *= gradient2_keep;
+            split_a.a *= gradient2_keep;
+            split_b.a *= gradient2_keep;
         }
     }
 
@@ -717,13 +707,9 @@ func entry_rt_lab_temporal(uint2 dtid : SV_DispatchThreadID)
         }
     }
 
-    // History rescale (temporal_gradient_rescale): the reprojected histories jump to the gradient's luminance ratio. Also
-    // the coarse anti-lag's clip ratio. gradient_rescale = the total factor (variance, SH below).
+    // The coarse anti-lag's clip ratio (rt_lab_anti_lag.hlsl) rescales the reprojected histories (color, split, variance, SH below).
+    // The temporal gradient never rescales a history, it only cuts its length.
     float gradient_rescale = 1.0f;
-    if (push.gradient_bound != 0u && settings.temporal_gradient_rescale != 0 && has_history)
-    {
-        gradient_rescale = rt_lab_gradient_rescale(settings, gradient.y);
-    }
     if (push.anti_lag_bound != 0u && has_history)
     {
         gradient_rescale *= rt_lab_coarse_anti_lag_ratio(push.attach.coarse_anti_lag.get(), camera, push.size, dtid, position, normal, rcp_pixel_width_ws);

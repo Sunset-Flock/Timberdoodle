@@ -17,6 +17,8 @@
 #include "rtgi/rt_lab/rt_lab.hpp"
 #include "rtgi/rt_lab/rt_lab2.hpp"
 #include "rtgi/rt_lab/rt_lab3.hpp"
+#include "rtgi/rt_lab/rt_lab_retir.hpp"
+#include "rtgi/rt_lab/rt_lab_gradient_oct.hpp"
 #include "rtgi/rt_lab/rt_lab4.hpp"
 #include "rtgi/rt_lab/rt_lab_integrator.hpp"
 
@@ -242,7 +244,6 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_guide_resample_horizontal_compile_info()},
         {rtgi_guide_resample_vertical_compile_info()},
         {rt_lab_gradient_trace_compile_info()},
-        {rt_lab_gradient_blur_compile_info()},
         {rt_lab_demand_compile_info()},
         {rt_lab_distribute_compile_info()},
         {rt_lab_gather_compile_info()},
@@ -264,6 +265,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rt_lab2_probe_compile_info()},
         {rt_lab3_trace_compile_info()},
         {rt_lab3_temporal_compile_info()},
+        {rt_lab_retir_temporal_compile_info()},
         {rt_lab3_spatial_compile_info()},
         {rt_lab3_shade_compile_info()},
         {rt_lab3_filter_compile_info()},
@@ -273,6 +275,8 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rt_lab_stats_compile_info()},
         {rt_lab_picker_compile_info()},
         {rt_lab_probe_compile_info()},
+        {rt_lab_gradient_oct_compile_info()},
+        {rt_lab_gradient_oct_resolve_compile_info()},
         {rt_lab_telemetry_compile_info()},
         {rt_lab_telemetry_reference_compile_info()},
         {rt_lab_anti_lag_downsample_compile_info()},

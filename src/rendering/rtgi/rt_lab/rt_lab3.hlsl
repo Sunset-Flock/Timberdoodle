@@ -221,6 +221,63 @@ func rt_lab3_temporal_tap(Texture2D<float> depth_history, Texture2D<uint> normal
            rt_lab_plane_weight(position, normal, tap_position, prev_normal, rcp_pixel_width_ws, s.temporal_plane_tolerance) > 0.0f;
 }
 
+// Temporal reuse: the pixel of last frame that shows the same surface, merged into `merge`. Shared by the ReSTIR temporal pass and ReTIR (rt_lab_retir.hlsl).
+func rt_lab3_temporal_reuse(RtLab3TemporalPush push, RtLab3Settings s, float3 position, float3 normal, float pixel_width_ws, float rcp_pixel_width_ws, float ray_history_cap, inout RtLab3Merge merge)
+{
+    const float2 size = float2(push.size);
+    if (s.temporal_enabled != 0 && s.reset == 0)
+    {
+        const CameraInfo prev_camera = push.attach.globals.view_camera_prev_frame;
+        const float4 clip = mul(prev_camera.view_proj, float4(position, 1.0f));
+        if (clip.w > 0.0f)
+        {
+            const float2 prev_uv = (clip.xy / clip.w) * 0.5f + 0.5f;
+            // Footprint: the 2x2 pixels around the exact (fractional) position, bilinear weights.
+            const float2 prev_continuous = prev_uv * size - 0.5f;
+            const int2 prev_base = int2(floor(prev_continuous));
+            const float2 prev_frac = prev_continuous - floor(prev_continuous);
+            int2 tap_pixel[4];
+            float tap_weight[4];
+            float3 tap_position[4];
+            float weight_total = 0.0f;
+            [ForceUnroll] for (uint t = 0u; t < 4u; ++t)
+            {
+                tap_pixel[t] = prev_base + int2(t & 1u, t >> 1u);
+                tap_weight[t] = 0.0f;
+                tap_position[t] = float3(0.0f, 0.0f, 0.0f);
+                if (rt_lab3_temporal_tap(push.attach.lab_depth_history.get(), push.attach.lab_face_normal_history.get(), prev_camera, tap_pixel[t], int2(push.size),
+                        position, normal, rcp_pixel_width_ws, s, tap_position[t]))
+                {
+                    const float bilinear = ((t & 1u) != 0u ? prev_frac.x : 1.0f - prev_frac.x) * ((t >> 1u) != 0u ? prev_frac.y : 1.0f - prev_frac.y);
+                    tap_weight[t] = bilinear;
+                    weight_total += bilinear;
+                }
+            }
+            if (weight_total > 1e-5f)
+            {
+                // Footprint overhangs an edge (valid weight < 1): less confidence.
+                const float partial = lerp(1.0f, saturate(weight_total), saturate(s.temporal_partial_scale));
+                const float random = frac(float(uint(push.attach.globals.trunk_flt_frame_index)) * 0.61803398875f + 0.5f);
+                float pick = random * weight_total;
+                uint chosen = 0u;
+                bool found = false;
+                [ForceUnroll] for (uint t = 0u; t < 4u; ++t)
+                {
+                    if (!found && tap_weight[t] > 0.0f)
+                    {
+                        chosen = t;
+                        pick -= tap_weight[t];
+                        found = pick <= 0.0f;
+                    }
+                }
+                RtLab3Reservoir previous = rt_lab3_load(push.attach.history_a.get(), push.attach.history_b.get(), push.attach.history_c.get(), tap_pixel[chosen]);
+                rt_lab3_merge_temporal(merge, previous, tap_position[chosen], partial, ray_history_cap, position, normal, pixel_width_ws, s,
+                    push.attach.globals, push.attach.mesh_instances, push.attach.tlas);
+            }
+        }
+    }
+}
+
 // == Trace =============================================================================================================
 
 [shader("compute")]
@@ -336,57 +393,7 @@ func entry_rt_lab3_temporal(uint2 dtid : SV_DispatchThreadID)
     merge.ray_history = 0.0f;
     // Ray history: the rays shot over time at this pixel, capped at the target of the ray redistribution (so a converged pixel asks for no extras).
     const float ray_history_cap = max(push.attach.globals.rt_lab_settings.fast_convergence_samples, 1.0f);
-    if (s.temporal_enabled != 0 && s.reset == 0)
-    {
-        const CameraInfo prev_camera = push.attach.globals.view_camera_prev_frame;
-        const float4 clip = mul(prev_camera.view_proj, float4(position, 1.0f));
-        if (clip.w > 0.0f)
-        {
-            const float2 prev_uv = (clip.xy / clip.w) * 0.5f + 0.5f;
-            // Footprint: the 2x2 pixels around the exact (fractional) position, bilinear weights.
-            const float2 prev_continuous = prev_uv * size - 0.5f;
-            const int2 prev_base = int2(floor(prev_continuous));
-            const float2 prev_frac = prev_continuous - floor(prev_continuous);
-            int2 tap_pixel[4];
-            float tap_weight[4];
-            float3 tap_position[4];
-            float weight_total = 0.0f;
-            [ForceUnroll] for (uint t = 0u; t < 4u; ++t)
-            {
-                tap_pixel[t] = prev_base + int2(t & 1u, t >> 1u);
-                tap_weight[t] = 0.0f;
-                tap_position[t] = float3(0.0f, 0.0f, 0.0f);
-                if (rt_lab3_temporal_tap(push.attach.lab_depth_history.get(), push.attach.lab_face_normal_history.get(), prev_camera, tap_pixel[t], int2(push.size),
-                        position, normal, rcp_pixel_width_ws, s, tap_position[t]))
-                {
-                    const float bilinear = ((t & 1u) != 0u ? prev_frac.x : 1.0f - prev_frac.x) * ((t >> 1u) != 0u ? prev_frac.y : 1.0f - prev_frac.y);
-                    tap_weight[t] = bilinear;
-                    weight_total += bilinear;
-                }
-            }
-            if (weight_total > 1e-5f)
-            {
-                // Footprint overhangs an edge (valid weight < 1): less confidence.
-                const float partial = lerp(1.0f, saturate(weight_total), saturate(s.temporal_partial_scale));
-                const float random = frac(float(uint(push.attach.globals.trunk_flt_frame_index)) * 0.61803398875f + 0.5f);
-                float pick = random * weight_total;
-                uint chosen = 0u;
-                bool found = false;
-                [ForceUnroll] for (uint t = 0u; t < 4u; ++t)
-                {
-                    if (!found && tap_weight[t] > 0.0f)
-                    {
-                        chosen = t;
-                        pick -= tap_weight[t];
-                        found = pick <= 0.0f;
-                    }
-                }
-                RtLab3Reservoir previous = rt_lab3_load(push.attach.history_a.get(), push.attach.history_b.get(), push.attach.history_c.get(), tap_pixel[chosen]);
-                rt_lab3_merge_temporal(merge, previous, tap_position[chosen], partial, ray_history_cap, position, normal, pixel_width_ws, s,
-                    push.attach.globals, push.attach.mesh_instances, push.attach.tlas);
-            }
-        }
-    }
+    rt_lab3_temporal_reuse(push, s, position, normal, pixel_width_ws, rcp_pixel_width_ws, ray_history_cap, merge);
     selected = merge.selected;
     selected_p_hat = merge.selected_p_hat;
     weight_sum = merge.weight_sum;
@@ -531,6 +538,15 @@ func entry_rt_lab3_shade(uint2 dtid : SV_DispatchThreadID)
             const float3 direction = normalize(r.position - position);
             estimate = r.radiance * (max(dot(normal, direction), 0.0f) * r.weight / PI);
         }
+        if (push.samples_bound != 0u)
+        {
+            // The mean of the estimates after each of this frame's rays; a pixel without a ray this frame keeps the estimate of its reservoir.
+            const float4 samples = push.attach.samples.get()[dtid];
+            if (samples.a > 0.0f)
+            {
+                estimate = samples.rgb;
+            }
+        }
         result = float4(estimate, r.ray_history); // .a = the pixel's accumulated rays shot (the ray redistribution's history)
     }
     push.attach.shaded.get()[dtid] = result;
@@ -634,6 +650,11 @@ func entry_rt_lab3_filter(uint2 dtid : SV_DispatchThreadID)
             else if (push.cell_weight_mode == RT_LAB3_CELL_WEIGHT_M)
             {
                 weight = value.a;
+            }
+            else if (push.sample_weights != 0u)
+            {
+                // Temporal sample processing: the estimate stands for the pixel's fresh ray count of samples.
+                weight = float(push.attach.ray_alloc.get()[dtid].y);
             }
             else
             {

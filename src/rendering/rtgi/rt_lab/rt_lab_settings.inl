@@ -38,22 +38,6 @@
 // Mahalanobis distance of the mean light direction under the summed covariances / history lengths (anisotropic: light through
 // a window spreads in one plane only) plus a z test of the mean Y. Z^2 per degree of freedom, base = exp(-z^2 / 8).
 #define RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE 4
-// temporal_gradient_cap_mode bits. 0 = old behaviour: reprojected lengths x (1 - saturate(lambda x temporal_gradient_scale)).
-// Any bit set: the lengths are CAPPED (same frame, no compounding) at the smallest enabled cap, floored at
-// temporal_gradient_cap_min; lambda unscaled.
-//   MSE:    N* = temporal_gradient_cap_k x v / (lambda^2 - RT_LAB_GRADIENT_CAP_LAMBDA_FLOOR^2), v = per sample perceptual
-//           variance (variance guide estimate, floor RT_LAB_PERCEPTUAL_VARIANCE_FLOOR). k folds in the spatial filter's
-//           noise reduction (the pixel's own samples are not the output's noise), so k << 1.
-//   SETTLE: the remaining lag lambda x (N / (N + 1))^K falls below temporal_gradient_settle_tolerance within
-//           K = temporal_gradient_settle_frames frames: N = 1 / ((lambda / tolerance)^(1 / K) - 1), only when lambda > tolerance.
-#define RT_LAB_GRADIENT_CAP_MSE 1
-#define RT_LAB_GRADIENT_CAP_SETTLE 2
-#define RT_LAB_GRADIENT_CAP_LAMBDA_FLOOR 0.01f
-//   KALMAN: replaces the others (rt_lab_rays.inl "Kalman temporal gradient"): the gradient MEASURES the change (log ratio
-//           of the re-traced sums + its variance), a per cell Kalman filter tracks it (innovation gate = instant reset on
-//           shocks), the history is CORRECTED by the Wiener shrunk change and only the remaining uncertainty L cuts it:
-//           N' = N / (1 + N x temporal_gradient_kalman_k x L / v), v = per sample perceptual variance.
-#define RT_LAB_GRADIENT_CAP_KALMAN 4
 #define RT_LAB_RAY_FILTER_OFF 0
 #define RT_LAB_RAY_FILTER_ABSOLUTE 1
 #define RT_LAB_RAY_FILTER_PERCEPTUAL 2
@@ -79,7 +63,7 @@
 // Luminance floor of y = log(1 + luma / floor): a FIXED value (scene radiance 1e-4), NOT exposure dependent: the auto exposure ramps for hundreds of
 // frames after a reset, an exposure dependent floor shifted every y upwards and the body (which only accepts samples below tau) froze.
 #define RT_LAB_DIST_LUMINANCE_FLOOR (RTGI_RADIANCE_SCALE * 1e-4f)
-#define RT_LAB_GRADIENT_MAX_BLUR_RADIUS 32 // RtLabSettings::temporal_gradient_blur_radius limit (gradient cells)
+#define RT_LAB_GRADIENT_MAX_BLUR_RADIUS 32 // RtLabSettings::coarse_anti_lag_blur_radius limit (cells)
 
 // denoiser: the stage after the trace (and the optional ReSTIR stage). Pipeline order: reproject + ray redistribution -> trace -> [restir_enabled] -> denoiser -> temporal resolve -> resolve.
 #define RT_LAB_DENOISER_CLASSIC 0   // temporal accumulation + spatial filter (the original lab; 0 so old saved settings load as classic)
@@ -111,54 +95,14 @@ struct RtLabSettings
     daxa_f32 min_ray_budget;           // base ray coverage the extras never drain below (0..1)
     daxa_i32 max_rays_per_pixel;       // base included
     daxa_f32 fast_convergence_samples; // history length (samples) at which a pixel stops asking for extras
-    // Temporal gradient (A-SVGF style, rt_lab_rays.inl): one ray per 4x4 cell is re-traced next frame from the exact same
-    // launch data; the luminance change, blurred in screen space (distance only gaussian, temporal_gradient_blur_radius
-    // cells), gives lambda = |sum delta| / sum max(old, new). Reprojected history lengths are scaled by
-    // (1 - saturate(lambda x temporal_gradient_scale)) in the demand (before the ray redistribution) and the temporal pass.
-    // Needs temporal. Graph shape: temporal_gradient_enabled.
+    // Temporal gradient (rt_lab_rays.inl): one ray per 4x4 cell is re-traced next frame from the exact same launch data. The old and the new
+    // luminance, the ray direction and the surface position of these samples go into the oct pyramid (rt_lab_gradient_oct.inl), which
+    // resolves a per pixel lighting change; the history length is cut by it in the ray demand (before the ray redistribution) and the
+    // temporal pass (temporal_gradient2_scale_history). Needs temporal. Graph shape: temporal_gradient_enabled.
     daxa_i32 temporal_gradient_enabled;
-    daxa_i32 temporal_gradient_blur_radius; // cells (4 px each), gaussian sigma = radius / 2, separable, max RT_LAB_GRADIENT_MAX_BLUR_RADIUS
     // 1 = the base rays (ray 0 of the pixels in the guaranteed base share, rate min_ray_budget) are recorded and re-traced
-    // next frame (lab res records, the samples are summed per cell with atomics) instead of one ray per
-    // RT_LAB_GRADIENT_CELL^2 cell. Graph shape.
+    // next frame (lab res records) instead of one ray per RT_LAB_GRADIENT_CELL^2 cell. Graph shape.
     daxa_i32 temporal_gradient_all_base_rays;
-    daxa_f32 temporal_gradient_scale;
-    daxa_i32 temporal_gradient_cap_mode;          // RT_LAB_GRADIENT_CAP_* bits, 0 = scale mode
-    daxa_f32 temporal_gradient_cap_k;             // MSE cap scale
-    daxa_f32 temporal_gradient_cap_min;           // cap floor (samples)
-    daxa_f32 temporal_gradient_settle_frames;     // SETTLE: K
-    daxa_f32 temporal_gradient_settle_tolerance;  // SETTLE: relative lag tolerance
-    // History rescale: the reprojected histories (color, split A/B, SH / CoCg, variance) are multiplied by the gradient's
-    // luminance ratio sum new / sum old of the re-traced rays (blurred). With one change direction inside
-    // the footprint it follows from the signed lambda: 1 / (1 - lambda) brightening, 1 - lambda darkening (clamped at
-    // RT_LAB_GRADIENT_RESCALE_MAX_LAMBDA); ratio^temporal_gradient_rescale_strength. Mixed directions: lambda shrinks,
-    // the rescale with it. The history jumps to the new lighting without losing samples.
-    daxa_i32 temporal_gradient_rescale;
-    daxa_f32 temporal_gradient_rescale_strength;
-    // RT_LAB_GRADIENT_RELATIVE_*. SAMPLES (0) = A-SVGF: lambda = |sum w delta| / sum w max relative to the re-traced
-    // samples themselves (a dark change can cut a bright pixel's history). PIXEL (1) = the blur also carries the
-    // ABSOLUTE exposed luminance change (weighted mean delta of the re-traced samples), made relative only per pixel
-    // against the pixel's own previous history luminance L (nearest previous pixel): lambda = |delta| /
-    // max(L + max(delta, 0), floor), signed the same for the rescale (= (L + delta) / L exactly). MIN (2) = min of both
-    // (smaller |signed| for the rescale). Not graph shape.
-    daxa_i32 temporal_gradient_pixel_relative;
-    // Temporal smoothing of the blurred gradient sums (sum w delta, sum w max, sum w samples) per cell, reprojected to the
-    // nearest previous cell (plane test): sums = lerp(previous, current, alpha) BEFORE lambda. 1 = off. lambda then is
-    // the sustained per frame change over ~1 / alpha frames: the sparse re-trace's frame to frame noise averages out
-    // (signed, before the |.|), a real step still shows alpha x lambda in its first frame. Not graph shape.
-    daxa_f32 temporal_gradient_history_alpha;
-    // Shock bypass of the smoothing: alpha ramps to 1 (= reset to this frame's sums) as THIS frame's lambda goes from
-    // shock / 2 to shock, so single frame flashes (black -> bright -> black) still cut at once in both directions.
-    daxa_f32 temporal_gradient_history_shock;
-    // lambda deadzone d: lambda' = saturate((lambda - d) / (1 - d)) before the scale / cap (not the rescale): removes
-    // small, noise level lambdas, keeps big ones almost unchanged (unlike a looser settle tolerance). 0 = off.
-    daxa_f32 temporal_gradient_deadzone;
-    // KALMAN cap mode: process noise of the per frame log change (how fast the change rate itself may vary), innovation
-    // gate in sigmas (beyond = reset to this frame's measurement), information loss scale k (folds in the spatial filter's
-    // noise reduction: the output's noise is the history's / spatial gain, so a bias matters k x more than vs v / N).
-    daxa_f32 temporal_gradient_kalman_q;
-    daxa_f32 temporal_gradient_kalman_gate;
-    daxa_f32 temporal_gradient_kalman_k;
 
     // == Temporal ==
     daxa_i32 temporal_enabled; // graph shape
@@ -298,4 +242,14 @@ struct RtLabSettings
     daxa_f32 coarse_anti_lag_spring_min;
     // spring_range: the ratio (slow / fast, e.g. 3) at which the pull is the full one; between the soft floor and this ratio it rises smoothly.
     daxa_f32 coarse_anti_lag_spring_range;
+    // ReTIR (rt_lab_retir.hpp): temporal only alternative to the ReSTIR GI stage that passes the intermediate estimate of every ray on to the denoiser.
+    // Mutually exclusive with restir_enabled (restir_enabled wins). Part of the presets, graph shape.
+    daxa_i32 retir_enabled;
+    // Temporal gradient 2 (rt_lab_gradient_oct.hpp, so far drawn by debug views only): per level of the oct pyramid the unconvolved old / new
+    // sums are accumulated over the 5x5 neighbouring areas before the convolution, weighted by the world space distance of the area positions.
+    // distance_scale = world space tolerance of the position gates in area footprints (area pixels x pixel width).
+    daxa_i32 temporal_gradient_oct_denoise;
+    daxa_f32 temporal_gradient_oct_distance_scale;
+    // Temporal gradient 2: multiply the reprojected histories by the pyramid's per pixel change exp(c) (replaces the old history rescale while on).
+    daxa_i32 temporal_gradient2_scale_history;
 };

@@ -24,7 +24,7 @@ inline void rt_lab_dispatch(daxa::TaskInterface ti, RenderContext * render_conte
     ti.recorder.dispatch({round_up_div(size.x, block_size), round_up_div(size.y, block_size), 1});
 }
 
-void rt_lab_demand_callback(daxa::TaskInterface ti, RenderContext * render_context, bool history_bound, bool gradient_bound);
+void rt_lab_demand_callback(daxa::TaskInterface ti, RenderContext * render_context, bool history_bound, bool gradient2_bound = false);
 void rt_lab_distribute_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 ray_capacity);
 void rt_lab_trace_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 ray_capacity, bool ray_lengths_bound);
 void rt_lab_ray_filter_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 ray_capacity);

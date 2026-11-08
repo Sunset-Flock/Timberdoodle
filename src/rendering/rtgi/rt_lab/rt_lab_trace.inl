@@ -97,12 +97,11 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, view_cam_half_res_fa
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, gradient_record_origin)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, gradient_record_surface)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, gradient_record_data)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_samples)
-// temporal_gradient_all_base_rays: per cell atomic fixed point sums (RT_LAB_GRADIENT_SUM_SCALE), cleared every frame.
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_delta_sum)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_max_sum)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_count_sum) // samples per cell
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DIndex<daxa_u32>, gradient_old_sum)   // old luminance per cell (Kalman)
+// Per cell (last writer wins), cleared every frame: exposed old luminance, exposed new luminance, ray direction as
+// octahedral coordinates (.z = u + 1, .w = v, .z = 0 means no sample) (rt_lab_gradient_oct.inl).
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, gradient_oct_sample)
+// World position of the sample's surface point (current frame) + 1 in .w (cleared every frame, 0 = none).
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, gradient_oct_position)
 RT_LAB_SHADE_ATTACHMENTS
 DAXA_DECL_TASK_HEAD_END
 
@@ -111,5 +110,4 @@ struct RtLabGradientTracePush
     daxa_BufferPtr(RtLabGradientTraceH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;     // records (gradient cells, or lab pixels with per_pixel)
     daxa_u32vec2 lab_size; // lab resolution
-    daxa_u32 per_pixel;    // temporal_gradient_all_base_rays: one record per lab pixel, samples summed per cell
 };

@@ -54,6 +54,7 @@ func entry_rt_lab_anti_lag_downsample(uint2 dtid : SV_DispatchThreadID)
 #define RT_LAB_ANTI_LAG_KALMAN_GATE 3.0f
 #define RT_LAB_ANTI_LAG_KALMAN_K 20.0f
 #define RT_LAB_ANTI_LAG_KALMAN_SHRINK_SIGMAS 2.0f
+#define RT_LAB_ANTI_LAG_KALMAN_MAX_LOG 2.9957323f // ln 20, the largest clip correction
 
 // Last frame's coarse histories at this cell's surface point: bilinear over the previous cells, each tap's point rebuilt
 // from the slow history's stored depth with the previous camera, coarse plane test along this cell's normal. The fast
@@ -226,31 +227,6 @@ func entry_rt_lab_anti_lag_blur(uint2 dtid : SV_DispatchThreadID)
     if (settings.reset_history == 0)
     {
         history = rt_lab_anti_lag_reproject(push, center_position, center_normal, rcp_cell_width_ws, fast);
-        // The temporal gradient's history rescale (the pixel histories get the same factor in the temporal pass).
-        if (push.gradient_bound != 0u && settings.temporal_gradient_rescale != 0 && !rt_lab_gradient_packed(settings) && all(dtid < push.size))
-        {
-            uint2 gradient_cells;
-            push.attach.temporal_gradient.get().GetDimensions(gradient_cells.x, gradient_cells.y);
-            const uint4 gradient = push.attach.temporal_gradient.get()[min(dtid, gradient_cells - 1u)];
-            if (asfloat(gradient.y) > 0.0f)
-            {
-                const float ratio = rt_lab_gradient_rescale(settings, asfloat(gradient.w));
-                history.x *= ratio;
-                if ((uint(settings.coarse_anti_lag_enabled) & RT_LAB_ANTI_LAG_KALMAN) != 0)
-                {
-                    // Kalman predict: the measured change + its uncertainty (the Kalman gradient's loss L).
-                    if (fast.w > 0.5f)
-                    {
-                        fast.x += log(ratio);
-                        fast.y += (settings.temporal_gradient_cap_mode & RT_LAB_GRADIENT_CAP_KALMAN) != 0 ? max(asfloat(gradient.x), 0.0f) : 0.0f;
-                    }
-                }
-                else
-                {
-                    fast.x *= ratio;
-                }
-            }
-        }
     }
     const float2 moments = sums.z > 1e-3f ? sums.xy / sums.z : float2(0.0f, 0.0f); // this frame's blurred (mean, second moment)
     const float frame_variance = max(moments.y - moments.x * moments.x, 0.0f);
@@ -305,7 +281,7 @@ func entry_rt_lab_anti_lag_blur(uint2 dtid : SV_DispatchThreadID)
             const float spring = lerp(saturate(settings.coarse_anti_lag_spring_min), 1.0f, smoothstep(soft_floor_log, max(spring_full_log, soft_floor_log + 1e-3f), abs(bias)));
             const float shrink_sigmas_sq = square(RT_LAB_ANTI_LAG_KALMAN_SHRINK_SIGMAS);
             const float shrink = max(0.0f, 1.0f - shrink_sigmas_sq * bias_variance / max(square(bias), 1e-12f)); // James-Stein
-            const float correction = clamp(-shrink * spring * bias, -RT_LAB_GRADIENT_KALMAN_MAX_LOG, RT_LAB_GRADIENT_KALMAN_MAX_LOG);
+            const float correction = clamp(-shrink * spring * bias, -RT_LAB_ANTI_LAG_KALMAN_MAX_LOG, RT_LAB_ANTI_LAG_KALMAN_MAX_LOG);
             clip_ratio = exp(correction);
             history.x *= clip_ratio;
             // Information loss: the uncorrectable rest beyond its noise + the correction's own uncertainty.

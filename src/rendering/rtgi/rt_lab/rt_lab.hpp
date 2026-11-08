@@ -62,7 +62,6 @@ MAKE_COMPUTE_COMPILE_INFO(rt_lab_demand_compile_info, "./src/rendering/rtgi/rt_l
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_distribute_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_distribute")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_ray_filter_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_ray_filter")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gather_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gather")
-MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_blur_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_rays.hlsl", "entry_rt_lab_gradient_blur")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_gradient_trace_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_trace.hlsl", "entry_rt_lab_gradient_trace")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_stats_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_analysis.hlsl", "entry_rt_lab_stats")
 MAKE_COMPUTE_COMPILE_INFO(rt_lab_picker_compile_info, "./src/rendering/rtgi/rt_lab/rt_lab_analysis.hlsl", "entry_rt_lab_picker")
@@ -135,6 +134,7 @@ inline auto rt_lab_settings_changed(RtLabSettings const & a, RtLabSettings const
            (a.temporal_gradient_all_base_rays != 0 && a.min_ray_budget != b.min_ray_budget) || // dense record size
            a.half_res != b.half_res ||
            a.restir_enabled != b.restir_enabled ||
+           a.retir_enabled != b.retir_enabled ||
            a.denoiser != b.denoiser ||
            a.temporal_enabled != b.temporal_enabled ||
            a.temporal_progressive != b.temporal_progressive ||
