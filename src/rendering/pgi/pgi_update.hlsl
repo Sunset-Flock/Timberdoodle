@@ -109,9 +109,27 @@ func fast_uint_div(uint a, uint b) -> uint
     return uint(floor(float(a) / float(b) + rcp(float(1u << 12u))));
 }
 
+// Maps an update thread to the probe (index into the indirect update list) and the texel it updates.
+// Returns false for threads that are past the last updated probe.
+// The dispatch is 1D (workgroups wrapped into rows of PGI_UPDATE_LINEAR_WG_X): consecutive threads walk the texels of one probe row major, then the next probe.
+func pgi_update_thread_to_probe_texel(
+    uint flat_thread,
+    int texel_res,
+    out uint indirect_index,
+    out int2 probe_texel) -> bool
+{
+    let texels_per_probe = uint(texel_res * texel_res);
+    // flat_thread stays below 2^24 (max updates per frame * texels per probe), so the float based division is exact enough.
+    indirect_index = fast_uint_div(flat_thread, texels_per_probe);
+    let texel_index = flat_thread - indirect_index * texels_per_probe;
+    probe_texel.y = int(fast_uint_div(texel_index, uint(texel_res)));
+    probe_texel.x = int(texel_index) - probe_texel.y * texel_res;
+    return indirect_index < update_probe_texels_push.attach.probe_indirections.probe_update_count;
+}
+
 func entry_update_probe_color(
-    int3 dtid,
-) 
+    uint flat_thread,
+)
 {
     let push = update_probe_texels_push;
     PGISettings* settings = &push.attach.globals.pgi_settings;
@@ -122,19 +140,13 @@ func entry_update_probe_color(
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        uint probes_in_column = fast_uint_div(48, reg_settings.probe_color_resolution);
-        uint indirect_index_y = fast_uint_div(dtid.y, reg_settings.probe_color_resolution);
-        uint indirect_index_x = fast_uint_div(dtid.x, reg_settings.probe_color_resolution);
-        indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
-        let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
-        if (is_overhang)
+        let is_valid = pgi_update_thread_to_probe_texel(flat_thread, reg_settings.probe_color_resolution, indirect_index, probe_texel);
+        if (!is_valid)
         {
             return;
         }
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
         probe_index = pgi_unpack_indirect_probe(indirect_package);
-        probe_texel.x = dtid.x - int(reg_settings.probe_color_resolution * indirect_index_x);
-        probe_texel.y = dtid.y - int(reg_settings.probe_color_resolution * indirect_index_y);
     }
     PGICascade reg_cascade = settings->cascades[probe_index.w];
     
@@ -192,7 +204,7 @@ func entry_update_probe_color(
                 const float supression_factor = min(1.0f, firely_clamp_threshold_ratio / relative_radiance_difference );
                 sample.rgb *= supression_factor;
             }
-            
+
             const bool backface_hit = sample.a < 0.0f;
             if (!backface_hit)
             {
@@ -221,7 +233,7 @@ func entry_update_probe_color(
     }
 
     float3 new_irradiance = cosine_convoluted_trace_result.rgb;
-    
+
     // Automatic Hysteresis
     float hysteresis = prev_frame_texel.a;
     {
@@ -275,8 +287,8 @@ func entry_update_probe_color(
 }
 
 func entry_update_probe_visibility(
-    int3 dtid,
-) 
+    uint flat_thread,
+)
 {
     let push = update_probe_texels_push;
     PGISettings* settings = &push.attach.globals.pgi_settings;
@@ -287,19 +299,13 @@ func entry_update_probe_visibility(
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        uint probes_in_column = fast_uint_div(48, reg_settings.probe_visibility_resolution);
-        uint indirect_index_y = fast_uint_div(dtid.y, reg_settings.probe_visibility_resolution);
-        uint indirect_index_x = fast_uint_div(dtid.x, reg_settings.probe_visibility_resolution);
-        indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
-        let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
-        if (is_overhang)
+        let is_valid = pgi_update_thread_to_probe_texel(flat_thread, reg_settings.probe_visibility_resolution, indirect_index, probe_texel);
+        if (!is_valid)
         {
             return;
         }
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
         probe_index = pgi_unpack_indirect_probe(indirect_package);
-        probe_texel.x = dtid.x - reg_settings.probe_visibility_resolution * indirect_index_x;
-        probe_texel.y = dtid.y - reg_settings.probe_visibility_resolution * indirect_index_y;
     }
     PGICascade reg_cascade = settings->cascades[probe_index.w];
 
@@ -444,19 +450,22 @@ func entry_update_probe_visibility(
 }
 
 [shader("compute")]
-[numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
+[numthreads(PGI_UPDATE_WG_SIZE,1,1)]
 func entry_update_probe_texels(
-    int3 dtid : SV_DispatchThreadID,
-) 
+    int3 gid : SV_GroupID,
+    uint group_index : SV_GroupIndex,
+)
 {
     let push = update_probe_texels_push;
+    // Workgroups are wrapped into rows of PGI_UPDATE_LINEAR_WG_X.
+    let flat_thread = (uint(gid.y) * PGI_UPDATE_LINEAR_WG_X + uint(gid.x)) * PGI_UPDATE_WG_SIZE + group_index;
     if (push.update_radiance)
     {
-        entry_update_probe_color(dtid);
+        entry_update_probe_color(flat_thread);
     }
     else
     {
-        entry_update_probe_visibility(dtid);
+        entry_update_probe_visibility(flat_thread);
     }
 }
 
@@ -468,6 +477,83 @@ func entry_update_probe_texels(
 #define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.3)
 #define PGI_BACKFACE_ESCAPE_RANGE (PGI_DESIRED_RELATIVE_DISTANCE * 3)
 #define PGI_PROBE_VIEW_DISTANCE 1.0
+
+// The probe ray cdf is the inclusive prefix sum over the radiance luma weight of every probe texel (row major), normalized to PGI_RAY_CDF_ONE.
+// The last texel of a probe always holds PGI_RAY_CDF_ONE, the weight of texel i is cdf[i] - cdf[i-1].
+#define PGI_RAY_CDF_ONE (1u << 24)
+
+func pgi_probe_radiance_luma(float3 radiance) -> float
+{
+    return max(0.0f, dot(radiance, float3(0.2126f, 0.7152f, 0.0722f)));
+}
+
+// One wave per probe. Each lane owns a contiguous section of the texels:
+// - lane local: luma section sum, later the prefix sum inside the section
+// - wave: ONE exclusive prefix sum over the section sums gives every section its start
+// - the base distribution is patched into the finished prefix sum
+func pgi_update_probe_ray_cdf(PGISettings reg_settings, PGICascade reg_cascade, int4 probe_index, int lane)
+{
+    let push = update_probes_push;
+    let res = reg_settings.probe_color_resolution;
+    let texel_count = res * res;
+
+    // Section of this lane: contiguous texels in row major order. Lanes past the last texel get an empty section.
+    let section_size = round_up_div(texel_count, WARP_SIZE);
+    let section_begin = min(lane * section_size, texel_count);
+    let section_end = min(section_begin + section_size, texel_count);
+
+    // Source (radiance texels) and destination (cdf buffer) addressing.
+    Texture2DArray<float4> radiance_tex = push.attach.probe_color.get();
+    // Radiance lives in the upper half of the color layers.
+    int3 radiance_base = pgi_probe_texture_base_offset<HAS_BORDER>(reg_settings, reg_cascade, res, probe_index);
+    radiance_base.z += reg_settings.cascade_count * reg_settings.probe_count.z;
+    // The cdf is a flat buffer: texel_count consecutive values per probe, in stable probe order.
+    int3 stable_index = pgi_probe_to_stable_index(reg_settings, reg_cascade, probe_index);
+    let stable_linear_index = uint((stable_index.z * reg_settings.probe_count.y + stable_index.y) * reg_settings.probe_count.x + stable_index.x);
+    uint* cdf_ptr = push.attach.probe_ray_cdf + stable_linear_index * uint(texel_count);
+
+    // Step 1, lane local: sum of the luma over this lane's section.
+    float section_sum = 0.0f;
+    for (int i = section_begin; i < section_end; ++i)
+    {
+        int y = int(fast_uint_div(uint(i), uint(res)));
+        int2 texel = int2(i - y * res, y);
+        section_sum += pgi_probe_radiance_luma(radiance_tex[radiance_base + int3(texel, 0)].rgb);
+    }
+
+    // Step 2, wave: the only wave prefix sum over the section sums, exclusive: the start of this lane's section.
+    let section_start = WavePrefixSum(section_sum);
+    let section_end_sum = section_start + section_sum; // inclusive prefix sum
+    // Lanes past the last texel have empty sections, so the inclusive sum of the last lane is the total.
+    let total = WaveReadLaneAt(section_end_sum, WARP_SIZE - 1);
+
+    // Step 3, base distribution: patch it into the finished prefix sum.
+    // Adding the constant base_weight to every texel weight adds (i + 1) * base_weight to the inclusive prefix sum of texel i.
+    // The base weight is a settings fraction of the average texel luma (the share of uniformly spread rays is fraction / (1 + fraction)).
+    // A probe without any radiance (fresh or invalid) is sampled uniformly (every weight 1).
+    let has_radiance = total > 0.0f;
+    let base_weight = has_radiance ? (total * rcp(float(texel_count)) * max(0.0f, reg_settings.probe_ray_base_fraction)) : 1.0f;
+    let patched_total = (has_radiance ? total : 0.0f) + float(texel_count) * base_weight;
+    let scale = float(PGI_RAY_CDF_ONE) * rcp(patched_total);
+
+    // Step 4, lane local: prefix sum inside the section, offset by the section start,
+    // patched with the base distribution, normalized to PGI_RAY_CDF_ONE and written out.
+    float cumulative = has_radiance ? section_start : 0.0f;
+    for (int i = section_begin; i < section_end; ++i)
+    {
+        int y = int(fast_uint_div(uint(i), uint(res)));
+        int2 texel = int2(i - y * res, y);
+        cumulative += pgi_probe_radiance_luma(radiance_tex[radiance_base + int3(texel, 0)].rgb);
+        let patched = (has_radiance ? cumulative : 0.0f) + float(i + 1) * base_weight;
+        uint cdf = min(PGI_RAY_CDF_ONE, uint(patched * scale + 0.5f));
+        // Rounding must not leave the last value off the exact total.
+        if (i == texel_count - 1)
+        {
+            cdf = PGI_RAY_CDF_ONE;
+        }
+        cdf_ptr[i] = cdf;
+    }
+}
 
 [shader("compute")]
 [numthreads(WARP_SIZE,1,1)]
@@ -585,6 +671,8 @@ func entry_update_probe(
     let closest_frontface_dist = WaveActiveMin(lane_closest_frontface_dist);
     var average_hit_offset = WaveActiveSum(lane_average_hit_offset);
     var average_backface_hit_offset = WaveActiveSum(lane_average_backface_hit_offset);
+
+    pgi_update_probe_ray_cdf(reg_settings, reg_cascade, probe_index, group_index);
 
     average_hit_offset *= rcp(float(s*s));
     if (backface_count > 0)
@@ -964,34 +1052,198 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
 
             push.attach.globals.readback.requested_probes = probe_update_count;
 
-            // Allows for full thread utilization for relevant texel resolutions:
-            // 1x1, 2x2, 4x4, 6x6, 8x8, 12x12, 16x16, 24x24, 48x48
-            let texel_update_threads_y = 48;
-            let texel_update_workgroups_y = 6; // 48/WG_Y = 48/8 = 6
-
-            let radiance_texel_update_probes_y = texel_update_threads_y / reg_settings.probe_color_resolution;
-            let radiance_texel_update_probes_x = round_up_div(probe_update_count, radiance_texel_update_probes_y);
-            let radiance_texel_update_threads_x = radiance_texel_update_probes_x * reg_settings.probe_color_resolution;
-            let radiance_texel_update_workgroups_x = round_up_div(radiance_texel_update_threads_x, 8);
-
-            let visibility_texel_update_probes_y = texel_update_threads_y / reg_settings.probe_visibility_resolution;
-            let visibility_texel_update_probes_x = round_up_div(probe_update_count, visibility_texel_update_probes_y);
-            let visibility_texel_update_threads_x = visibility_texel_update_probes_x * reg_settings.probe_visibility_resolution;
-            let visibility_texel_update_workgroups_x = round_up_div(visibility_texel_update_threads_x, 8);
+            // One thread per texel, probes one after the other. Groups wrapped into rows to stay below the per dimension dispatch limit.
+            const uint threads_per_group = uint(PGI_UPDATE_WG_SIZE);
+            const uint groups_x_max = uint(PGI_UPDATE_LINEAR_WG_X);
+            let color_groups = round_up_div(probe_update_count * uint(reg_settings.probe_color_resolution * reg_settings.probe_color_resolution), threads_per_group);
+            let visibility_groups = round_up_div(probe_update_count * uint(reg_settings.probe_visibility_resolution * reg_settings.probe_visibility_resolution), threads_per_group);
 
             let shade_rays_threads = 0;//settings.probe_trace_resolution * settings.probe_trace_resolution * probe_update_count;
             let shade_rays_wgs = 0;//round_up_div(shade_rays_threads, PGI_SHADE_RAYS_X * PGI_SHADE_RAYS_Y * PGI_SHADE_RAYS_Z);
 
             push.attach.probe_indirections.probe_update_dispatch = DispatchIndirectStruct(probe_update_workgroups_x,1,1);
             push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution, 1, 1);
-            push.attach.probe_indirections.probe_color_update_dispatch = DispatchIndirectStruct(radiance_texel_update_workgroups_x, texel_update_workgroups_y, 1);
-            push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(visibility_texel_update_workgroups_x, texel_update_workgroups_y, 1);
+            push.attach.probe_indirections.probe_color_update_dispatch = DispatchIndirectStruct(min(color_groups, groups_x_max), round_up_div(color_groups, groups_x_max), 1);
+            push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(min(visibility_groups, groups_x_max), round_up_div(visibility_groups, groups_x_max), 1);
             push.attach.probe_indirections.probe_shade_rays_dispatch = DispatchIndirectStruct(shade_rays_wgs, 1, 1);
             push.attach.probe_indirections.probe_debug_draw_dispatch = DrawIndexedIndirectStruct(
                 PGI_DEBUG_PROBE_MESH_INDICES * 3,
-                (reg_settings.debug_probe_draw_mode != 0) ? detailed_probe_count : 0,
+                (reg_settings.debug_probe_draw_mode != 0 || reg_settings.probe_inspect_pick) ? detailed_probe_count : 0,
                 0,0,0
             );
+        }
+    }
+}
+
+[[vk::push_constant]] PGIInspectPush pgi_inspect_push;
+
+groupshared uint gs_inspect_update_index;
+groupshared uint gs_inspect_new_probe;
+groupshared uint gs_inspect_ray_count;
+groupshared float3 gs_inspect_ray_origin;
+
+// Probe inspection, one workgroup. Copies the selected probe (texels, ray cdf) into the host visible inspection buffer
+// and keeps the last traced rays of the probe. The probe is only traced on the frames it is updated, the rays of
+// the last trace stay in the buffer and are drawn every frame.
+[shader("compute")]
+[numthreads(PGI_INSPECT_WG_SIZE,1,1)]
+func entry_pgi_inspect(int group_index : SV_GroupIndex)
+{
+    let push = pgi_inspect_push;
+    PGISettings reg_settings = push.attach.globals.pgi_settings;
+    PGIInspectData* data = push.attach.inspect;
+    let grid_coord = int4(push.grid_coord[0], push.grid_coord[1], push.grid_coord[2], push.grid_coord[3]);
+    let frame_index = push.attach.globals.frame_index;
+
+    if (grid_coord.w < 0 || grid_coord.w >= reg_settings.cascade_count)
+    {
+        return;
+    }
+    PGICascade reg_cascade = reg_settings.cascades[grid_coord.w];
+    // The selection is the absolute probe grid coordinate, so it stays on the same probe while the window scrolls:
+    // grid coordinate = window index + window offset - count / 2 + 1.
+    let window_index = grid_coord.xyz - reg_cascade.window_to_stable_index_offset + reg_settings.probe_count / 2 - 1;
+    let probe_index = int4(window_index, grid_coord.w);
+    let in_window = all(window_index >= int3(0,0,0)) && all(window_index < reg_settings.probe_count);
+    if (!in_window)
+    {
+        if (group_index == 0)
+        {
+            data->grid_coord = grid_coord;
+            data->in_window = 0u;
+            data->valid = 1u;
+            data->ray_frame = 0xFFFFFFFFu;
+            data->ray_count = 0u;
+        }
+        return;
+    }
+
+    let res = reg_settings.probe_color_resolution;
+    let texel_count = min(res * res, PGI_INSPECT_MAX_TEXELS);
+    let trace_res = reg_settings.probe_trace_resolution;
+    let ray_count = min(trace_res * trace_res, PGI_INSPECT_MAX_TEXELS);
+
+    PGIProbeInfo probe_info = PGIProbeInfo::load(reg_settings, reg_cascade, push.attach.probe_info.get(), probe_index);
+    let probe_position = pgi_probe_index_to_worldspace(reg_settings, reg_cascade, probe_info, probe_index);
+
+    // Find out if the probe was traced this frame (it is in the update list) and if it is a different probe than the last frame's.
+    if (group_index == 0)
+    {
+        gs_inspect_update_index = 0xFFFFFFFFu;
+        let stored = data->grid_coord;
+        gs_inspect_new_probe = (data->valid == 0u || data->in_window == 0u || any(stored != grid_coord)) ? 1u : 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    let update_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count);
+    let packed_probe = pgi_pack_indirect_probe(probe_index);
+    for (uint i = uint(group_index); i < update_count; i += PGI_INSPECT_WG_SIZE)
+    {
+        if (((uint*)(push.attach.probe_indirections + 1))[i] == packed_probe)
+        {
+            InterlockedMin(gs_inspect_update_index, i);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    let found = gs_inspect_update_index != 0xFFFFFFFFu;
+    let new_probe = gs_inspect_new_probe != 0u;
+    if (group_index == 0)
+    {
+        gs_inspect_ray_count = found ? uint(ray_count) : (new_probe ? 0u : data->ray_count);
+        gs_inspect_ray_origin = found ? probe_position : data->ray_origin;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    let draw_ray_count = int(gs_inspect_ray_count);
+    let ray_origin = gs_inspect_ray_origin;
+
+    // Texels: irradiance (with hysteresis in .a), radiance, ray cdf.
+    {
+        int3 radiance_base = pgi_probe_texture_base_offset<HAS_BORDER>(reg_settings, reg_cascade, res, probe_index);
+        int3 irradiance_base = radiance_base;
+        radiance_base.z += reg_settings.cascade_count * reg_settings.probe_count.z;
+        int3 stable_index = pgi_probe_to_stable_index(reg_settings, reg_cascade, probe_index);
+        let stable_linear_index = uint((stable_index.z * reg_settings.probe_count.y + stable_index.y) * reg_settings.probe_count.x + stable_index.x);
+        uint* cdf = (uint*)(push.attach.probe_ray_cdf) + stable_linear_index * uint(res * res);
+        Texture2DArray<float4> color_tex = push.attach.probe_color.get();
+        for (int i = group_index; i < texel_count; i += PGI_INSPECT_WG_SIZE)
+        {
+            int y = i / res;
+            int2 texel = int2(i - y * res, y);
+            data->irradiance[i] = color_tex[irradiance_base + int3(texel, 0)];
+            data->radiance[i] = color_tex[radiance_base + int3(texel, 0)];
+            data->cdf[i] = cdf[i];
+        }
+    }
+
+    // Rays: fresh from the trace result when the probe was traced this frame, else the stored ones. Every ray is drawn by the thread that writes it.
+    {
+        Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
+        uint3 trace_base = uint3(0,0,0);
+        float2 noise = float2(0.0f, 0.0f);
+        if (found)
+        {
+            trace_base = uint3(pgi_indirect_index_to_trace_tex_offset(reg_settings, gs_inspect_update_index), 0);
+            noise = pgi_probe_trace_noise(probe_index, frame_index);
+        }
+        let exposure = push.attach.globals.exposure;
+        for (int r = group_index; r < draw_ray_count; r += PGI_INSPECT_WG_SIZE)
+        {
+            PGIInspectRay ray = data->rays[r];
+            if (found)
+            {
+                int y = r / trace_res;
+                int x = r - y * trace_res;
+                let uv = (float2(x, y) + noise) * rcp(float(trace_res));
+                float4 trace = trace_result_tex[trace_base + uint3(x, y, 0)];
+                ray.direction = pgi_probe_uv_to_probe_normal(uv);
+                ray.distance = trace.a;
+                ray.radiance = trace.rgb;
+                data->rays[r] = ray;
+            }
+            if (push.show_rays != 0u)
+            {
+                let is_backface = ray.distance < 0.0f;
+                let length = min(abs(ray.distance), reg_cascade.max_visibility_distance * 1.5f);
+                ShaderDebugLineDraw line = {};
+                line.start = ray_origin;
+                line.end = ray_origin + ray.direction * length;
+                line.color = is_backface ? float3(0.6f, 0.0f, 0.0f) : clamp(ray.radiance * exposure, float3(0.03f), float3(1.0f));
+                debug_draw_line(push.attach.globals.debug, line);
+            }
+        }
+    }
+
+    if (group_index == 0 && push.show_rays != 0u)
+    {
+        // Marker on the selected probe.
+        ShaderDebugCircleDraw marker = {};
+        marker.position = probe_position;
+        marker.color = float3(1.0f, 1.0f, 1.0f);
+        marker.radius = 0.04f * reg_cascade.max_visibility_distance;
+        debug_draw_circle(push.attach.globals.debug, marker);
+    }
+
+    if (group_index == 0)
+    {
+        data->grid_coord = grid_coord;
+        data->in_window = 1u;
+        data->valid = 1u;
+        data->write_frame = frame_index;
+        data->probe_position = probe_position;
+        data->validity = probe_info.validity;
+        data->max_visibility_distance = reg_cascade.max_visibility_distance;
+        data->color_resolution = uint(res);
+        data->trace_resolution = uint(trace_res);
+        if (found)
+        {
+            data->ray_frame = frame_index;
+            data->ray_count = uint(ray_count);
+            data->ray_origin = probe_position;
+        }
+        else if (new_probe)
+        {
+            data->ray_frame = 0xFFFFFFFFu;
+            data->ray_count = 0u;
+            data->ray_origin = probe_position;
         }
     }
 }

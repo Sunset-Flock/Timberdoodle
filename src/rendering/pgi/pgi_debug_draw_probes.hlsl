@@ -80,6 +80,27 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     PGICascade reg_cascade = settings->cascades[vertToPix.probe_index.w];
     int3 stable_index = pgi_probe_to_stable_index(reg_settings, reg_cascade, vertToPix.probe_index);
 
+    // Probe picking: the fragment under the cursor writes its probe, the closest one wins.
+    if (reg_settings.probe_inspect_pick)
+    {
+        let pixel = int2(vertToPix.position.xy);
+        let cursor_pixel = int2(floor(push.attach.globals.cursor_uv * push.attach.globals.settings.render_target_size));
+        if (all(pixel == cursor_pixel))
+        {
+            // The probe is identified by its absolute probe grid coordinate (stable while the window scrolls), 8 bit per axis (the CPU resolves it
+            // against the current window, which is far smaller than 256 probes): grid coordinate = window index + window offset - count / 2 + 1.
+            let grid_coord = vertToPix.probe_index.xyz + reg_cascade.window_to_stable_index_offset - reg_settings.probe_count / 2 + 1;
+            // Reverse z: larger depth is closer. The float bits of positive floats order like the floats.
+            let key = (uint64_t(asuint(vertToPix.position.z)) << 32) | uint64_t(pgi_pack_indirect_probe(int4(grid_coord, vertToPix.probe_index.w)));
+            AtomicMaxU64(push.attach.globals.readback.pgi_hovered_probe, key);
+        }
+    }
+    // With the draw mode off the spheres only exist for picking.
+    if (reg_settings.debug_probe_draw_mode == PGI_DEBUG_PROBE_DRAW_MODE_OFF)
+    {
+        discard;
+    }
+
     const bool sampleRadiance = reg_settings.debug_probe_draw_mode == PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE || reg_settings.debug_probe_draw_mode == PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE_REFLECTION;
     
     int3 color_sample_stable_index = stable_index;
@@ -87,7 +108,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     {
         color_sample_stable_index.z += reg_settings.cascade_count * reg_settings.probe_count.z;
     }
-    const bool sample_color_nearest = false;//reg_settings.debug_probe_draw_mode == PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE;
+    const bool sample_color_nearest = reg_settings.debug_probe_draw_mode == PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE;
 
     float3 view_ray = normalize( vertToPix.ws_position - push.attach.globals.view_camera.position );
     float3 sample_direction = vertToPix.normal;

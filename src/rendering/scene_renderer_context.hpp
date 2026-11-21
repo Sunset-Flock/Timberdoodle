@@ -13,6 +13,7 @@
 
 #include "../gpu_context.hpp"
 #include "rtgi/rt_lab/rt_lab_state.hpp"
+#include "pgi/pgi_inspect.hpp"
 
 struct DynamicMesh
 {
@@ -776,6 +777,7 @@ struct RenderContext
 
     // RT Lab presets + convergence error estimate (rt_lab_state.hpp).
     RtLabState rt_lab = {};
+    PGIInspectState pgi_inspect = {};
 
     // Auto lod bias state, driven by the visbuffer buffer usage readback (see update_auto_lod_bias in renderer.cpp).
     enum struct LodBiasState

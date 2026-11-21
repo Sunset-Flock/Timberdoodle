@@ -736,6 +736,39 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
     render_context.render_data.hovered_entity_index = ~0u;
     render_context.render_data.selected_entity_index = ~0u;
 
+    // PGI probe inspection: while picking is on, the debug probe draw writes the probe under the cursor into the readback.
+    {
+        auto & inspect = render_context.pgi_inspect;
+        render_context.render_data.pgi_settings.probe_inspect_pick = inspect.enabled;
+        if (inspect.enabled && !window->is_cursor_captured() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().WantCaptureMouse)
+        {
+            u64 const key = render_context.general_readback.pgi_hovered_probe;
+            if (key != 0)
+            {
+                // The key holds the absolute probe grid coordinate modulo 256 per axis and the cascade. The full coordinate is the one
+                // closest to the current window (the probe was picked a few frames ago, the window moved by far less than 128 probes since).
+                u32 const packed = s_cast<u32>(key & 0xFFFFFFFFull);
+                i32 const cascade_index = s_cast<i32>((packed >> 24u) & 0xFFu);
+                if (cascade_index < render_context.render_data.pgi_settings.cascade_count)
+                {
+                    auto const & cascade = render_context.render_data.pgi_settings.cascades[cascade_index];
+                    i32 const window_center[3] = {
+                        cascade.window_to_stable_index_offset.x + 1,
+                        cascade.window_to_stable_index_offset.y + 1,
+                        cascade.window_to_stable_index_offset.z + 1,
+                    };
+                    for (u32 axis = 0; axis < 3; ++axis)
+                    {
+                        i32 const picked_mod = s_cast<i32>((packed >> (8u * axis)) & 0xFFu);
+                        inspect.selected_grid_coord[axis] = window_center[axis] + s_cast<i32>(s_cast<i8>(s_cast<u8>(picked_mod - window_center[axis])));
+                    }
+                    inspect.selected_grid_coord[3] = cascade_index;
+                    inspect.has_selection = true;
+                }
+            }
+        }
+    }
+
     ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
     ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground |
@@ -1201,8 +1234,12 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), s_cast<i32>(update_rates.size()));
                 ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_color_resolution);
                 ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
+                ImGui::Checkbox("Direct Trace Dispatch", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_trace_direct_dispatch));
+                ImGui::SetItemTooltip("Dispatch the probe rays directly over the worst case number of probes (update rate and update list size) and let the raygen exit early,\ninstead of the indirect dispatch over the exact number of rays.");
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
                 ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);
+                ImGui::SliderFloat("Probe Ray Base Fraction", &render_data.pgi_settings.probe_ray_base_fraction, 0.0f, 4.0f);
+                ImGui::SetItemTooltip("Fraction of the average texel luma added to every texel weight of the probe ray distribution.\nUniform share of the rays = fraction / (1 + fraction).");
                 ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
                 ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
                 ImGui::SeparatorText("Debug");
@@ -1226,6 +1263,132 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 tido::ui::filter_combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), s_cast<i32>(debug_daw_modes.size()));
                 ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);
                 ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
+
+                ImGui::SeparatorText("Probe Inspection");
+                auto & inspect = render_context.pgi_inspect;
+                ImGui::Checkbox("Pick Probes (click in viewport)", &inspect.enabled);
+                ImGui::SetItemTooltip("Click a probe in the viewport to select it. The probes are picked even if the debug probe draw is off (then invisible).");
+                ImGui::Checkbox("Show Probe Rays", &inspect.show_rays);
+                ImGui::SetItemTooltip("Draws the rays the selected probe shot with its last trace. Color = radiance, dark red = backface hit.\nA probe is only traced on the frames it is updated (update rate).");
+                if (inspect.has_selection)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear Selection"))
+                    {
+                        inspect.has_selection = false;
+                    }
+                }
+                PGIInspectData const * data = inspect.data;
+                bool const data_matches = inspect.has_selection && data != nullptr && data->valid != 0u &&
+                    data->grid_coord.x == inspect.selected_grid_coord[0] && data->grid_coord.y == inspect.selected_grid_coord[1] &&
+                    data->grid_coord.z == inspect.selected_grid_coord[2] && data->grid_coord.w == inspect.selected_grid_coord[3];
+                bool const data_valid = data_matches && data->in_window != 0u;
+                if (!inspect.has_selection)
+                {
+                    ImGui::TextUnformatted("No probe selected.");
+                }
+                else
+                {
+                    ImGui::Text("Selected probe grid coordinate (%d, %d, %d) cascade %d", inspect.selected_grid_coord[0], inspect.selected_grid_coord[1], inspect.selected_grid_coord[2], inspect.selected_grid_coord[3]);
+                    if (data_matches && !data_valid)
+                    {
+                        ImGui::TextUnformatted("The probe is outside of the probe window.");
+                    }
+                    else if (!data_valid)
+                    {
+                        ImGui::TextUnformatted(inspect.enabled ? "Waiting for the inspection data..." : "Enable probe picking to inspect the probe.");
+                    }
+                }
+                if (data_valid)
+                {
+                    u32 const frame_index = render_context.render_data.frame_index;
+                    ImGui::Text("Position (%.2f, %.2f, %.2f)  validity %.2f", data->probe_position.x, data->probe_position.y, data->probe_position.z, data->validity);
+                    if (data->ray_frame == 0xFFFFFFFFu)
+                    {
+                        ImGui::TextUnformatted("Rays: not traced since the selection (the probe is traced when it is updated).");
+                    }
+                    else
+                    {
+                        ImGui::Text("Rays: %u, traced %u frames ago", data->ray_count, frame_index - data->ray_frame);
+                    }
+
+                    u32 const res = std::min<u32>(data->color_resolution, 48u);
+                    u32 const texel_count = res * res;
+                    static bool normalize_view = true;
+                    static f32 view_gain = 1.0f;
+                    ImGui::Checkbox("Normalize View", &normalize_view);
+                    ImGui::SetItemTooltip("Scales radiance and irradiance so the brightest texel is white.");
+                    ImGui::SliderFloat("View Gain", &view_gain, 0.01f, 100.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+
+                    // Flat octahedral view of the probe texels, nearest sampled. color_of(i) -> ImVec4, tooltip_of(i) draws the tooltip body.
+                    auto draw_octahedral = [&](char const * label, auto const & color_of, auto const & tooltip_of)
+                    {
+                        f32 const size = std::clamp((ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f, 96.0f, 192.0f);
+                        ImGui::BeginGroup();
+                        ImGui::TextUnformatted(label);
+                        ImVec2 const origin = ImGui::GetCursorScreenPos();
+                        ImGui::InvisibleButton(label, ImVec2(size, size));
+                        ImDrawList * draw = ImGui::GetWindowDrawList();
+                        f32 const cell = size / s_cast<f32>(res);
+                        for (u32 i = 0; i < texel_count; ++i)
+                        {
+                            u32 const y = i / res;
+                            u32 const x = i - y * res;
+                            ImVec2 const min = ImVec2(origin.x + s_cast<f32>(x) * cell, origin.y + s_cast<f32>(y) * cell);
+                            draw->AddRectFilled(min, ImVec2(min.x + cell, min.y + cell), ImGui::ColorConvertFloat4ToU32(color_of(i)));
+                        }
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImVec2 const mouse = ImGui::GetMousePos();
+                            u32 const x = std::min(res - 1u, s_cast<u32>(std::max(0.0f, (mouse.x - origin.x) / cell)));
+                            u32 const y = std::min(res - 1u, s_cast<u32>(std::max(0.0f, (mouse.y - origin.y) / cell)));
+                            if (ImGui::BeginTooltip())
+                            {
+                                ImGui::Text("texel (%u, %u)", x, y);
+                                tooltip_of(y * res + x);
+                                ImGui::EndTooltip();
+                            }
+                        }
+                        ImGui::EndGroup();
+                    };
+                    auto const rgb_view = [&](daxa_f32vec4 const * texels)
+                    {
+                        f32 max_value = 0.0f;
+                        for (u32 i = 0; i < texel_count; ++i)
+                        {
+                            max_value = std::max(max_value, std::max(texels[i].x, std::max(texels[i].y, texels[i].z)));
+                        }
+                        return (normalize_view ? (1.0f / std::max(max_value, 1e-8f)) : 1.0f) * view_gain;
+                    };
+                    auto const display = [](f32 v) { return std::pow(std::clamp(v, 0.0f, 1.0f), 1.0f / 2.2f); };
+                    {
+                        f32 const scale = rgb_view(data->radiance);
+                        draw_octahedral("Radiance", [&](u32 i) { auto const & t = data->radiance[i]; return ImVec4(display(t.x * scale), display(t.y * scale), display(t.z * scale), 1.0f); },
+                            [&](u32 i) { auto const & t = data->radiance[i]; ImGui::Text("radiance (%.4f, %.4f, %.4f)", t.x, t.y, t.z); });
+                    }
+                    ImGui::SameLine();
+                    {
+                        f32 const scale = rgb_view(data->irradiance);
+                        draw_octahedral("Irradiance", [&](u32 i) { auto const & t = data->irradiance[i]; return ImVec4(display(t.x * scale), display(t.y * scale), display(t.z * scale), 1.0f); },
+                            [&](u32 i) { auto const & t = data->irradiance[i]; ImGui::Text("irradiance (%.4f, %.4f, %.4f)\nhysteresis %.3f", t.x, t.y, t.z, t.w); });
+                    }
+                    ImGui::SameLine();
+                    {
+                        // Ray sampling pdf relative to uniform from the cdf (1 = uniform).
+                        auto const pdf_of = [&](u32 i)
+                        {
+                            u32 const previous = i == 0u ? 0u : data->cdf[i - 1u];
+                            return s_cast<f32>(data->cdf[i] - previous) * s_cast<f32>(texel_count) / s_cast<f32>(1u << 24u);
+                        };
+                        f32 max_pdf = 1e-8f;
+                        for (u32 i = 0; i < texel_count; ++i)
+                        {
+                            max_pdf = std::max(max_pdf, pdf_of(i));
+                        }
+                        draw_octahedral("Ray Sampling", [&](u32 i) { f32 const v = std::pow(pdf_of(i) / max_pdf, 1.0f / 2.2f); return ImVec4(v, v, v, 1.0f); },
+                            [&](u32 i) { ImGui::Text("ray pdf %.3f x uniform", pdf_of(i)); });
+                    }
+                }
             }
             if (ImGui::CollapsingHeader("RTGI Settings"))
             {

@@ -1453,6 +1453,7 @@ static constexpr inline char const PGI_SHADER_PATH[] = "./src/rendering/pgi/pgi_
 
 MAKE_COMPUTE_COMPILE_INFO(pgi_update_probe_texels_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_texels")
 MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe")
+MAKE_COMPUTE_COMPILE_INFO(pgi_inspect_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pgi_inspect")
 MAKE_COMPUTE_COMPILE_INFO(pgi_pre_update_probes_compute_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pre_update_probes")
 
 MAKE_COMPUTE_COMPILE_INFO(pgi_eval_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "enty_eval_screen_irradiance")
@@ -1615,6 +1616,27 @@ void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_co
     }
 }
 
+void pgi_inspect_callback(daxa::TaskInterface ti, RenderContext* render_context, [[maybe_unused]] PGIState* pgi_state)
+{
+    auto const & inspect = render_context->pgi_inspect;
+    if (!inspect.enabled || !inspect.has_selection)
+    {
+        return;
+    }
+    PGIInspectPush push = {};
+    auto alloc = ti.allocator->allocate(ti.attachment_shader_blob.size()).value();
+    std::memcpy(alloc.host_address, ti.attachment_shader_blob.data(), ti.attachment_shader_blob.size());
+    push.attach = alloc.device_address;
+    for (u32 i = 0; i < 4; ++i)
+    {
+        push.grid_coord[i] = inspect.selected_grid_coord[i];
+    }
+    push.show_rays = inspect.show_rays ? 1u : 0u;
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_inspect_compile_info().name));
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({1, 1, 1});
+}
+
 void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
     auto const & AT = PGIPreUpdateProbesH::Info::AT;
@@ -1649,10 +1671,33 @@ void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render
     // push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
-    ti.recorder.trace_rays_indirect({
-        .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
-        .shader_binding_table = pipeline.sbt,
-    });
+    auto const & settings = render_context->render_data.pgi_settings;
+    if (settings.probe_trace_direct_dispatch)
+    {
+        // Direct dispatch over the worst case number of updated probes, the raygen exits for the rays past the real update count.
+        // Worst case of probes updated in one frame:
+        // - update rate FULL: every probe can be updated.
+        // - otherwise: probes that are not valid yet are updated at least at 1_OF_2 (see the pre update), so up to half of the probes.
+        // - never more than the update list / trace result atlas hold (PGI_MAX_UPDATES_PER_FRAME).
+        u64 const total_probes = static_cast<u64>(settings.probe_count.x) * static_cast<u64>(settings.probe_count.y) *
+                                 static_cast<u64>(settings.probe_count.z) * static_cast<u64>(settings.cascade_count);
+        u64 const rate_limited_probes = settings.update_rate == PGI_UPDATE_RATE_FULL ? total_probes : (total_probes + 1u) / 2u;
+        u64 const max_probes = std::min<u64>(rate_limited_probes, PGI_MAX_UPDATES_PER_FRAME);
+        u64 const rays_per_probe = static_cast<u64>(settings.probe_trace_resolution) * static_cast<u64>(settings.probe_trace_resolution);
+        ti.recorder.trace_rays({
+            .width = static_cast<u32>(max_probes * rays_per_probe),
+            .height = 1,
+            .depth = 1,
+            .shader_binding_table = pipeline.sbt,
+        });
+    }
+    else
+    {
+        ti.recorder.trace_rays_indirect({
+            .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
+            .shader_binding_table = pipeline.sbt,
+        });
+    }
 }
 
 void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
@@ -1812,6 +1857,10 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
     {
         device.destroy_image(this->cell_requests.id());
     }
+    if (!this->probe_ray_cdf.id().is_empty())
+    {
+        device.destroy_buffer(this->probe_ray_cdf.id());
+    }
 
     daxa::ImageId probe_color_image = device.create_image({
         .dimensions = 2,
@@ -1873,6 +1922,12 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
                 daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = "pgi cell requests tex",
     });
+    // Never written probes read as 0, which the consumer treats as "no cdf yet".
+    daxa::BufferId probe_ray_cdf_buffer = device.create_buffer({
+        .size = static_cast<u64>(settings.probe_count.x) * static_cast<u64>(settings.probe_count.y) * static_cast<u64>(settings.probe_count.z) *
+                static_cast<u64>(settings.cascade_count) * static_cast<u64>(settings.probe_color_resolution * settings.probe_color_resolution) * sizeof(u32),
+        .name = "pgi probe ray cdf",
+    });
 
     this->probe_color = daxa::ExternalTaskImage({
         .image = probe_color_image,
@@ -1890,6 +1945,10 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .image =  cell_requests_image,
         .name = "pgi cell requests tex",
     });
+    this->probe_ray_cdf = daxa::ExternalTaskBuffer({
+        .buffer = probe_ray_cdf_buffer,
+        .name = "pgi probe ray cdf",
+    });
 
     probe_color_view = this->probe_color.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count * 2));
     probe_visibility_view = this->probe_visibility.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
@@ -1904,10 +1963,12 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
     tg.register_image(probe_visibility);
     tg.register_image(probe_info);
     tg.register_image(cell_requests);
+    tg.register_buffer(probe_ray_cdf);
     tg.clear_image({.view = probe_color_view, .name = "clear pgi color"});
     tg.clear_image({.view = probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = probe_info_view, .name = "clear pgi info"});
     tg.clear_image({.view = cell_requests_view, .name = "clear pgi cell requests"});
+    tg.clear_buffer({.buffer = probe_ray_cdf, .name = "clear pgi probe ray cdf"});
     tg.submit({});
     tg.complete({});
     tg.execute({});
@@ -1938,6 +1999,14 @@ void PGIState::cleanup(daxa::Device& device)
     {
         device.destroy_image(this->cell_requests.id());
         cell_requests_view = daxa::NullTaskImage;
+    }
+    if (!this->probe_ray_cdf.id().is_empty())
+    {
+        device.destroy_buffer(this->probe_ray_cdf.id());
+    }
+    if (!this->inspect_buffer.id().is_empty())
+    {
+        device.destroy_buffer(this->inspect_buffer.id());
     }
     *this = {};
 }
@@ -2041,6 +2110,7 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
                 .vsm_spot_lights = info.vsm_spot_lights,
                 .vsm_memory_block = info.vsm_memory_block,
                 .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+                .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
             })
             .executes(pgi_trace_probe_rays_callback, info.render_context, &info.pgi_state));
     //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
@@ -2052,6 +2122,8 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
                 .probe_info_copy = probe_info_copy,
                 .trace_result = pgi_trace_result,
                 .requests = info.pgi_state.cell_requests_view,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
             })
             .executes(pgi_update_probes_callback, info.render_context, &info.pgi_state));
     info.tg.add_task(daxa::HeadTask<PGIUpdateProbeTexelsH::Info>()
@@ -2064,6 +2136,32 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
                 .trace_result = pgi_trace_result,
             })
             .executes(pgi_update_probe_texels_callback, info.render_context, &info.pgi_state));
+
+    // Probe inspection: always in the graph (no graph rebuild when it is toggled), the callback skips the dispatch while it is off.
+    if (info.pgi_state.inspect_buffer.id().is_empty())
+    {
+        auto & device = info.render_context->gpu_context->device;
+        info.pgi_state.inspect_buffer.set_buffer(device.create_buffer({
+            .size = sizeof(PGIInspectData),
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .name = "pgi probe inspect",
+        }));
+        auto * host = device.buffer_host_address_as<PGIInspectData>(info.pgi_state.inspect_buffer.id()).value();
+        std::memset(host, 0, sizeof(PGIInspectData));
+        info.render_context->pgi_inspect.data = host;
+    }
+    info.tg.register_buffer(info.pgi_state.inspect_buffer);
+    info.tg.add_task(daxa::HeadTask<PGIInspectH::Info>()
+            .head_views(PGIInspectH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_indirections = pgi_indirections,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_info = info.pgi_state.probe_info_view,
+                .trace_result = pgi_trace_result,
+                .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
+                .inspect = info.pgi_state.inspect_buffer.view(),
+            })
+            .executes(pgi_inspect_callback, info.render_context, &info.pgi_state));
 
 
     TaskPGIUpdateOut ret = {};

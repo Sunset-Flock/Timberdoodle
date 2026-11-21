@@ -27,6 +27,11 @@ struct PGIState
     daxa::TaskImageView probe_info_view = daxa::NullTaskImage;
     daxa::ExternalTaskImage cell_requests = daxa::ExternalTaskImage(daxa::ExternalTaskImageInfo{.name = "default init pgi cell requests texture"});
     daxa::TaskImageView cell_requests_view = daxa::NullTaskImage;
+    // Flat buffer, per probe texel inclusive prefix sum of the radiance luma weights (texel_count u32 per probe in stable probe order),
+    // the cdf used to importance sample probe rays.
+    daxa::ExternalTaskBuffer probe_ray_cdf = daxa::ExternalTaskBuffer(daxa::ExternalTaskBufferInfo{.name = "default init pgi probe ray cdf buffer"});
+    // Host visible data of the selected probe (PGIInspectData), made with the first graph.
+    daxa::ExternalTaskBuffer inspect_buffer = daxa::ExternalTaskBuffer(daxa::ExternalTaskBufferInfo{.name = "pgi probe inspect"});
 
     void initialize(daxa::Device& device);
     void recreate_and_clear(daxa::Device& device, PGISettings const & settings);
@@ -40,6 +45,8 @@ auto pgi_update_probe_texels_pipeline_compile_info() -> daxa::ComputePipelineCom
 
 auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
+auto pgi_inspect_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
 auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
 auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
@@ -52,6 +59,7 @@ auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelin
 void pgi_draw_debug_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_update_probe_texels_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_inspect_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);

@@ -37,8 +37,10 @@ struct PGIDrawDebugProbesPush
     daxa_f32vec3* probe_mesh_positions;
 };
 
-#define PGI_UPDATE_WG_XY 8
-#define PGI_UPDATE_WG_Z 1
+// Texel update workgroup: 1D, one thread per probe texel.
+#define PGI_UPDATE_WG_SIZE 64
+// Texel update dispatch is 1D: workgroups are wrapped into rows of this many groups (dispatch limit per dimension).
+#define PGI_UPDATE_LINEAR_WG_X 1024
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpdateProbeTexelsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
@@ -62,11 +64,66 @@ DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_in
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info_copy)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, requests)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(daxa_u32), probe_ray_cdf)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpdateProbesPush
 {
     PGIUpdateProbesH::AttachmentShaderBlob attach;
+};
+
+// Probe inspection: the data of one selected probe, host visible, rewritten every frame while the inspection is on.
+// Texel arrays are row major with the probe color resolution (at most 48 x 48), rays in trace result order (trace resolution, at most 48 x 48).
+#define PGI_INSPECT_MAX_TEXELS (48 * 48)
+#define PGI_INSPECT_WG_SIZE 256
+
+struct PGIInspectRay
+{
+    daxa_f32vec3 direction;
+    daxa_f32 distance;      // hit distance, negative = backface hit
+    daxa_f32vec3 radiance;
+    daxa_f32 _pad;
+};
+
+struct PGIInspectData
+{
+    daxa_i32vec4 grid_coord;        // the probe this data belongs to: absolute probe grid coordinate xyz (stable while the window scrolls), cascade
+    daxa_u32 in_window;             // the probe is inside the current probe window (else nothing of it is updated)
+    daxa_u32 valid;                 // 1 once the probe was written
+    daxa_u32 write_frame;           // frame the texels were written
+    daxa_u32 ray_frame;             // frame the rays were traced (the probe is only traced when it is updated, ~u32 = never)
+    daxa_u32 ray_count;
+    daxa_f32vec3 probe_position;
+    daxa_f32 validity;
+    daxa_f32vec3 ray_origin;        // probe position at the time of the trace
+    daxa_f32 max_visibility_distance;
+    daxa_u32 color_resolution;
+    daxa_u32 trace_resolution;
+    daxa_u32 _pad[1];
+    daxa_f32vec4 irradiance[PGI_INSPECT_MAX_TEXELS];    // .a = hysteresis
+    daxa_f32vec4 radiance[PGI_INSPECT_MAX_TEXELS];
+    daxa_u32 cdf[PGI_INSPECT_MAX_TEXELS];               // probe ray cdf, normalized to PGI_RAY_CDF_ONE
+    PGIInspectRay rays[PGI_INSPECT_MAX_TEXELS];
+};
+DAXA_DECL_BUFFER_PTR(PGIInspectData)
+
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIInspectH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), probe_ray_cdf)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(PGIInspectData), inspect)
+DAXA_DECL_TASK_HEAD_END
+
+struct PGIInspectPush
+{
+    daxa_BufferPtr(PGIInspectH::AttachmentShaderBlob) attach;
+    daxa_i32 grid_coord[4]; // selected probe: absolute probe grid coordinate xyz (window index + window offset - count / 2 + 1), cascade
+    daxa_u32 show_rays;
+    daxa_u32 _pad;
 };
 
 #define PGI_PRE_UPDATE_XYZ 4

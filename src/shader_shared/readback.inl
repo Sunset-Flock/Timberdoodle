@@ -27,6 +27,9 @@ struct ReadbackValues
     daxa_u64 rt_lab_convergence_actual_sum;
     daxa_u64 rt_lab_convergence_actual_squared_sum;
     daxa_u64 rt_lab_convergence_predicted_actual_sum;
+    // Written by the PGI debug probe draw while probe picking is on: the probe under the cursor.
+    // High 32 bits = float bits of the closest fragment depth (reverse z: larger is closer), low 32 bits = pgi_pack_indirect_probe. 0 = none.
+    daxa_u64 pgi_hovered_probe;
     // Written by task/compute meshlet cull shader
     daxa_u32 first_pass_meshlet_count_pre_cull[PREPASS_DRAW_LIST_TYPE_COUNT];
     daxa_u32 first_pass_mesh_count_post_cull[PREPASS_DRAW_LIST_TYPE_COUNT];    

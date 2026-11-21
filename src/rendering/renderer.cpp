@@ -297,6 +297,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
+        {pgi_inspect_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -690,6 +691,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.register_image(pgi_state.probe_visibility);
     tg.register_image(pgi_state.probe_info);
     tg.register_image(pgi_state.cell_requests);
+    tg.register_buffer(pgi_state.probe_ray_cdf);
 
     auto exposure_state = tg.create_task_buffer({
         .size = sizeof(AutoExposureState),

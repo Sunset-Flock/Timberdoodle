@@ -60,17 +60,25 @@ struct PGISettings
     daxa_b32 debug_draw_repositioning TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_grid TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning_forces TIDO_DEFAULT_VALUE(false);
+    // Set by the probe inspection UI: the debug probe draw runs (even with draw mode off, invisible) and writes the probe under the cursor.
+    daxa_b32 probe_inspect_pick TIDO_DEFAULT_VALUE(false);
     daxa_i32 probe_color_resolution TIDO_DEFAULT_VALUE(12);
     daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(PGI_TRACE_RES);
     daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(PGI_DEPTH_RES);
     daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
     daxa_b32 probe_repositioning_spring_force TIDO_DEFAULT_VALUE(true);
+    // Trace the probe rays with a direct dispatch over the worst case size that relies on the raygen early out
+    // instead of the indirect dispatch over the exact number of rays.
+    daxa_b32 probe_trace_direct_dispatch TIDO_DEFAULT_VALUE(false);
     daxa_i32 cascade_count TIDO_DEFAULT_VALUE(6);
     daxa_f32 cascade_blend TIDO_DEFAULT_VALUE(0.3f);
     // Non photorealistic factor.
     // Allows lights past the cosine cutoff to still contribute to a probes lighting.
     // Helps a lot with edge lighting where the probe resolution is not good enough to calculate bounce light.
     daxa_f32 cos_wrap_around TIDO_DEFAULT_VALUE(0.0f);
+    // Probe ray guiding: every texel weight of the ray distribution gets this fraction of the average texel luma added.
+    // The share of the rays that are spread uniformly over the probe is fraction / (1 + fraction).
+    daxa_f32 probe_ray_base_fraction TIDO_DEFAULT_VALUE(0.25f);
     daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(64 TIDO_COMMA 64 TIDO_COMMA 64);
     daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
     daxa_i32vec3 debug_probe_index TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 0);

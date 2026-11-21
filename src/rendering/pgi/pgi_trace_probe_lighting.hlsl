@@ -28,6 +28,8 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
+// Per probe ray cdf (inclusive prefix sum of the radiance luma weights, written by the probe update): texel_count values per probe in stable probe order.
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), probe_ray_cdf)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGITraceProbeLightingPush
@@ -157,6 +159,13 @@ void entry_ray_gen()
     PGISettings* settings = &push.attach.globals.pgi_settings;
     PGISettings reg_settings = *settings;
     int3 dtid = DispatchRaysIndex().xyz;
+
+    // Early out for the rays past the updated probes: the direct dispatch is sized for the worst case, the indirect one is exact.
+    let ray_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count) * uint(reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution);
+    if (uint(dtid.x) >= ray_count)
+    {
+        return;
+    }
 
     uint indirect_index = {};
     int4 probe_index = {};
