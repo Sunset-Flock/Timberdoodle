@@ -115,6 +115,17 @@ uint2 pgi_indirect_index_to_trace_tex_offset(PGISettings settings, uint indirect
     );
 }
 
+// The ray atlas (raw traced rays) has one slot per ray: the tile of a probe is trace_res wide and probe_ray_rows tall.
+uint2 pgi_indirect_index_to_ray_tex_offset(PGISettings settings, uint indirect_index)
+{
+    uint row = indirect_index / PGI_TRACE_TEX_PROBES_X;
+    uint col = indirect_index - (row * PGI_TRACE_TEX_PROBES_X);
+    return uint2(
+        settings.probe_trace_resolution * col,
+        settings.probe_ray_rows * row
+    );
+}
+
 // The base probe of a cell is the probe with the smallest probe index.
 // There are probe-count-1 cells, so any probe except for the last probe in each dimension is a base probe.
 bool pgi_is_cell_base_probe(PGISettings settings, int4 probe_index)
@@ -171,6 +182,101 @@ float2 pgi_probe_trace_noise(int4 probe_index, int frame_index)
     rand_seed(seed);
     const float2 in_texel_offset = { rand(), rand() };
     return in_texel_offset;
+}
+
+// ===== Probe ray guiding =====
+// The probe ray cdf is the inclusive prefix sum over the radiance luma weight of every probe texel (row major), normalized to PGI_RAY_CDF_ONE.
+// The last texel of a probe always holds PGI_RAY_CDF_ONE, the weight of texel i is cdf[i] - cdf[i-1].
+// It is a flat buffer: texel_count consecutive values per probe, in stable probe order. A probe that was never written holds 0.
+//
+// The R rays of a probe sample the cdf systematically: ray r has the position r * ONE + offset (offset in [0, ONE), random per probe and frame)
+// and lands in the first texel t with cdf[t] * R > position. Rays are sorted by texel, texel t owns the rays [start(t), start(t+1)).
+// All of it is exact integer math, so the trace (ray -> texel) and the integration (texel -> rays) always agree.
+#define PGI_RAY_CDF_ONE (1u << 24)
+#define PGI_RAY_CDF_ONE_SHIFT 24u
+
+// Guiding needs the rays and the cdf texels to be the same grid.
+func pgi_ray_guiding_active(PGISettings settings) -> bool
+{
+    return settings.probe_ray_guiding != 0 && settings.probe_trace_resolution == settings.probe_color_resolution;
+}
+
+func pgi_probe_stable_linear_index(PGISettings settings, PGICascade cascade, int4 probe_index) -> uint
+{
+    int3 stable_index = pgi_probe_to_stable_index(settings, cascade, probe_index);
+    return uint((stable_index.z * settings.probe_count.y + stable_index.y) * settings.probe_count.x + stable_index.x);
+}
+
+// The systematic sampling offset of a probe in this frame.
+func pgi_ray_cdf_offset(float2 trace_noise) -> uint
+{
+    return min(uint(trace_noise.x * float(PGI_RAY_CDF_ONE)), PGI_RAY_CDF_ONE - 1u);
+}
+
+// First ray at or after a cdf boundary (boundary = cdf value * ray count): the first ray r with r * ONE + offset >= boundary.
+func pgi_ray_cdf_ray_start(uint64_t boundary, uint offset) -> uint
+{
+    return boundary > uint64_t(offset) ? uint((boundary - uint64_t(offset) + uint64_t(PGI_RAY_CDF_ONE - 1u)) >> uint64_t(PGI_RAY_CDF_ONE_SHIFT)) : 0u;
+}
+
+// Cdf value of a texel. A probe whose cdf was never written (last value != ONE) is traced with the uniform cdf.
+func pgi_ray_cdf_at(uint* cdf, bool cdf_valid, int texel_count, int texel) -> uint
+{
+    return cdf_valid ? cdf[texel] : uint((uint64_t(texel + 1) * uint64_t(PGI_RAY_CDF_ONE)) / uint64_t(texel_count));
+}
+
+// The texel a ray lands in. cdf = the cdf of ONE probe.
+func pgi_ray_cdf_texel_of_ray(uint* cdf, bool cdf_valid, int texel_count, uint ray_count, uint ray, uint offset) -> int
+{
+    let position = uint64_t(ray) * uint64_t(PGI_RAY_CDF_ONE) + uint64_t(offset);
+    // The last boundary is ONE * ray_count, larger than any position: the answer is always inside the texels.
+    int low = 0;
+    int high = texel_count - 1;
+    [loop]
+    while (low < high)
+    {
+        let mid = (low + high) >> 1;
+        if (uint64_t(pgi_ray_cdf_at(cdf, cdf_valid, texel_count, mid)) * uint64_t(ray_count) > position)
+        {
+            high = mid;
+        }
+        else
+        {
+            low = mid + 1;
+        }
+    }
+    return low;
+}
+
+// The octahedral uv a probe ray is shot at: without guiding the ray of trace texel (x, y) is shot at the texel (x, y) with the probe noise offset,
+// with guiding the ray lands in the texel the cdf chooses and is offset inside it (the rays of a texel are spread by a low discrepancy sequence).
+// cdf_buffer = the whole probe ray cdf buffer. With guiding the buffer must hold the cdf the trace of this frame used.
+func pgi_probe_ray_uv(PGISettings settings, PGICascade cascade, uint* cdf_buffer, int4 probe_index, uint frame_index, uint ray_index) -> float2
+{
+    let trace_res = settings.probe_trace_resolution;
+    let noise = pgi_probe_trace_noise(probe_index, int(frame_index));
+    let ray_y = int(ray_index) / trace_res;
+    let ray_x = int(ray_index) - ray_y * trace_res;
+    float2 uv = (float2(ray_x, ray_y) + noise) * rcp(float(trace_res));
+    if (pgi_ray_guiding_active(settings))
+    {
+        let texel_res = settings.probe_color_resolution;
+        let texel_count = texel_res * texel_res;
+        uint* cdf = cdf_buffer + pgi_probe_stable_linear_index(settings, cascade, probe_index) * uint(texel_count);
+        // A probe without a cdf (never written) is traced with the uniform cdf.
+        {
+            let cdf_valid = cdf[texel_count - 1] == PGI_RAY_CDF_ONE;
+            let ray_count = settings.probe_ray_count;
+            let offset = pgi_ray_cdf_offset(noise);
+            let texel = pgi_ray_cdf_texel_of_ray(cdf, cdf_valid, texel_count, ray_count, ray_index, offset);
+            let first_ray = pgi_ray_cdf_ray_start(texel > 0 ? uint64_t(pgi_ray_cdf_at(cdf, cdf_valid, texel_count, texel - 1)) * uint64_t(ray_count) : uint64_t(0), offset);
+            let texel_y = texel / texel_res;
+            let texel_x = texel - texel_y * texel_res;
+            let in_texel = frac(noise + float(ray_index - first_ray) * float2(0.75487766f, 0.56984029f));
+            uv = (float2(texel_x, texel_y) + in_texel) * rcp(float(texel_res));
+        }
+    }
+    return uv;
 }
 
 static bool debug_pixel = false;
@@ -267,11 +373,15 @@ func pgi_request_probes(
         const uint direct_request_timer = request_package & 0xFF;
         const uint indirect_request_timer = (request_package >> 8) & 0xFF;
 
-        if (direct_request_mode && (direct_request_timer < 16))
+        // The timer is read first and only refreshed (atomic OR) by the samplers that see it below the value a request sets (63 / 255). The pre update
+        // counts the timers down by one per frame, so the first sampler of a frame refreshes the cell and everybody who reads the refreshed value
+        // afterwards does nothing. The read is not atomic: samplers that read before the refresh landed still do their atomic, a small race window
+        // instead of one atomic per sample (an atomic per sample was measured to be much slower).
+        if (direct_request_mode && (direct_request_timer < PGI_REQUEST_DIRECT_TIMER_MAX))
         {
             InterlockedOr(probe_requests[base_probe_stable_index], 0x3F);
         }
-        if (indirect_request_mode && (indirect_request_timer < 16))
+        if (indirect_request_mode && (indirect_request_timer < PGI_REQUEST_INDIRECT_TIMER_MAX))
         {
             InterlockedOr(probe_requests[base_probe_stable_index], 0xFF << 8);
         }
@@ -327,6 +437,11 @@ struct PGISampleInfo
     bool color_filter_nearest = false;
     bool probe_blend_nearest = false;
     bool probe_relative_sample_dir = false;
+    // false: the visibility test only rejects when the sample point lies BEHIND the texel's average ray length (path blocked).
+    // true: two sided depth range test, the sample point must lie inside the depth range of the visibility texel, a point that is
+    // too CLOSE (the probe ray went past it, the texel holds the radiance of something farther away) is rejected as well.
+    // Used for reprojected radiance reads. Tests the true sample position, not the biased one.
+    bool visibility_two_sided = false;
 };
 
 PGISampleInfo PGISampleInfoNearestSurfaceRadiance()
@@ -339,6 +454,7 @@ PGISampleInfo PGISampleInfoNearestSurfaceRadiance()
     ret.color_filter_nearest        = true;
     ret.probe_blend_nearest         = false;
     ret.probe_relative_sample_dir   = true;
+    ret.visibility_two_sided        = true; // avoids texels containing far field radiance (eg sky) to apply to near field geometry.
     return ret;
 }
 
@@ -491,8 +607,10 @@ func pgi_sample_probe_volume_cascade(
             //   - I noticed that this leads to very bad results for certain exponential averaging values
             //   - Using the average difference to average raylength is much more stable and "close enough" to the std dev
             //   - Leads to better results in my testing
-            float visibility_distance = length(probe_position - visibility_sample_position);
-            float3 visibility_to_probe_direction = (probe_position - visibility_sample_position) * rcp(visibility_distance);
+            // Two sided test: the point itself is tested against the depth range of the texel, the bias only exists to avoid leaks of the one sided test.
+            const float3 visibility_test_position = info.visibility_two_sided ? sample_position : visibility_sample_position;
+            float visibility_distance = length(probe_position - visibility_test_position);
+            float3 visibility_to_probe_direction = (probe_position - visibility_test_position) * rcp(visibility_distance);
             visibility_distance += RAY_MIN_POSITION_OFFSET;
             float average_distance = 0.0f;
             float average_distance_std_dev = 0.0f;
@@ -510,7 +628,14 @@ func pgi_sample_probe_volume_cascade(
                 float average_difference_to_average_distance = visibility.y;
                 average_distance_std_dev = average_difference_to_average_distance; // Wrong but works better :P
                 float variance = (average_distance_std_dev);
-                if (visibility_distance > average_distance)
+                if (info.visibility_two_sided)
+                {
+                    // Inside the depth range = full weight, falls off on BOTH sides. The variance floor avoids 0/0 for texels with no spread.
+                    variance = max(variance, 0.01f);
+                    visibility_weight = variance / (variance + square(visibility_distance - average_distance));
+                    visibility_weight = square(square(visibility_weight));
+                }
+                else if (visibility_distance > average_distance)
                 {
                     visibility_weight = variance / (variance + square(visibility_distance - average_distance));
                     visibility_weight = square(square(visibility_weight));

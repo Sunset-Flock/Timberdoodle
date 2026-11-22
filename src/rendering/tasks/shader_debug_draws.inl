@@ -9,7 +9,7 @@
 
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(DebugDrawH)
 DAXA_TH_BUFFER_PTR(VS::READ_WRITE, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image) // the debug image: lines draw into it with alpha 3 (exposed blend, replace) so they cover the debug views
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
@@ -55,7 +55,7 @@ inline daxa::RasterPipelineCompileInfo2 draw_shader_debug_lines_pipeline_compile
     };
     ret.color_attachments = std::vector{
         daxa::RenderAttachment{
-            .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
+            .format = daxa::Format::R32G32B32A32_SFLOAT,
         },
     };
     ret.raster = {

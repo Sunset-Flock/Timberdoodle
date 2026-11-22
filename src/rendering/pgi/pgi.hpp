@@ -47,6 +47,8 @@ auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2 const
 
 auto pgi_inspect_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
+auto pgi_trace_integrate_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
 auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
 auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
@@ -60,6 +62,7 @@ void pgi_draw_debug_probes_callback(daxa::TaskInterface ti, RenderContext* rende
 void pgi_update_probe_texels_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_inspect_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_trace_integrate_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
@@ -71,6 +74,12 @@ auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const
 void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & render_data);
 
 auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
+
+// Same layout as the trace result: the rays of every trace texel integrated into one value (read by the probe update passes).
+auto pgi_create_trace_summary_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
+
+// Same layout again: the number of valid rays integrated into every trace texel of the summary (0 = no data).
+auto pgi_create_trace_summary_count_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
 
 auto pgi_create_probe_info_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
 

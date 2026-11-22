@@ -98,6 +98,14 @@ struct ReadbackValues
     daxa_u32 rt_lab_convergence_predicted_pixels; // pixels with a split history error prediction
     daxa_u32 rt_lab_convergence_step; // move estimate step the analysis compared (~0u = static estimate)
 
+    // Written by the RTGI blend rays pass for the debug ray picker pixel (rtgi_settings.debug_ray_pick_enabled), linear radiance (no exposure).
+    // mean: .rgb = mean diffuse ray radiance, .a = diffuse ray count. variance: .rgb = unbiased sample variance of the ray radiance per channel,
+    // .a = the same for the luminance. info: .x = mean hit distance of the diffuse rays that hit, .y = diffuse rays that missed,
+    // .z = specular ray count, .w = 1 when the pixel has geometry (0 = sky / nothing picked).
+    daxa_f32vec4 rtgi_debug_ray_mean;
+    daxa_f32vec4 rtgi_debug_ray_variance;
+    daxa_f32vec4 rtgi_debug_ray_info;
+
     // General debug values
     daxa_f32vec4 debug_value;
 };

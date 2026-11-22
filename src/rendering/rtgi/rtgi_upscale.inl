@@ -31,10 +31,14 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_normal_roug
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayCounters), ray_counters) // convergence statistics -> general readback
 // Hash grid (null when hash_grid_enabled is off): diffuse fallback for full-res pixels no half-res tap matches.
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiHashGridCell), hash_grid)
+// Guides of the final a-trous step (step 1) that the upscale runs natively (push.atrous_final), half-res.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, ao_guide_image)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, temporal_perceptual_radiance)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiUpscalePush
 {
     daxa_BufferPtr(RtgiUpscaleH::AttachmentShaderBlob) attach;
     daxa_u32vec2 size;
+    daxa_u32 atrous_final; // 1: this pass is the final (finest, step 1) a-trous pass of the post blur, its inputs have been filtered by the coarser passes
 };

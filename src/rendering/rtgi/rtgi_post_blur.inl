@@ -8,7 +8,6 @@
 #include "../../shader_shared/rtgi.inl"
 
 #define RTGI_POST_BLUR_X 16
-#define RTGI_POST_BLUR_Y 4
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiPostBlurH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
@@ -27,13 +26,6 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, rtgi_specular_be
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, rtgi_specular_blurred)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, specular_normal_roughness) // pack_normal_roughness
 DAXA_DECL_TASK_HEAD_END
-
-struct RtgiPostBlurPush
-{
-    daxa_BufferPtr(RtgiPostBlurH::AttachmentShaderBlob) attach;
-    daxa_u32vec2 size;
-    daxa_b32 pass;
-};
 
 struct RtgiAtrousPostBlurPush
 {

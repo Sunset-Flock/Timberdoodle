@@ -138,8 +138,6 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_accumulate_compile_info, "./src/renderin
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_prepare_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_prepare")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_apply_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_apply")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_adaptive_blur")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_lds_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur_lds")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_atrous_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_atrous_post_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_hash_grid_query_compile_info, "./src/rendering/rtgi/rtgi_hash_grid.hlsl", "entry_hash_grid_query")

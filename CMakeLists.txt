@@ -52,10 +52,12 @@ add_executable(${PROJECT_NAME}
     "src/rendering/rtgi/rt_lab/rt_lab2_probe.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab2_stats.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab3.cpp"
+    "src/rendering/rtgi/rt_lab/rt_lab_retir.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab4.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab_integrator.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab_telemetry.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab_probe.cpp"
+    "src/rendering/rtgi/rt_lab/rt_lab_gradient_oct.cpp"
     "src/rendering/rtgi/rt_lab/rt_lab_analysis.cpp"
     "src/rendering/rtgi/rt_lab/neural/rt_lab_neural.cpp"
 )

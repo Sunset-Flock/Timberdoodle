@@ -1234,16 +1234,37 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), s_cast<i32>(update_rates.size()));
                 ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_color_resolution);
                 ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
+                ImGui::Checkbox("Probe Ray Guiding", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_ray_guiding));
+                ImGui::SetItemTooltip("Distribute the probe rays over the probe texels by the radiance of the texels (floored by the base fraction)\ninstead of one ray per texel. Needs the probe trace resolution to equal the probe surface resolution.");
+                if (render_data.pgi_settings.probe_ray_guiding && render_data.pgi_settings.probe_trace_resolution != render_data.pgi_settings.probe_color_resolution)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "(off: trace res != surface res)");
+                }
+                {
+                    bool const guiding_active = render_data.pgi_settings.probe_ray_guiding && render_data.pgi_settings.probe_trace_resolution == render_data.pgi_settings.probe_color_resolution;
+                    ImGui::BeginDisabled(!guiding_active);
+                    ImGui::InputFloat("Rays Per Texel", &render_data.pgi_settings.probe_rays_per_texel, 0.25f, 1.0f, "%.3f");
+                    ImGui::EndDisabled();
+                    ImGui::SetItemTooltip("Rays per probe trace texel (1 = one ray per texel on average). Only with probe ray guiding: the guiding distributes\nthe probe's ceil(texels * this) rays by the radiance of the texels. Without guiding every texel gets exactly one ray.\nRays per probe now: %u", render_data.pgi_settings.probe_ray_count);
+                }
+                ImGui::SliderFloat("Probe Ray Base Fraction", &render_data.pgi_settings.probe_ray_base_fraction, 0.0f, 4.0f);
+                ImGui::SetItemTooltip("Fraction of the average texel luma added to every texel weight of the probe ray distribution.\nUniform share of the rays = fraction / (1 + fraction).");
                 ImGui::Checkbox("Direct Trace Dispatch", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_trace_direct_dispatch));
                 ImGui::SetItemTooltip("Dispatch the probe rays directly over the worst case number of probes (update rate and update list size) and let the raygen exit early,\ninstead of the indirect dispatch over the exact number of rays.");
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
                 ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);
-                ImGui::SliderFloat("Probe Ray Base Fraction", &render_data.pgi_settings.probe_ray_base_fraction, 0.0f, 4.0f);
-                ImGui::SetItemTooltip("Fraction of the average texel luma added to every texel weight of the probe ray distribution.\nUniform share of the rays = fraction / (1 + fraction).");
                 ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
                 ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
                 ImGui::SeparatorText("Debug");
+                // The influence lines are produced while sampling PGI for the screen (screen irradiance pass), which does not run while RTGI is on.
+                ImGui::BeginDisabled(render_data.rtgi_settings.enabled != 0);
                 ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_probe_influence));
+                ImGui::EndDisabled();
+                if (render_data.rtgi_settings.enabled != 0)
+                {
+                    ImGui::SetItemTooltip("RTGI must be off for this debug view to work: the probe influence is drawn while PGI is sampled for the screen, which does not happen while RTGI is on.");
+                }
                 ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
                 ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
                 ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
@@ -1259,6 +1280,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "UV",                   // PGI_DEBUG_PROBE_DRAW_MODE_UV
                     "NORMAL",               // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
                     "HYSTERESIS",           // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
+                    "REQUEST_LIFETIME",     // PGI_DEBUG_PROBE_DRAW_MODE_REQUEST_LIFETIME
                 };
                 tido::ui::filter_combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), s_cast<i32>(debug_daw_modes.size()));
                 ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);
@@ -1312,6 +1334,55 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         ImGui::Text("Rays: %u, traced %u frames ago", data->ray_count, frame_index - data->ray_frame);
                     }
 
+                    {
+                        // Request counters: the probe lives while any of the (up to 8) cells it is a vertex of has a running request timer.
+                        // Overall metrics only: the longest timers over those cells.
+                        ImGui::SeparatorText("Requests");
+                        u32 max_direct = 0u;
+                        u32 max_indirect = 0u;
+                        for (u32 c = 0; c < 8; ++c)
+                        {
+                            if (data->request_cell_direct[c] != 0xFFFFFFFFu)
+                            {
+                                max_direct = std::max(max_direct, data->request_cell_direct[c]);
+                                max_indirect = std::max(max_indirect, data->request_cell_indirect[c]);
+                            }
+                        }
+                        // Same relative life as the REQUEST_LIFETIME probe draw: the longest timer relative to the value a request sets, 1 = just requested, 0 = deleted next.
+                        f32 const direct_life = std::clamp(s_cast<f32>(max_direct) / s_cast<f32>(PGI_REQUEST_DIRECT_TIMER_MAX), 0.0f, 1.0f);
+                        f32 const indirect_life = std::clamp(s_cast<f32>(max_indirect) / s_cast<f32>(PGI_REQUEST_INDIRECT_TIMER_MAX), 0.0f, 1.0f);
+                        {
+                            f32 const life = std::max(direct_life, indirect_life);
+                            char overlay[64];
+                            std::snprintf(overlay, sizeof(overlay), "life %.0f%% (%s)", life * 100.0f, direct_life >= indirect_life ? "direct" : "indirect only");
+                            ImGui::ProgressBar(life, ImVec2(-FLT_MIN, 0.0f), overlay);
+                            ImGui::SetItemTooltip("Relative life of the probe: the largest request timer of its cells relative to the value a request sets it to\n(direct 63, indirect 255). 100%% = just requested, 0%% = deleted on the next update. Same as the REQUEST_LIFETIME probe draw.");
+                        }
+                        {
+                            char direct_text[32];
+                            char indirect_text[32];
+                            std::snprintf(direct_text, sizeof(direct_text), "%u / %d", max_direct, PGI_REQUEST_DIRECT_TIMER_MAX);
+                            std::snprintf(indirect_text, sizeof(indirect_text), "%u / %d", max_indirect, PGI_REQUEST_INDIRECT_TIMER_MAX);
+                            ImGui::ProgressBar(direct_life, ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - ImGui::GetStyle().ItemSpacing.x * 0.5f, 0.0f), direct_text);
+                            ImGui::SetItemTooltip("Longest direct request timer of the probe's cells.");
+                            ImGui::SameLine();
+                            ImGui::ProgressBar(indirect_life, ImVec2(-FLT_MIN, 0.0f), indirect_text);
+                            ImGui::SetItemTooltip("Longest indirect request timer of the probe's cells.");
+                        }
+                        if (data->requested != 0u)
+                        {
+                            ImGui::Text("Requested, deleted in %u frames if nothing requests it again.", std::max(max_direct, max_indirect));
+                        }
+                        else if (data->is_new_probe != 0u)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "NEW probe: it came into existence by the window moving, no request yet.");
+                        }
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "NOT requested: all cell timers are 0, the probe info is reset (deleted).");
+                        }
+                    }
+
                     u32 const res = std::min<u32>(data->color_resolution, 48u);
                     u32 const texel_count = res * res;
                     static bool normalize_view = true;
@@ -1321,9 +1392,12 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("View Gain", &view_gain, 0.01f, 100.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
 
                     // Flat octahedral view of the probe texels, nearest sampled. color_of(i) -> ImVec4, tooltip_of(i) draws the tooltip body.
-                    auto draw_octahedral = [&](char const * label, auto const & color_of, auto const & tooltip_of)
+                    // One size for all views: measured once here, the available width shrinks while views are placed on the same line.
+                    f32 const view_size = std::clamp((ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f, 96.0f, 192.0f);
+                    auto draw_octahedral = [&](char const * label, u32 const res, auto const & color_of, auto const & tooltip_of)
                     {
-                        f32 const size = std::clamp((ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f, 96.0f, 192.0f);
+                        u32 const texel_count = res * res;
+                        f32 const size = view_size;
                         ImGui::BeginGroup();
                         ImGui::TextUnformatted(label);
                         ImVec2 const origin = ImGui::GetCursorScreenPos();
@@ -1363,13 +1437,13 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     auto const display = [](f32 v) { return std::pow(std::clamp(v, 0.0f, 1.0f), 1.0f / 2.2f); };
                     {
                         f32 const scale = rgb_view(data->radiance);
-                        draw_octahedral("Radiance", [&](u32 i) { auto const & t = data->radiance[i]; return ImVec4(display(t.x * scale), display(t.y * scale), display(t.z * scale), 1.0f); },
+                        draw_octahedral("Radiance", res, [&](u32 i) { auto const & t = data->radiance[i]; return ImVec4(display(t.x * scale), display(t.y * scale), display(t.z * scale), 1.0f); },
                             [&](u32 i) { auto const & t = data->radiance[i]; ImGui::Text("radiance (%.4f, %.4f, %.4f)", t.x, t.y, t.z); });
                     }
                     ImGui::SameLine();
                     {
                         f32 const scale = rgb_view(data->irradiance);
-                        draw_octahedral("Irradiance", [&](u32 i) { auto const & t = data->irradiance[i]; return ImVec4(display(t.x * scale), display(t.y * scale), display(t.z * scale), 1.0f); },
+                        draw_octahedral("Irradiance", res, [&](u32 i) { auto const & t = data->irradiance[i]; return ImVec4(display(t.x * scale), display(t.y * scale), display(t.z * scale), 1.0f); },
                             [&](u32 i) { auto const & t = data->irradiance[i]; ImGui::Text("irradiance (%.4f, %.4f, %.4f)\nhysteresis %.3f", t.x, t.y, t.z, t.w); });
                     }
                     ImGui::SameLine();
@@ -1385,8 +1459,42 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         {
                             max_pdf = std::max(max_pdf, pdf_of(i));
                         }
-                        draw_octahedral("Ray Sampling", [&](u32 i) { f32 const v = std::pow(pdf_of(i) / max_pdf, 1.0f / 2.2f); return ImVec4(v, v, v, 1.0f); },
-                            [&](u32 i) { ImGui::Text("ray pdf %.3f x uniform", pdf_of(i)); });
+                        draw_octahedral("Ray Sampling", res, [&](u32 i) { f32 const v = std::pow(pdf_of(i) / max_pdf, 1.0f / 2.2f); return ImVec4(v, v, v, 1.0f); },
+                            [&](u32 i)
+                            {
+                                // Rays the texel gets: its share of the cdf times the rays of the probe (one ray per texel on average = x1).
+                                f32 const rays_per_probe = s_cast<f32>(render_data.pgi_settings.probe_ray_count);
+                                ImGui::Text("ray pdf %.3f x uniform\nexpected rays %.2f (of %.0f per probe, %.2f per texel on average)", pdf_of(i),
+                                    pdf_of(i) * rays_per_probe / s_cast<f32>(texel_count), rays_per_probe, rays_per_probe / s_cast<f32>(texel_count));
+                            });
+                    }
+                    {
+                        // Second row: hysteresis (irradiance .a, the blend weight of the old value, 0..0.95) and depth (visibility mean ray distance).
+                        f32 mean_hysteresis = 0.0f;
+                        for (u32 i = 0; i < texel_count; ++i)
+                        {
+                            mean_hysteresis += data->irradiance[i].w;
+                        }
+                        mean_hysteresis /= s_cast<f32>(texel_count);
+                        draw_octahedral("Hysteresis", res, [&](u32 i) { f32 const v = std::clamp(data->irradiance[i].w, 0.0f, 1.0f); return ImVec4(v, v, v, 1.0f); },
+                            [&](u32 i) { ImGui::Text("hysteresis %.3f (probe mean %.3f)", data->irradiance[i].w, mean_hysteresis); });
+                    }
+                    ImGui::SameLine();
+                    {
+                        // Depth: mean ray distance relative to the longest distance the probe rays are drawn at, backface hits (negative) in red.
+                        u32 const vis_res = std::clamp<u32>(data->visibility_resolution, 1u, 48u);
+                        f32 const depth_range = std::max(data->max_visibility_distance * 1.5f, 1e-6f);
+                        draw_octahedral("Depth", vis_res, [&](u32 i)
+                            {
+                                f32 const d = data->visibility[i].x;
+                                f32 const v = std::clamp(std::abs(d) / depth_range, 0.0f, 1.0f);
+                                return d < 0.0f ? ImVec4(v, 0.0f, 0.0f, 1.0f) : ImVec4(v, v, v, 1.0f);
+                            },
+                            [&](u32 i)
+                            {
+                                auto const & t = data->visibility[i];
+                                ImGui::Text("mean distance %.3f%s\ndeviation %.3f\n(white = %.2f)", std::abs(t.x), t.x < 0.0f ? " (backface)" : "", t.y, depth_range);
+                            });
                     }
                 }
             }
@@ -1504,6 +1612,71 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("Pioneer Guide Mix", &render_data.rtgi_settings.specular_guide_mix, 0.0f, 1.0f);
                     ImGui::SetItemTooltip("Probability (at roughness 1) of drawing a specular ray from the pioneer guide lobe (MIS weighted).");
                     ImGui::SliderFloat("Guide Concentration", &render_data.rtgi_settings.specular_guide_concentration, 0.0f, 1.0f);
+                    rtgi_sub_end();
+                    rtgi_sub_begin("Debug Ray Picker");
+                    {
+                        RtgiSettings & rtgi = render_data.rtgi_settings;
+                        ImGui::Checkbox("Pick Pixel Rays", reinterpret_cast<bool *>(&rtgi.debug_ray_pick_enabled));
+                        ImGui::SetItemTooltip("Draws the rays shot from one pixel THIS frame as debug lines (origin to hit, colored by the ray radiance, circle at the hit) and reads back\nthe mean color and variance of its diffuse rays. The pixel is the one under the cursor, or the frozen one.");
+                        if (rtgi.debug_ray_pick_enabled != 0)
+                        {
+                            bool frozen = rtgi.debug_ray_pick_frozen != 0;
+                            if (ImGui::Checkbox("Freeze Pixel", &frozen))
+                            {
+                                if (frozen)
+                                {
+                                    // Keep the pixel the cursor is on right now.
+                                    rtgi.debug_ray_pixel_x = s_cast<i32>(std::floor(render_data.cursor_uv.x * s_cast<f32>(render_data.settings.render_target_size.x)));
+                                    rtgi.debug_ray_pixel_y = s_cast<i32>(std::floor(render_data.cursor_uv.y * s_cast<f32>(render_data.settings.render_target_size.y)));
+                                }
+                                rtgi.debug_ray_pick_frozen = frozen ? 1 : 0;
+                            }
+                            ImGui::SetItemTooltip("Keeps the currently picked pixel so the cursor can leave it.");
+                            if (frozen)
+                            {
+                                ImGui::SameLine();
+                                ImGui::Text("pixel %d, %d", rtgi.debug_ray_pixel_x, rtgi.debug_ray_pixel_y);
+                            }
+                            ImGui::SliderFloat("Ray Draw Length (m)", &rtgi.debug_ray_length, 0.1f, 100.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                            ImGui::SetItemTooltip("Rays that miss or hit further away are drawn up to this length.");
+
+                            ReadbackValues const & rb_pick = render_context.general_readback;
+                            if (rb_pick.rtgi_debug_ray_info.w > 0.5f)
+                            {
+                                u32 const ray_count = s_cast<u32>(rb_pick.rtgi_debug_ray_mean.w + 0.5f);
+                                daxa_f32vec4 const mean = rb_pick.rtgi_debug_ray_mean;
+                                daxa_f32vec4 const variance = rb_pick.rtgi_debug_ray_variance;
+                                f32 const luma_mean = 0.2126f * mean.x + 0.7152f * mean.y + 0.0722f * mean.z;
+                                // Standard error of the mean over the pixel's rays, relative to the mean (the noise a single frame of this pixel has).
+                                f32 const std_error = ray_count > 0 ? std::sqrt(variance.w / s_cast<f32>(ray_count)) : 0.0f;
+                                auto display = [](f32 v) { return std::clamp(std::pow(v / (1.0f + v), 1.0f / 2.2f), 0.0f, 1.0f); };
+                                ImVec4 const swatch = ImVec4(display(mean.x), display(mean.y), display(mean.z), 1.0f);
+                                ImGui::ColorButton("##rtgi_debug_ray_mean", swatch, ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoTooltip, ImVec2(32.0f, 32.0f));
+                                ImGui::SetItemTooltip("Mean diffuse ray radiance (tone mapped with x / (1 + x), no exposure).");
+                                ImGui::SameLine();
+                                ImGui::BeginGroup();
+                                ImGui::Text("Diffuse rays: %u (%u hit, %u miss), specular rays: %u", ray_count, ray_count - std::min(ray_count, s_cast<u32>(rb_pick.rtgi_debug_ray_info.y)), s_cast<u32>(rb_pick.rtgi_debug_ray_info.y), s_cast<u32>(rb_pick.rtgi_debug_ray_info.z));
+                                ImGui::Text("Mean color: %.4f %.4f %.4f (luma %.4f)", mean.x, mean.y, mean.z, luma_mean);
+                                ImGui::Text("Mean hit distance: %.2f m", rb_pick.rtgi_debug_ray_info.x);
+                                ImGui::EndGroup();
+                                ImGui::Text("Variance: %.4g %.4g %.4g (luma %.4g)", variance.x, variance.y, variance.z, variance.w);
+                                ImGui::SetItemTooltip("Unbiased sample variance of the diffuse ray radiance of the pixel this frame (needs 2+ rays).");
+                                if (ray_count > 1 && luma_mean > 0.0f)
+                                {
+                                    ImGui::Text("Std dev %.4g (%.0f%% of mean), error of the mean %.4g (%.1f%%)", std::sqrt(variance.w), 100.0f * std::sqrt(variance.w) / luma_mean, std_error, 100.0f * std_error / luma_mean);
+                                    ImGui::SetItemTooltip("Luminance. Error of the mean = std dev / sqrt(rays): the noise of this pixel's estimate this frame, before any denoising.");
+                                }
+                                else
+                                {
+                                    ImGui::TextDisabled("Variance estimate needs 2+ diffuse rays and a non-black mean.");
+                                }
+                            }
+                            else
+                            {
+                                ImGui::TextDisabled("No geometry under the picked pixel (sky), or the pixel is not shot yet.");
+                            }
+                        }
+                    }
                     rtgi_sub_end();
                     rtgi_sub_begin("Hit Shading");
                     ImGui::TextDisabled("Fine = full material + lights + shadow rays, coarse = PGI radiance only.");
@@ -1630,28 +1803,32 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Post Blur", {
-                        RenderTimes::index<"RTGI", "POST_BLUR_VERTICAL">(),
-                        RenderTimes::index<"RTGI", "POST_BLUR_HORIZONTAL">(),
                         RenderTimes::index<"RTGI", "POST_BLUR_ATROUS">(),
                     }))
                 {
                     rtgi_sub_begin("General");
                     ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
                     ImGui::Checkbox("Disocclusion Blur", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_disocclusion_blur_enabled));
-                    ImGui::RadioButton("Bilateral", &render_data.rtgi_settings.post_blur_mode, 0);
-                    ImGui::SameLine();
-                    ImGui::RadioButton("Atrous", &render_data.rtgi_settings.post_blur_mode, 1);
-                    if (render_data.rtgi_settings.post_blur_mode == 1)
                     {
                         ImGui::SliderInt("Atrous Iterations", &render_data.rtgi_settings.post_blur_atrous_iterations, 1, 8);
-                    }
-                    else
-                    {
-                        ImGui::SliderInt("Stride", &render_data.rtgi_settings.post_blur_stride, 1, 8);
-                        ImGui::SliderInt("Max Width", &render_data.rtgi_settings.post_blur_max_width, 1, 32);
-                        // Groupshared (LDS) variant of the separable H/V blur. Same output, perf A/B.
-                        // NOTE: the LDS variant caps the filter radius at 16 (its preloaded halo).
-                        ImGui::Checkbox("Use Groupshared (LDS)", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_use_lds));
+                        ImGui::Checkbox("Atrous Tap Jitter", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_atrous_jitter));
+                        ImGui::SetItemTooltip("Moves every non-center tap by a random offset of up to %.0f%% of the step size (rounded to texels), so the far passes do not sample a fixed grid.", RTGI_ATROUS_TAP_JITTER_AMPLITUDE * 100.0f);
+                        ImGui::Checkbox("Atrous Sparse Far Taps (4 instead of 8)", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_atrous_sparse_taps));
+                        ImGui::SetItemTooltip("Passes with a step of %d half-res pixels or more sample 4 taps in an MSAA 4x rotated grid pattern instead of the 8 neighbors.", RTGI_ATROUS_SPARSE_TAPS_MIN_STEP);
+                        {
+                            // Effective filter reach per axis: the sum over all passes of the largest tap offset (+ jitter). The last pass (step 1) is the upscale.
+                            i32 reach_half_res = 0;
+                            for (i32 pass = 0; pass < render_data.rtgi_settings.post_blur_atrous_iterations; ++pass)
+                            {
+                                i32 const step = 1 << pass;
+                                bool const sparse = render_data.rtgi_settings.post_blur_atrous_sparse_taps != 0 && step >= RTGI_ATROUS_SPARSE_TAPS_MIN_STEP;
+                                f32 const tap_offset = sparse ? RTGI_ATROUS_SPARSE_PATTERN_SCALE * RTGI_ATROUS_SPARSE_PATTERN_MAX_COMPONENT * f32(step) : f32(step);
+                                i32 const jitter = (render_data.rtgi_settings.post_blur_atrous_jitter != 0 && pass > 0) ? i32(std::round(RTGI_ATROUS_TAP_JITTER_AMPLITUDE * f32(step))) : 0;
+                                reach_half_res += i32(std::round(tap_offset)) + jitter;
+                            }
+                            ImGui::Text("Effective reach: +-%d half res px (+-%d full res px)", reach_half_res, reach_half_res * 2);
+                            ImGui::SetItemTooltip("Upper bound per axis: sum over all passes of the farthest tap offset (incl. jitter). The tap weights fall off quickly, most of the energy is much closer.");
+                        }
                     }
                     ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_ao_guiding));
                     ImGui::SetItemTooltip("Shrinks the blur width in occluded areas (temporal AO guide). Scales both the diffuse and the specular width.");
@@ -1664,6 +1841,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     rtgi_sub_begin("Specular");
                     ImGui::SliderFloat("Blur Scale", &render_data.rtgi_settings.specular_post_blur_scale, 0.0f, 4.0f);
                     ImGui::SetItemTooltip("Scales the specular lobe-footprint width (capped at Max Width; 0 = no specular post blur).");
+                    ImGui::SliderInt("Max Width", &render_data.rtgi_settings.post_blur_max_width, 1, 32);
+                    ImGui::SetItemTooltip("Cap of the specular lobe blur width in half-res pixels.");
                     rtgi_sub_end();
                     ImGui::TreePop();
                 }
@@ -3558,7 +3737,7 @@ void UIEngine::ui_pgi_statistics(RenderContext & render_context)
         if ((render_data.frame_index % 11) == 0)
         {
             updated_probes = render_context.general_readback.requested_probes;
-            ray_count = render_data.pgi_settings.probe_trace_resolution * render_data.pgi_settings.probe_trace_resolution * render_context.general_readback.requested_probes;
+            ray_count = render_data.pgi_settings.probe_ray_count * render_context.general_readback.requested_probes;
         }
         ImGui::Text(fmt::format("Total Probe Count {}", total_probes).c_str());
         ImGui::Text(fmt::format("PGI Updated Probes {:>7} / {:>7} = {}%%",

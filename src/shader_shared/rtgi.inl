@@ -19,6 +19,15 @@
 #define RTGI_HIT_SHADING_SPECULAR_COARSE 2
 
 
+// A-trous post blur tap pattern (shared by the shader and the UI reach estimate).
+// Tap jitter: every non-center tap moves by a random offset of up to RTGI_ATROUS_TAP_JITTER_AMPLITUDE * step_size texels (per axis, rounded).
+#define RTGI_ATROUS_TAP_JITTER_AMPLITUDE 0.35f
+// Sparse taps (setting post_blur_atrous_sparse_taps): passes with step_size >= RTGI_ATROUS_SPARSE_TAPS_MIN_STEP use the center plus 4 taps in the
+// MSAA 4x rotated grid pattern (offsets (-1,-3) (3,-1) (-3,1) (1,3) / 8) scaled by RTGI_ATROUS_SPARSE_PATTERN_SCALE * step_size, instead of the 8 neighbors.
+#define RTGI_ATROUS_SPARSE_TAPS_MIN_STEP 4
+#define RTGI_ATROUS_SPARSE_PATTERN_SCALE 3.0f
+#define RTGI_ATROUS_SPARSE_PATTERN_MAX_COMPONENT 0.375f
+
 struct RtgiSettings
 {
     daxa_i32 enabled;
@@ -59,14 +68,11 @@ struct RtgiSettings
     // Max ray hit distance (in half-res pixel widths) that still counts as a "near" hit for the ray
     // shortness the denoiser guide uses. Rays at/beyond this contribute 0 shortness. (calc_ray_shortness)
     daxa_f32 max_visibility_pixel_range;
-    daxa_i32 post_blur_mode;
-    // 1 = use the groupshared (LDS-preloading) variant of the separable horizontal/vertical post blur,
-    // 0 = the plain texture-fetch variant. Same output; a perf A/B toggle. (À-trous mode is unaffected.)
-    daxa_i32 post_blur_use_lds;
     daxa_i32 post_blur_disocclusion_blur_enabled;
-    daxa_i32 post_blur_stride;
-    daxa_i32 post_blur_max_width;
+    daxa_i32 post_blur_max_width;           // cap of the specular lobe blur width (half-res px)
     daxa_i32 post_blur_atrous_iterations;
+    daxa_i32 post_blur_atrous_jitter;       // 1 = jitter the a-trous taps
+    daxa_i32 post_blur_atrous_sparse_taps;  // 1 = 4 instead of 8 neighbor taps for the far steps
     daxa_i32 upscale_enabled;
     // 1 = upscale weights all 9 half-res taps of the 3x3 footprint (distance Gaussian), 0 = classic tent (~2x2).
     daxa_i32 upscale_wide_footprint;
@@ -212,6 +218,15 @@ struct RtgiSettings
     daxa_i32 hash_grid_disocclusion_fill;
     // Debug: the query pass draws the world-space AABB of every cell queried this frame (debug line draws).
     daxa_i32 hash_grid_debug_draw_cells;
+    // == Debug ray picker ==================================================================================
+    // The rays shot from one pixel this frame are drawn as debug lines (origin -> hit, colored by the ray radiance) by the blend rays pass,
+    // which also writes the mean color / variance of the pixel's diffuse rays into the general readback (rtgi_debug_ray_*).
+    daxa_i32 debug_ray_pick_enabled;
+    // 0 = the pixel under the cursor, 1 = the pixel stored in debug_ray_pixel (full res pixel coordinates).
+    daxa_i32 debug_ray_pick_frozen;
+    daxa_i32 debug_ray_pixel_x;
+    daxa_i32 debug_ray_pixel_y;
+    daxa_f32 debug_ray_length; // world units, misses / longer rays are drawn up to this length
 };
 
 // == Hash grid ==============================================================================================

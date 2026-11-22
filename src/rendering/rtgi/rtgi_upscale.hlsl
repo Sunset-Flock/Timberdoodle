@@ -114,6 +114,11 @@ func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
                 const float3 half_normal = uncompress_normal_octahedral_32(half_res_face_normal_tex[load_index]);
                 gs_half_normals_preload[preload_index.x][preload_index.y] = float4(half_normal, 0.0f);
 
+                if (push.atrous_final != 0)
+                {
+                    gs_half_samplecount[preload_index.x][preload_index.y] = rtgi_unpack_normal_count(push.attach.samplecount_half_res.get()[load_index]);
+                }
+
                 const int2 sample_half_res_idx = load_index;
                 const float2 sample_uv = float2(sample_half_res_idx + 0.5f) * inv_half_res_render_target_size;
                 const float3 sample_vs = rtgi_half_res_depth_to_neg_view_space(*camera, sample_uv * 2.0f - 1.0f, depth);
@@ -168,6 +173,10 @@ func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
         float2 fallback_acc_diffuse2 = float2( 0.0f, 0.0f );
         float fallback_acc_weight = 0.0f;
         float acc_geo_weight = 0.0f;
+        // Final a-trous step (step 1): the diffuse tap weights additionally get the tap's sample count weight (count + 1).
+        // The AO radius scale and the perceptual difference guide of the half-res passes are NOT used here: both are relative to the center
+        // half-res texel and would pull the upscale towards nearest neighbor (blocky, low res look).
+        float acc_diffuse_weight = 0.0f;
         for (int col = 0; col < TENT_WIDTH; col++)
         {
             for (int row = 0; row < TENT_WIDTH; row++)
@@ -201,10 +210,18 @@ func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
                 }
                 const float weight = kernel_weight * geometry_weight * normal_weight;
 
+                // Diffuse weight of the final a-trous step: the upscale weight times the a-trous guides.
+                float diffuse_weight = weight;
+                if (push.atrous_final != 0)
+                {
+                    diffuse_weight *= gs_half_samplecount[sample_gs_index.x][sample_gs_index.y] + 1.0f;
+                }
+
                 if (sample_depth != 0.0f)
                 {
-                    acc_diffuse += weight * sample_sh_y;
-                    acc_diffuse2 += weight * sample_cocg;
+                    acc_diffuse += diffuse_weight * sample_sh_y;
+                    acc_diffuse2 += diffuse_weight * sample_cocg;
+                    acc_diffuse_weight += diffuse_weight;
                     const float4 sample_specular = gs_half_specular_preload[sample_gs_index.x][sample_gs_index.y];
                     acc_specular += weight * sample_specular;
                     const float3 sample_specular_normal = gs_half_specular_normal_roughness[sample_gs_index.x][sample_gs_index.y].xyz;
@@ -238,8 +255,10 @@ func entry_upscale(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
         // does not exist at half res). Normalizing a zero weight sum would otherwise output black.
         if (acc_weight > 1e-5f)
         {
-            upscaled_sh_y = acc_diffuse * rcp(acc_weight + 0.0000001f);
-            upscaled_cocg = acc_diffuse2 * rcp(acc_weight + 0.0000001f);
+            // With the a-trous guides the diffuse weights have their own sum (the sample counts scale them), fall back to the plain upscale weights if the guides killed all of them.
+            const bool use_diffuse_weight_sum = push.atrous_final != 0 && acc_diffuse_weight > 1e-8f;
+            upscaled_sh_y = use_diffuse_weight_sum ? acc_diffuse * rcp(acc_diffuse_weight) : acc_diffuse * rcp(acc_weight + 0.0000001f);
+            upscaled_cocg = use_diffuse_weight_sum ? acc_diffuse2 * rcp(acc_diffuse_weight) : acc_diffuse2 * rcp(acc_weight + 0.0000001f);
             upscaled_specular = acc_specular * rcp(acc_weight + 0.0000001f);
         }
         else

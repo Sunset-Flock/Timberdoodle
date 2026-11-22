@@ -227,8 +227,6 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {rtgi_temporal_accumulate_compile_info()},
         {rtgi_pre_filter_prepare_compile_info()},
         {rtgi_pre_blur_compile_info()},
-        {rtgi_post_blur_compile_info()},
-        {rtgi_post_blur_lds_compile_info()},
         {rtgi_atrous_post_blur_compile_info()},
         {rtgi_upscale_compile_info()},
         {rtgi_hash_grid_query_compile_info()},
@@ -298,6 +296,7 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
         {pgi_inspect_compile_info()},
+        {pgi_trace_integrate_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -1303,7 +1302,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .head_views(PGIDrawDebugProbesH::Info::Views{
                     .globals = render_context->tgpu_render_data.view(),
                     .probe_indirections = pgi_indirections,
-                    .color_image = color_image,
+                    .color_image = debug_image,
                     .depth_image = debug_draw_depth,
                     .probe_color = pgi_state.probe_color_view,
                     .probe_visibility = pgi_state.probe_visibility_view,
@@ -1316,7 +1315,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.add_task(daxa::HeadTask<DebugDrawH::Info>()
             .head_views(DebugDrawH::Info::Views{
                 .globals = render_context->tgpu_render_data.view(),
-                .color_image = color_image,
+                .color_image = debug_image,
                 .depth_image = debug_draw_depth,
             })
             .executes(debug_draw_callback, render_context.get()));
@@ -1526,7 +1525,6 @@ auto Renderer::prepare_frame(
         render_context->render_data.rtgi_settings.pre_blur_enabled != render_context->prev_rtgi_settings.pre_blur_enabled ||
         render_context->render_data.rtgi_settings.pre_blur_iterations != render_context->prev_rtgi_settings.pre_blur_iterations ||
         render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled ||
-        render_context->render_data.rtgi_settings.post_blur_mode != render_context->prev_rtgi_settings.post_blur_mode ||
         render_context->render_data.rtgi_settings.post_blur_atrous_iterations != render_context->prev_rtgi_settings.post_blur_atrous_iterations ||
         render_context->render_data.rtgi_settings.use_repacked_ray_dispatch != render_context->prev_rtgi_settings.use_repacked_ray_dispatch ||
         render_context->render_data.rtgi_settings.pioneer_guiding_enabled != render_context->prev_rtgi_settings.pioneer_guiding_enabled ||
@@ -1544,7 +1542,9 @@ auto Renderer::prepare_frame(
     {
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
     }
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || rtgi_settings_changed || volumetrics_settings_changed)
+    // The ray atlas of the probe trace changes size with the rays per probe (rebuild the graph, the probes keep their data).
+    bool const pgi_ray_atlas_changed = render_context->prev_pgi_settings.probe_ray_rows != render_context->render_data.pgi_settings.probe_ray_rows;
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || pgi_ray_atlas_changed || light_settings_changed || rtgi_settings_changed || volumetrics_settings_changed)
     {
         finish_shader_hotload();
         this->gpu_context->device.wait_idle();

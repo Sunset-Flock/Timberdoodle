@@ -258,5 +258,6 @@ struct FragmentOut
 [shader("fragment")]
 func entry_fragment(VertexToPixel vertToPix) -> FragmentOut
 {
-    return FragmentOut(float4(vertToPix.color,1));
+    // Written into the debug image: alpha 3 = exposed debug blend with factor 1 (write_swapchain), the lines replace the scene color and the debug views.
+    return FragmentOut(float4(vertToPix.color, 3.0f));
 }

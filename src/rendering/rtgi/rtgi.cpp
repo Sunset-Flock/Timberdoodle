@@ -39,12 +39,11 @@ auto rtgi_default_settings() -> RtgiSettings
         .post_blur_perceptual_radiance_guide_tolerance = 0.5f,
         .ao_guide_floor                = 0.2f,
         .max_visibility_pixel_range           = 20.0f,
-        .post_blur_mode                       = 0,
-        .post_blur_use_lds                    = 1,
         .post_blur_disocclusion_blur_enabled  = 0,
-        .post_blur_stride                     = 2,
         .post_blur_max_width                  = 16,
-        .post_blur_atrous_iterations          = 4,
+        .post_blur_atrous_iterations          = 5,
+        .post_blur_atrous_jitter              = 1,
+        .post_blur_atrous_sparse_taps         = 1,
         .upscale_enabled                      = 1,
         .upscale_wide_footprint               = 1,
         .upscale_sharp_weights                = 0,
@@ -98,6 +97,11 @@ auto rtgi_default_settings() -> RtgiSettings
         .hash_grid_max_untouched_frames        = 64,
         .hash_grid_disocclusion_fill           = 1,
         .hash_grid_debug_draw_cells            = 0,
+        .debug_ray_pick_enabled                = 0,
+        .debug_ray_pick_frozen                 = 0,
+        .debug_ray_pixel_x                     = 0,
+        .debug_ray_pixel_y                     = 0,
+        .debug_ray_length                      = 5.0f,
     };
 }
 #include "rtgi_pre_filter.inl"
@@ -213,32 +217,6 @@ inline void rtgi_pre_blur_callback(daxa::TaskInterface ti, RenderContext * rende
     dispatch_image_relative(RtgiPreBlurPush{.iteration = pass}, ti, render_context, AT.view_cam_half_res_depth, RTGI_PRE_BLUR_X, render_time, rtgi_pre_blur_compile_info().name);
 }
 
-inline void rtgi_post_blur_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
-{
-    auto const & AT = RtgiPostBlurH::Info::AT;
-    u32 const render_time = pass == 0 ? RenderTimes::index<"RTGI", "POST_BLUR_HORIZONTAL">() : RenderTimes::index<"RTGI", "POST_BLUR_VERTICAL">();
-    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time);
-    auto const dst_image_size = ti.info(AT.view_cam_half_res_depth).value().size;
-    ti.recorder.set_pipeline(*(render_context->gpu_context->compute_pipelines.at(
-        render_context->render_data.rtgi_settings.post_blur_use_lds
-            ? rtgi_post_blur_lds_compile_info().name
-            : rtgi_post_blur_compile_info().name)));
-    RtgiPostBlurPush push{.pass = pass};
-    push.attach = ti.allocator->allocate_fill(RtgiPostBlurH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
-    push.size = {dst_image_size.x, dst_image_size.y};
-    ti.recorder.push_constant(push);
-    if (pass == 0)
-    {
-        // Horizontal: 16 threads along X, 4 along Y
-        ti.recorder.dispatch({round_up_div(dst_image_size.x, RTGI_POST_BLUR_X), round_up_div(dst_image_size.y, RTGI_POST_BLUR_Y), 1});
-    }
-    else
-    {
-        // Vertical: swizzled — 16-wide dimension covers Y, so group tiles are 4x16 in image space
-        ti.recorder.dispatch({round_up_div(dst_image_size.x, RTGI_POST_BLUR_Y), round_up_div(dst_image_size.y, RTGI_POST_BLUR_X), 1});
-    }
-}
-
 inline void rtgi_atrous_post_blur_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
 {
     auto const & AT = RtgiPostBlurH::Info::AT;
@@ -250,7 +228,10 @@ inline void rtgi_atrous_post_blur_callback(daxa::TaskInterface ti, RenderContext
 inline void rtgi_upscale_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiUpscaleH::Info::AT;
-    dispatch_image_relative(RtgiUpscalePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_X, RenderTimes::index<"RTGI", "UPSCALE">(), rtgi_upscale_compile_info().name);
+    auto const & rtgi_settings = render_context->render_data.rtgi_settings;
+    // Post blur in a-trous mode: the coarser passes run at half res (steps ... 4, 2), the finest one (step 1) is part of the upscale.
+    bool const atrous_final = rtgi_settings.post_blur_enabled;
+    dispatch_image_relative(RtgiUpscalePush{.atrous_final = atrous_final ? 1u : 0u}, ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_X, RenderTimes::index<"RTGI", "UPSCALE">(), rtgi_upscale_compile_info().name);
 }
 
 inline void rtgi_distribute_rays_callback(daxa::TaskInterface ti, RenderContext * render_context)
@@ -1142,67 +1123,24 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     if (info.render_context.render_data.rtgi_settings.post_blur_enabled)
     {
         auto const & rtgi_settings = info.render_context.render_data.rtgi_settings;
-        if (rtgi_settings.post_blur_mode == 0)
         {
-            // Bilateral separable: horizontal then vertical pass
-            auto rtgi_post_blur_pass0_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse_image");
-            auto rtgi_post_blur_pass0_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse2_image");
-            auto rtgi_post_blur_pass0_specular_image = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_specular_image");
-            info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlurHorizontal")
-                    .head_views(RtgiPostBlurH::Info::Views{
-                        .globals = info.render_context.tgpu_render_data.view(),
-                        .debug_image = info.debug_image,
-                                    .rtgi_sample_count = half_res_sample_count_history,
-                        .rtgi_diffuse_before = half_res_diffuse_history,
-                        .rtgi_diffuse2_before = half_res_diffuse2_history,
-                        .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
-                        .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
-        
-                        .rtgi_diffuse_blurred = rtgi_post_blur_pass0_diffuse_image,
-                        .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
-                        .ao_guide_image = half_res_ao_guide_history.current(),
-                        .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
-                        .rtgi_specular_before = half_res_specular_history.current(),
-                        .rtgi_specular_blurred = rtgi_post_blur_pass0_specular_image,
-                        .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
-                    })
-                    .executes(rtgi_post_blur_callback, &info.render_context, 0u));
-
-            rtgi_post_blur_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse_image");
-            rtgi_post_blur_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse2_image");
-            rtgi_post_blur_specular_image = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_post_blur_specular_image");
-            info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlurVertical")
-                    .head_views(RtgiPostBlurH::Info::Views{
-                        .globals = info.render_context.tgpu_render_data.view(),
-                        .debug_image = info.debug_image,
-                                    .rtgi_sample_count = half_res_sample_count_history,
-                        .rtgi_diffuse_before = rtgi_post_blur_pass0_diffuse_image,
-                        .rtgi_diffuse2_before = rtgi_post_blur_pass0_diffuse2_image,
-                        .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),
-                        .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals.current(),
-        
-                        .rtgi_diffuse_blurred = rtgi_post_blur_diffuse_image,
-                        .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
-                        .ao_guide_image = half_res_ao_guide_history.current(),
-                        .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
-                        .rtgi_specular_before = rtgi_post_blur_pass0_specular_image,
-                        .rtgi_specular_blurred = rtgi_post_blur_specular_image,
-                        .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
-                    })
-                    .executes(rtgi_post_blur_callback, &info.render_context, 1u));
-        }
-        else
-        {
-            // À-trous: N passes ping-ponging, step_size doubles each pass (1, 2, 4, ...)
+            // À-trous with decreasing step size (..., 4, 2, 1): iterations - 1 passes at half res ping-ponging, the last (step 1) is done by the upscale.
             u32 const iterations = static_cast<u32>(rtgi_settings.post_blur_atrous_iterations);
+            u32 const half_res_passes = iterations - 1;
 
-            auto atrous_ping = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_atrous_ping");
-            auto atrous_ping2 = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_atrous_ping2");
-            auto atrous_ping_spec = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_atrous_ping_spec");
+            daxa::TaskImageView atrous_ping = daxa::NullTaskImage;
+            daxa::TaskImageView atrous_ping2 = daxa::NullTaskImage;
+            daxa::TaskImageView atrous_ping_spec = daxa::NullTaskImage;
             daxa::TaskImageView atrous_pong = daxa::NullTaskImage;
             daxa::TaskImageView atrous_pong2 = daxa::NullTaskImage;
             daxa::TaskImageView atrous_pong_spec = daxa::NullTaskImage;
-            if (iterations >= 2)
+            if (half_res_passes >= 1)
+            {
+                atrous_ping = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_atrous_ping");
+                atrous_ping2 = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_atrous_ping2");
+                atrous_ping_spec = rtgi_create_specular_image(info.tg, &info.render_context, "rtgi_atrous_ping_spec");
+            }
+            if (half_res_passes >= 2)
             {
                 atrous_pong = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_atrous_pong");
                 atrous_pong2 = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_atrous_pong2");
@@ -1212,7 +1150,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             daxa::TaskImageView src = half_res_diffuse_history.current();
             daxa::TaskImageView src2 = half_res_diffuse2_history.current();
             daxa::TaskImageView src_spec = half_res_specular_history.current();
-            for (u32 i = 0; i < iterations; ++i)
+            for (u32 i = 0; i < half_res_passes; ++i)
             {
                 daxa::TaskImageView dst  = (i % 2 == 0) ? atrous_ping  : atrous_pong;
                 daxa::TaskImageView dst2 = (i % 2 == 0) ? atrous_ping2 : atrous_pong2;
@@ -1235,7 +1173,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                             .rtgi_specular_blurred = dst_spec,
                             .specular_normal_roughness = info.view_cam_half_res_normal_roughness.current(),
                         })
-                        .executes(rtgi_atrous_post_blur_callback, &info.render_context, i));
+                        .executes(rtgi_atrous_post_blur_callback, &info.render_context, iterations - 1 - i)); // step exponent, decreasing
                 src = dst;
                 src2 = dst2;
                 src_spec = dst_spec;
@@ -1269,6 +1207,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .specular_normal_roughness_half_res = info.view_cam_half_res_normal_roughness.current(),
                 .ray_counters = ray_counters_buffer,
                 .hash_grid = hash_grid_buffer,
+                .ao_guide_image = half_res_ao_guide_history.current(),
+                .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
             })
             .executes(rtgi_upscale_callback, &info.render_context));
 

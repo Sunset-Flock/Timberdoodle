@@ -14,6 +14,10 @@
 #define PGI_DEBUG_PROBE_DRAW_MODE_UV 8
 #define PGI_DEBUG_PROBE_DRAW_MODE_NORMAL 9
 #define PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS 10
+#define PGI_DEBUG_PROBE_DRAW_MODE_REQUEST_LIFETIME 11 // bright = just requested, dark = about to be deleted
+// Longest values of the request timers of a cell (see pgi_request_probes): direct requests set 63, indirect requests set 255.
+#define PGI_REQUEST_DIRECT_TIMER_MAX 63
+#define PGI_REQUEST_INDIRECT_TIMER_MAX 255
 
 #define PGI_UPDATE_RATE_FULL 0
 #define PGI_UPDATE_RATE_1_OF_2 1
@@ -70,6 +74,15 @@ struct PGISettings
     // Trace the probe rays with a direct dispatch over the worst case size that relies on the raygen early out
     // instead of the indirect dispatch over the exact number of rays.
     daxa_b32 probe_trace_direct_dispatch TIDO_DEFAULT_VALUE(false);
+    // Probe ray guiding: the probe rays are distributed over the probe texels by the radiance of the texels (the probe ray cdf)
+    // instead of one ray per texel. Needs the trace resolution to be the probe color resolution (else it is off).
+    daxa_b32 probe_ray_guiding TIDO_DEFAULT_VALUE(true);
+    // Rays per probe trace texel (only with ray guiding, without it every texel gets exactly one ray). The probe shoots ceil(texels * this) rays.
+    daxa_f32 probe_rays_per_texel TIDO_DEFAULT_VALUE(0.5f);
+    // Derived by the CPU (pgi_resolve_settings) from the settings above: rays per probe and rows of the ray atlas tile of a probe
+    // (the tile is probe_trace_resolution wide, ray r sits at (r % trace_res, r / trace_res)).
+    daxa_u32 probe_ray_count TIDO_DEFAULT_VALUE(PGI_TRACE_RES * PGI_TRACE_RES / 2);
+    daxa_u32 probe_ray_rows TIDO_DEFAULT_VALUE(PGI_TRACE_RES / 2);
     daxa_i32 cascade_count TIDO_DEFAULT_VALUE(6);
     daxa_f32 cascade_blend TIDO_DEFAULT_VALUE(0.3f);
     // Non photorealistic factor.

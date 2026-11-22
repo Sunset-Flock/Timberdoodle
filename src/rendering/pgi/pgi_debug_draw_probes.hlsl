@@ -145,7 +145,31 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
         case PGI_DEBUG_PROBE_DRAW_MODE_UV: draw_color = float3(uv,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_NORMAL: draw_color = vertToPix.normal * 0.5f + 0.5f; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = Heatmap(hysteresis); break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_REQUEST_LIFETIME:
+        {
+            // The probe lives while any of the (up to 8) cells it is a vertex of has a request timer running.
+            // Relative life = the largest timer of those cells relative to the value a request sets it to, 1 = just requested, 0 = deleted next.
+            // White: kept alive by a direct request, blue: only by indirect requests.
+            Texture2DArray<uint> requests_tex = push.attach.probe_requests.get();
+            float direct_life = 0.0f;
+            float indirect_life = 0.0f;
+            for (int c = 0; c < 8; ++c)
+            {
+                let other_probe = int4(max(int3(0, 0, 0), vertToPix.probe_index.xyz - int3(c & 1, (c >> 1) & 1, (c >> 2) & 1)), vertToPix.probe_index.w);
+                if (pgi_is_cell_base_probe(reg_settings, other_probe))
+                {
+                    let package = requests_tex[pgi_probe_to_stable_index(reg_settings, reg_cascade, other_probe)];
+                    direct_life = max(direct_life, float(package & 0xFFu) * (1.0f / float(PGI_REQUEST_DIRECT_TIMER_MAX)));
+                    indirect_life = max(indirect_life, float((package >> 8u) & 0xFFu) * (1.0f / float(PGI_REQUEST_INDIRECT_TIMER_MAX)));
+                }
+            }
+            let life = saturate(max(direct_life, indirect_life));
+            draw_color = (direct_life >= indirect_life ? float3(1.0f, 1.0f, 1.0f) : float3(0.45f, 0.8f, 1.0f)) * life;
+            break;
+        }
     }
 
-    return DrawDebugProbesFragmentOut(float4(draw_color,1));
+    // Written into the debug image: alpha 3 = exposed debug blend with factor 1 (write_swapchain), i.e. these pixels replace the scene color
+    // and whatever debug view was drawn there before, so probes are always on top of the debug views.
+    return DrawDebugProbesFragmentOut(float4(draw_color, 3.0f));
 }

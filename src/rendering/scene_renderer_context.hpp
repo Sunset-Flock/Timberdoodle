@@ -85,6 +85,7 @@ namespace RenderTimes
             "PGI",
             {
                 "TRACE_SHADE_RAYS",
+                "TRACE_INTEGRATE",
                 "PRE_UPDATE_PROBES",
                 "UPDATE_PROBES",
                 "UPDATE_PROBE_TEXELS",
@@ -113,8 +114,6 @@ namespace RenderTimes
                 "HASH_GRID_BLEND",
                 "HASH_GRID_DEBUG",
                 "TEMPORAL_ACCUMULATION",
-                "POST_BLUR_VERTICAL",
-                "POST_BLUR_HORIZONTAL",
                 "POST_BLUR_ATROUS",
                 "UPSCALE",
             },

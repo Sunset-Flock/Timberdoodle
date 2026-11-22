@@ -93,6 +93,9 @@ func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 p
 
 [[vk::push_constant]] PGIUpdateProbeTexelsPush update_probe_texels_push;
 
+// Every probe update adds this to the probe validity (see the probe reposition pass), a fresh probe has validity 0.
+#define PGI_PROBE_VALIDITY_PER_UPDATE 0.05f
+
 func abs_radiance(float3 radiance) -> float
 {
     return radiance.r + radiance.g * 2.0f + radiance.b * 0.5f;
@@ -115,6 +118,7 @@ func fast_uint_div(uint a, uint b) -> uint
 func pgi_update_thread_to_probe_texel(
     uint flat_thread,
     int texel_res,
+    uint probe_update_count,
     out uint indirect_index,
     out int2 probe_texel) -> bool
 {
@@ -124,7 +128,7 @@ func pgi_update_thread_to_probe_texel(
     let texel_index = flat_thread - indirect_index * texels_per_probe;
     probe_texel.y = int(fast_uint_div(texel_index, uint(texel_res)));
     probe_texel.x = int(texel_index) - probe_texel.y * texel_res;
-    return indirect_index < update_probe_texels_push.attach.probe_indirections.probe_update_count;
+    return indirect_index < probe_update_count;
 }
 
 func entry_update_probe_color(
@@ -140,7 +144,7 @@ func entry_update_probe_color(
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        let is_valid = pgi_update_thread_to_probe_texel(flat_thread, reg_settings.probe_color_resolution, indirect_index, probe_texel);
+        let is_valid = pgi_update_thread_to_probe_texel(flat_thread, reg_settings.probe_color_resolution, push.attach.probe_indirections.probe_update_count, indirect_index, probe_texel);
         if (!is_valid)
         {
             return;
@@ -182,16 +186,42 @@ func entry_update_probe_color(
 
     float4 prev_frame_texel = push.attach.probe_color.get()[probe_texture_index];
     float3 prev_frame_irradiance = prev_frame_texel.rgb;
+    // The hysteresis of a texel is the cosine convolved hysteresis of the last frame (the same cosine lobe the irradiance is convolved with),
+    // not the texel's own value.
+    // KNOWN RACE (kept on purpose): the neighbors are read from the probe color image that this pass also writes, so a neighbor texel may already hold its NEW value of
+    // this frame. Which ones depends on the thread order of the GPU: the result is nondeterministic and not reproducible between frames.
+    // The hysteresis RISES by at most 0.1 per update but can DROP by much more (a large relative difference takes it from 0.95 to 0 in one update), so the jitter is not
+    // always small: it changes the blend weight of the texel (0.95 vs 0.9 doubles its update speed).
+    // Clean fix if it ever matters: compute this blur in the trace integrate pass (it runs before the color update and writes nothing to the probe color image)
+    // into a small transient image with the layout of the trace summary, and read that here.
+    RWTexture2DArray<float4> prev_hysteresis_tex = push.attach.probe_color.get();
+    float hysteresis_blur_sum = 0.0f;
+    float hysteresis_blur_weight = 0.0f;
 
     float3 radiance = float3(0.0f,0.0f,0.0f);
     float radiance_weight = 0.0f;
+    // A weighted (front facing, cos > 0) texel exists: the new irradiance stands for data, if none of them got a ray the old value is kept.
+    bool irradiance_has_weighted_texel = false;
+    Texture2DArray<uint> trace_count_tex = push.attach.trace_count.get();
     for (int y = 0; y < s; ++y)
     for (int x = 0; x < s; ++x)
     {
         float2 trace_tex_uv = (float2(x,y) + trace_texel_noise) * rcp_s;
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = max(0.0f, dot(trace_direction, probe_texel_normal));
+        {
+            // Hysteresis of the probe texel the trace direction falls into, same cosine weight as the irradiance.
+            const int2 hysteresis_texel = clamp(int2(trace_tex_uv * float(probe_texel_res)), int2(0, 0), int2(probe_texel_res - 1, probe_texel_res - 1));
+            hysteresis_blur_sum += cos_weight * prev_hysteresis_tex[probe_texture_base_index + int3(hysteresis_texel, 0)].a;
+            hysteresis_blur_weight += cos_weight;
+        }
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
+        // Number of valid rays integrated into this trace texel, 0 = no data.
+        const uint packed_count = trace_count_tex[sample_texture_index];
+        const float ray_count = float(packed_count & 0xFFFFu);
+        const bool has_rays = ray_count > 0.0f;
+        // Horvitz-Thompson: a covered texel stands for 1 / coverage probability texels (the ones that got no ray are not seen).
+        const float inverse_coverage = has_rays ? 65535.0f * rcp(float(max(packed_count >> 16u, 1u))) : 0.0f;
         // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float4 sample = trace_result_tex[sample_texture_index].rgba;
@@ -208,22 +238,29 @@ func entry_update_probe_color(
             const bool backface_hit = sample.a < 0.0f;
             if (!backface_hit)
             {
-                cosine_convoluted_trace_result += sample * cos_weight;
-                acc_weight += cos_weight;
+                // Texels without rays carry no data, they are left out of the estimate.
+                const float sample_weight = cos_weight * inverse_coverage;
+                cosine_convoluted_trace_result += sample * sample_weight;
+                acc_weight += sample_weight;
+                irradiance_has_weighted_texel = irradiance_has_weighted_texel || cos_weight > 0.0f;
             }
 
             const bool trace_within_probe_texel = all(trace_tex_uv >= probe_texel_min_uv && trace_tex_uv <= probe_texel_max_uv);
             if (trace_within_probe_texel)
             {
-                radiance += sample.rgb;
-                radiance_weight += 1.0f;
+                radiance += has_rays ? sample.rgb : float3(0.0f, 0.0f, 0.0f);
+                radiance_weight += has_rays ? 1.0f : 0.0f;
             }
         }
 
     }
 
-    radiance *= rcp(radiance_weight);
-    
+    // Without any valid ray inside the texel the radiance is not updated.
+    if (radiance_weight > 0.0f)
+    {
+        radiance *= rcp(radiance_weight);
+    }
+
     // If we have 0 weight we have no samples to blend so we dont blend at all.
     if (acc_weight > 0.0f)
     {
@@ -236,6 +273,10 @@ func entry_update_probe_color(
 
     // Automatic Hysteresis
     float hysteresis = prev_frame_texel.a;
+    if (hysteresis_blur_weight > 0.0f)
+    {
+        hysteresis = hysteresis_blur_sum * rcp(hysteresis_blur_weight);
+    }
     {
         const float HYSTERESIS_UPDATE_RATE = 0.1f;
         const float HYSTERESIS_MIN_RELATIVE_CHANGE = 1.5f;
@@ -273,11 +314,14 @@ func entry_update_probe_color(
     }
     
     // Perceptual lerp helps with blending to dark values
-    new_irradiance = perceptual_lerp3(new_irradiance, prev_frame_irradiance, blend);
+    // Fresh probes take the new (or higher cascade) value completely. Otherwise the old value is kept when weighted texels exist but none of them got a ray.
+    const bool fresh_probe = probe_info.validity < 0.5f;
+    const bool irradiance_no_data = irradiance_has_weighted_texel && acc_weight <= 0.0f;
+    new_irradiance = perceptual_lerp3(new_irradiance, prev_frame_irradiance, (fresh_probe || !irradiance_no_data) ? blend : 1.0f);
     new_irradiance = max(new_irradiance, float3(0,0,0)); // remove nans, what can i say...
 
     // Perceptual lerp helps with blending to dark values
-    const float radiance_blend = probe_info.validity < 0.5f ? 0.0f : 0.75f * hysteresis;
+    const float radiance_blend = fresh_probe ? 0.0f : (radiance_weight > 0.0f ? 0.75f * hysteresis : 1.0f);
     const float3 prev_exact_radiance = push.attach.probe_color.get()[probe_texture_index + int3(0, 0, reg_settings.cascade_count * reg_settings.probe_count.z)].rgb;
     float3 new_radiance = perceptual_lerp3(radiance, prev_exact_radiance, radiance_blend);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
@@ -299,7 +343,7 @@ func entry_update_probe_visibility(
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        let is_valid = pgi_update_thread_to_probe_texel(flat_thread, reg_settings.probe_visibility_resolution, indirect_index, probe_texel);
+        let is_valid = pgi_update_thread_to_probe_texel(flat_thread, reg_settings.probe_visibility_resolution, push.attach.probe_indirections.probe_update_count, indirect_index, probe_texel);
         if (!is_valid)
         {
             return;
@@ -334,6 +378,7 @@ func entry_update_probe_visibility(
     const float max_depth = reg_cascade.max_visibility_distance;
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
     float acc_cos_weights = {};
+    Texture2DArray<uint> trace_count_tex = push.attach.trace_count.get();
     int s = reg_settings.probe_trace_resolution;
     float rcp_s = rcp(s) * 0.999999f; // The multiplication with 0.999999f ensures that the calculated uv never reaches 1.0f.
 
@@ -402,6 +447,12 @@ func entry_update_probe_visibility(
             }
             #endif
 
+            // Trace texels without a valid ray have no data, they are skipped.
+            if ((trace_count_tex[sample_texture_index] & 0xFFFFu) == 0u)
+            {
+                continue;
+            }
+
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -409,7 +460,7 @@ func entry_update_probe_visibility(
             trace_depth = min(trace_depth, max_depth);
             {
                 if (is_backface) // Backface probe killer.
-                { 
+                {
                     relevant_trace_blend.x += -trace_depth * cos_weight * PGI_BACKFACE_DIST_SCALE;
                     relevant_trace_blend.y += 0.0f;
                     acc_cos_weights += cos_weight * PGI_BACKFACE_DIST_SCALE;
@@ -478,9 +529,7 @@ func entry_update_probe_texels(
 #define PGI_BACKFACE_ESCAPE_RANGE (PGI_DESIRED_RELATIVE_DISTANCE * 3)
 #define PGI_PROBE_VIEW_DISTANCE 1.0
 
-// The probe ray cdf is the inclusive prefix sum over the radiance luma weight of every probe texel (row major), normalized to PGI_RAY_CDF_ONE.
-// The last texel of a probe always holds PGI_RAY_CDF_ONE, the weight of texel i is cdf[i] - cdf[i-1].
-#define PGI_RAY_CDF_ONE (1u << 24)
+// The probe ray cdf (see PGI_RAY_CDF_ONE in pgi.hlsl) is built here, in the update of the probe.
 
 func pgi_probe_radiance_luma(float3 radiance) -> float
 {
@@ -508,9 +557,7 @@ func pgi_update_probe_ray_cdf(PGISettings reg_settings, PGICascade reg_cascade, 
     int3 radiance_base = pgi_probe_texture_base_offset<HAS_BORDER>(reg_settings, reg_cascade, res, probe_index);
     radiance_base.z += reg_settings.cascade_count * reg_settings.probe_count.z;
     // The cdf is a flat buffer: texel_count consecutive values per probe, in stable probe order.
-    int3 stable_index = pgi_probe_to_stable_index(reg_settings, reg_cascade, probe_index);
-    let stable_linear_index = uint((stable_index.z * reg_settings.probe_count.y + stable_index.y) * reg_settings.probe_count.x + stable_index.x);
-    uint* cdf_ptr = push.attach.probe_ray_cdf + stable_linear_index * uint(texel_count);
+    uint* cdf_ptr = push.attach.probe_ray_cdf + pgi_probe_stable_linear_index(reg_settings, reg_cascade, probe_index) * uint(texel_count);
 
     // Step 1, lane local: sum of the luma over this lane's section.
     float section_sum = 0.0f;
@@ -613,7 +660,10 @@ func entry_update_probe(
     float lane_closest_frontface_dist = SOME_LARGE_VALUE;
     float3 lane_closest_backface_dir = {};
     float lane_backface_count = {};
-    
+    // Trace texels with at least one valid ray. Texels without data are skipped (their distance would read as a hit at distance 0).
+    float lane_valid_ray_texel_count = {};
+    Texture2DArray<uint> trace_count_tex = push.attach.trace_count.get();
+
     for (int wave_i = 0; wave_i < wave_iterations; ++wave_i)
     {
         int i = wave_i * WARP_SIZE + group_index;
@@ -628,6 +678,12 @@ func entry_update_probe(
         float2 uv = (float2(probe_local_texel) + texel_trace_noise) * trace_res_rcp;
         float3 ray_dir = pgi_probe_uv_to_probe_normal(uv);
         
+        if (trace_count_tex[texel] == 0u)
+        {
+            continue;
+        }
+        lane_valid_ray_texel_count += 1.0f;
+
         float trace_result_a = trace_result_tex[texel].a;
         bool is_backface_hit = trace_result_a < 0.0f;
         float trace_distance = (is_backface_hit ? -trace_result_a : trace_result_a);
@@ -674,7 +730,9 @@ func entry_update_probe(
 
     pgi_update_probe_ray_cdf(reg_settings, reg_cascade, probe_index, group_index);
 
-    average_hit_offset *= rcp(float(s*s));
+    // Average over the trace texels that have data. Without any the offset stays 0.
+    let valid_ray_texel_count = WaveActiveSum(lane_valid_ray_texel_count);
+    average_hit_offset *= rcp(max(valid_ray_texel_count, 1.0f));
     if (backface_count > 0)
     {
         average_backface_hit_offset *= rcp(float(backface_count));
@@ -709,7 +767,7 @@ func entry_update_probe(
         return;
     }
 
-    probe_info.validity += 0.05f;
+    probe_info.validity += PGI_PROBE_VALIDITY_PER_UPDATE;
 
     // Calculate backface attraction
     bool too_few_backface_hits = backface_count < ceil(float(s) * 0.1f);
@@ -927,7 +985,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             let cell_indirectly_requested = indirect_request_timer != 0;
 
             probe_directly_requested = probe_directly_requested || cell_directly_requested;
-            probe_indirectly_requested = probe_indirectly_requested || cell_directly_requested;
+            probe_indirectly_requested = probe_indirectly_requested || cell_indirectly_requested;
             requested = requested || cell_directly_requested || cell_indirectly_requested;
         }
 
@@ -976,7 +1034,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         update = update && (update_index < PGI_MAX_UPDATES_PER_FRAME);
     }
 
-    push.attach.requests.get()[stable_index] = probe_base_request | (uint(probe_directly_requested) << 16) | (uint(probe_directly_requested) << 17);
+    push.attach.requests.get()[stable_index] = probe_base_request | (uint(probe_directly_requested) << 16) | (uint(probe_indirectly_requested) << 17);
 
     if (update)
     {
@@ -1062,9 +1120,12 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             let shade_rays_wgs = 0;//round_up_div(shade_rays_threads, PGI_SHADE_RAYS_X * PGI_SHADE_RAYS_Y * PGI_SHADE_RAYS_Z);
 
             push.attach.probe_indirections.probe_update_dispatch = DispatchIndirectStruct(probe_update_workgroups_x,1,1);
-            push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution, 1, 1);
+            push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * reg_settings.probe_ray_count, 1, 1);
             push.attach.probe_indirections.probe_color_update_dispatch = DispatchIndirectStruct(min(color_groups, groups_x_max), round_up_div(color_groups, groups_x_max), 1);
             push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(min(visibility_groups, groups_x_max), round_up_div(visibility_groups, groups_x_max), 1);
+            // The trace integration runs one thread per trace texel (trace resolution), same linear layout as the texel updates.
+            let trace_integrate_groups = round_up_div(probe_update_count * uint(reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution), threads_per_group);
+            push.attach.probe_indirections.probe_trace_integrate_dispatch = DispatchIndirectStruct(min(trace_integrate_groups, groups_x_max), round_up_div(trace_integrate_groups, groups_x_max), 1);
             push.attach.probe_indirections.probe_shade_rays_dispatch = DispatchIndirectStruct(shade_rays_wgs, 1, 1);
             push.attach.probe_indirections.probe_debug_draw_dispatch = DrawIndexedIndirectStruct(
                 PGI_DEBUG_PROBE_MESH_INDICES * 3,
@@ -1073,6 +1134,88 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             );
         }
     }
+}
+
+[[vk::push_constant]] PGITraceIntegratePush trace_integrate_push;
+
+// One thread per trace texel, probes one after the other (same linear layout as the texel updates).
+// Integrates the rays of the texel into the summary: mean radiance (rgb) and mean signed hit distance (a), exactly what the
+// probe update passes read as the "ray" of the texel.
+// Without guiding the rays of a texel is the one ray at its own atlas position, with guiding the rays [start, end) the probe ray cdf
+// assigned to the texel (the cdf the trace of this frame used, the probe update has not rewritten it yet).
+// Ray r is stored at the atlas position (r % trace_res, r / trace_res).
+[shader("compute")]
+[numthreads(PGI_UPDATE_WG_SIZE,1,1)]
+func entry_pgi_trace_integrate(
+    int3 gid : SV_GroupID,
+    uint group_index : SV_GroupIndex)
+{
+    let push = trace_integrate_push;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
+    let trace_res = settings->probe_trace_resolution;
+    // Workgroups are wrapped into rows of PGI_UPDATE_LINEAR_WG_X.
+    let flat_thread = (uint(gid.y) * PGI_UPDATE_LINEAR_WG_X + uint(gid.x)) * PGI_UPDATE_WG_SIZE + group_index;
+
+    uint indirect_index = {};
+    int2 trace_texel = {};
+    let probe_update_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count);
+    if (!pgi_update_thread_to_probe_texel(flat_thread, trace_res, probe_update_count, indirect_index, trace_texel))
+    {
+        return;
+    }
+
+    // The summary has one entry per trace texel and updated probe, the ray atlas one slot per ray (taller tiles with more than one ray per texel).
+    let atlas_base = int3(int2(pgi_indirect_index_to_trace_tex_offset(*settings, indirect_index)), 0);
+    let ray_atlas_base = int3(int2(pgi_indirect_index_to_ray_tex_offset(*settings, indirect_index)), 0);
+    Texture2DArray<float4> rays = push.attach.trace_result.get();
+
+    // The rays of this texel.
+    uint ray_begin = uint(trace_texel.y * trace_res + trace_texel.x);
+    uint ray_end = ray_begin + 1u;
+    // Probability that the texel got a ray this frame (1 without guiding: every texel has its own ray).
+    float coverage_probability = 1.0f;
+    PGISettings reg_settings = *settings;
+    if (pgi_ray_guiding_active(reg_settings))
+    {
+        uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
+        int4 probe_index = pgi_unpack_indirect_probe(indirect_package);
+        PGICascade reg_cascade = settings->cascades[probe_index.w];
+        let texel_count = trace_res * trace_res;
+        uint* cdf = (uint*)(push.attach.probe_ray_cdf) + pgi_probe_stable_linear_index(reg_settings, reg_cascade, probe_index) * uint(texel_count);
+        // A probe without a cdf (never written) was traced with the uniform cdf.
+        {
+            let cdf_valid = cdf[texel_count - 1] == PGI_RAY_CDF_ONE;
+            let ray_count = reg_settings.probe_ray_count;
+            let offset = pgi_ray_cdf_offset(pgi_probe_trace_noise(probe_index, int(push.attach.globals.frame_index)));
+            let texel_index = int(ray_begin);
+            ray_begin = pgi_ray_cdf_ray_start(texel_index > 0 ? uint64_t(pgi_ray_cdf_at(cdf, cdf_valid, texel_count, texel_index - 1)) * uint64_t(ray_count) : uint64_t(0), offset);
+            ray_end = pgi_ray_cdf_ray_start(uint64_t(pgi_ray_cdf_at(cdf, cdf_valid, texel_count, texel_index)) * uint64_t(ray_count), offset);
+            // Systematic sampling: a texel with ray_count * (its cdf share) < 1 gets a ray with exactly that probability.
+            let cdf_high = pgi_ray_cdf_at(cdf, cdf_valid, texel_count, texel_index);
+            let cdf_low = texel_index > 0 ? pgi_ray_cdf_at(cdf, cdf_valid, texel_count, texel_index - 1) : 0u;
+            coverage_probability = clamp(float(cdf_high - cdf_low) * (1.0f / float(PGI_RAY_CDF_ONE)) * float(ray_count), 0.02f, 1.0f);
+        }
+    }
+
+    float4 sum = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    uint valid_ray_count = 0u;
+    for (uint ray_index = ray_begin; ray_index < ray_end; ++ray_index)
+    {
+        let ray_y = int(ray_index) / trace_res;
+        let ray = rays[ray_atlas_base + int3(int2(int(ray_index) - ray_y * trace_res, ray_y), 0)];
+        // Only valid rays count (a non finite result would poison the mean).
+        if (all(isfinite(ray)))
+        {
+            sum += ray;
+            valid_ray_count += 1u;
+        }
+    }
+    // A texel without a valid ray has no data: count 0, the probe update passes skip it.
+    let mean = valid_ray_count > 0u ? sum * rcp(float(valid_ray_count)) : float4(0.0f, 0.0f, 0.0f, 0.0f);
+    push.attach.trace_summary.get()[atlas_base + int3(trace_texel, 0)] = mean;
+    // Low 16 bits: valid ray count. High 16 bits: the probability the texel was covered (unorm), the irradiance update weights covered texels by 1 / it.
+    // Without it texels that got no ray are dropped, which biases the estimate towards the texels the cdf favors (the bright ones).
+    push.attach.trace_summary_count.get()[atlas_base + int3(trace_texel, 0)] = valid_ray_count > 0u ? (min(valid_ray_count, 0xFFFFu) | (uint(coverage_probability * 65535.0f + 0.5f) << 16u)) : 0u;
 }
 
 [[vk::push_constant]] PGIInspectPush pgi_inspect_push;
@@ -1121,7 +1264,7 @@ func entry_pgi_inspect(int group_index : SV_GroupIndex)
     let res = reg_settings.probe_color_resolution;
     let texel_count = min(res * res, PGI_INSPECT_MAX_TEXELS);
     let trace_res = reg_settings.probe_trace_resolution;
-    let ray_count = min(trace_res * trace_res, PGI_INSPECT_MAX_TEXELS);
+    let ray_count = min(int(reg_settings.probe_ray_count), PGI_INSPECT_MAX_TEXELS);
 
     PGIProbeInfo probe_info = PGIProbeInfo::load(reg_settings, reg_cascade, push.attach.probe_info.get(), probe_index);
     let probe_position = pgi_probe_index_to_worldspace(reg_settings, reg_cascade, probe_info, probe_index);
@@ -1160,9 +1303,7 @@ func entry_pgi_inspect(int group_index : SV_GroupIndex)
         int3 radiance_base = pgi_probe_texture_base_offset<HAS_BORDER>(reg_settings, reg_cascade, res, probe_index);
         int3 irradiance_base = radiance_base;
         radiance_base.z += reg_settings.cascade_count * reg_settings.probe_count.z;
-        int3 stable_index = pgi_probe_to_stable_index(reg_settings, reg_cascade, probe_index);
-        let stable_linear_index = uint((stable_index.z * reg_settings.probe_count.y + stable_index.y) * reg_settings.probe_count.x + stable_index.x);
-        uint* cdf = (uint*)(push.attach.probe_ray_cdf) + stable_linear_index * uint(res * res);
+        uint* cdf = (uint*)(push.attach.probe_ray_cdf) + pgi_probe_stable_linear_index(reg_settings, reg_cascade, probe_index) * uint(res * res);
         Texture2DArray<float4> color_tex = push.attach.probe_color.get();
         for (int i = group_index; i < texel_count; i += PGI_INSPECT_WG_SIZE)
         {
@@ -1174,15 +1315,53 @@ func entry_pgi_inspect(int group_index : SV_GroupIndex)
         }
     }
 
+    // Request counters of the cells this probe is a vertex of, and why the probe would be deleted (read after this frame's pre update and sampling).
+    if (group_index == 0)
+    {
+        Texture2DArray<uint> requests_tex = push.attach.probe_requests.get();
+        bool any_requested = false;
+        for (int c = 0; c < 8; ++c)
+        {
+            let other_probe = int4(max(int3(0, 0, 0), probe_index.xyz - int3(c & 1, (c >> 1) & 1, (c >> 2) & 1)), probe_index.w);
+            uint direct_timer = 0xFFFFFFFFu;
+            uint indirect_timer = 0xFFFFFFFFu;
+            if (pgi_is_cell_base_probe(reg_settings, other_probe))
+            {
+                let package = requests_tex[pgi_probe_to_stable_index(reg_settings, reg_cascade, other_probe)];
+                direct_timer = package & 0xFFu;
+                indirect_timer = (package >> 8u) & 0xFFu;
+                any_requested = any_requested || direct_timer != 0u || indirect_timer != 0u;
+            }
+            data->request_cell_direct[c] = direct_timer;
+            data->request_cell_indirect[c] = indirect_timer;
+        }
+        data->request_package = requests_tex[pgi_probe_to_stable_index(reg_settings, reg_cascade, probe_index)];
+        data->requested = any_requested ? 1u : 0u;
+        let prev_frame_probe_index = pgi_probe_index_to_prev_frame(reg_settings, reg_cascade, probe_index);
+        data->is_new_probe = (any(prev_frame_probe_index.xyz < int3(0, 0, 0)) || any(prev_frame_probe_index.xyz >= reg_settings.probe_count)) ? 1u : 0u;
+    }
+
+    // Visibility texels: mean ray distance (depth) and its deviation, at the visibility resolution.
+    {
+        let vis_res = reg_settings.probe_visibility_resolution;
+        let vis_texel_count = min(vis_res * vis_res, PGI_INSPECT_MAX_TEXELS);
+        int3 visibility_base = pgi_probe_texture_base_offset<HAS_BORDER>(reg_settings, reg_cascade, vis_res, probe_index);
+        Texture2DArray<float2> visibility_tex = push.attach.probe_visibility.get();
+        for (int i = group_index; i < vis_texel_count; i += PGI_INSPECT_WG_SIZE)
+        {
+            int y = i / vis_res;
+            int2 texel = int2(i - y * vis_res, y);
+            data->visibility[i] = visibility_tex[visibility_base + int3(texel, 0)];
+        }
+    }
+
     // Rays: fresh from the trace result when the probe was traced this frame, else the stored ones. Every ray is drawn by the thread that writes it.
     {
         Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
         uint3 trace_base = uint3(0,0,0);
-        float2 noise = float2(0.0f, 0.0f);
         if (found)
         {
-            trace_base = uint3(pgi_indirect_index_to_trace_tex_offset(reg_settings, gs_inspect_update_index), 0);
-            noise = pgi_probe_trace_noise(probe_index, frame_index);
+            trace_base = uint3(pgi_indirect_index_to_ray_tex_offset(reg_settings, gs_inspect_update_index), 0);
         }
         let exposure = push.attach.globals.exposure;
         for (int r = group_index; r < draw_ray_count; r += PGI_INSPECT_WG_SIZE)
@@ -1192,7 +1371,8 @@ func entry_pgi_inspect(int group_index : SV_GroupIndex)
             {
                 int y = r / trace_res;
                 int x = r - y * trace_res;
-                let uv = (float2(x, y) + noise) * rcp(float(trace_res));
+                // The inspection runs before the probe update rewrites the cdf, it is the cdf this frame's trace used.
+                let uv = pgi_probe_ray_uv(reg_settings, reg_cascade, (uint*)(push.attach.probe_ray_cdf), probe_index, frame_index, uint(r));
                 float4 trace = trace_result_tex[trace_base + uint3(x, y, 0)];
                 ray.direction = pgi_probe_uv_to_probe_normal(uv);
                 ray.distance = trace.a;
@@ -1212,9 +1392,9 @@ func entry_pgi_inspect(int group_index : SV_GroupIndex)
         }
     }
 
-    if (group_index == 0 && push.show_rays != 0u)
+    if (group_index == 0)
     {
-        // Marker on the selected probe.
+        // Marker on the selected probe, always drawn (independent of show rays).
         ShaderDebugCircleDraw marker = {};
         marker.position = probe_position;
         marker.color = float3(1.0f, 1.0f, 1.0f);
@@ -1233,6 +1413,7 @@ func entry_pgi_inspect(int group_index : SV_GroupIndex)
         data->max_visibility_distance = reg_cascade.max_visibility_distance;
         data->color_resolution = uint(res);
         data->trace_resolution = uint(trace_res);
+        data->visibility_resolution = uint(reg_settings.probe_visibility_resolution);
         if (found)
         {
             data->ray_frame = frame_index;

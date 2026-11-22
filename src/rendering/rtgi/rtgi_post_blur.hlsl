@@ -6,8 +6,48 @@
 #include "shader_lib/misc.hlsl"
 #include "rtgi_shared.hlsl"
 
-[[vk::push_constant]] RtgiPostBlurPush rtgi_post_blur_push;
 [[vk::push_constant]] RtgiAtrousPostBlurPush rtgi_atrous_post_blur_push;
+
+// DESIGN NOTE (idea, not implemented): run the WIDEST a-trous passes BEFORE the temporal accumulate, in place of the adaptive pre-blur.
+//
+// How it came up:
+//   - The pre-blur (rtgi_pre_blur.hlsl) is already something like a wide a-trous: a big spatial low pass on the raw, noisy ray result, before temporal.
+//   - Its weak spot: it picks 8 random Poisson taps per pixel. At a wide radius every pixel gets a different sparse tap set, so it is noisy and it cannot
+//     resolve wide areas consistently. This shows on disocclusions, where the history is empty and the pre-blur is all there is.
+//   - An a-trous pass is deterministic: the same footprint everywhere, no per pixel random tap set. The wide taps do not have that problem, so a fully
+//     disoccluded area comes out smooth immediately.
+//
+// Benefits:
+//   - Disocclusions are smooth at once (see above).
+//   - Variance guiding (future): for the WIDE passes a SPATIAL variance is enough, each pixel pools many neighbors, so no temporal variance is needed.
+//     The per pixel ray count is known, the variance of the mean is sigma^2 / n. Only the finer a-trous passes and the upscale pass (after the temporal
+//     accumulate) use the sharp TEMPORAL variance.
+//   - The small tap jitter of the wide passes (rtgi_settings.post_blur_atrous_jitter) jiggles the result a little. Before the temporal accumulate that is
+//     averaged out by the temporal accumulation: the jiggle is a free spatial dither of the wide kernels, the same trick the pre-blur uses with its
+//     per frame disc rotation.
+//
+// Risks / things to port when this is done:
+//   - A blur before the temporal accumulate is baked into the history: the history converges to the BLURRED signal, later passes cannot bring the detail
+//     back (a blur after the temporal only touches the output). The pre-blur has this already. REPLACE the pre-blur, do not add on top of it.
+//     Idea: gate the wide passes by the reprojected history count (wide on disocclusions, skipped where the history is converged): fixes the baked-in blur and saves time.
+//   - Raw 1 ray input: no luminance guide (unreliable), geometry / normal / depth / AO guide + ray count tap weights only.
+//   - Port from the pre-blur: firefly energy compensation (weight on iteration 0), AO radius guide, ray count tap weights.
+//   - The temporal accumulate assumes a 1 sample input. After a wide pass the input variance is much lower, it may blend too conservatively (lag):
+//     it needs the effective sample count of the input.
+//   - Specular stays on the pre-blur path (a wide spatial blur on glossy history is wrong).
+//   - The FINE a-trous passes stay AFTER the temporal accumulate on purpose: a spatial pass after the temporal hides disocclusion streaking
+//     (slight brightness / tint differences between the fresh and the reprojected pixels). Only the widest passes move before it.
+//   - TRIED and REMOVED: a setting ("Atrous Passes Before Temporal") that ran the widest N passes before the temporal accumulate. Result: the pre temporal result was not
+//     smooth and disocclusions showed strong splodges (also with the guides off, with the pre blur off). Why, as far as understood:
+//       * the post temporal wide passes weight taps by the sample count, so they FILL a disoccluded strip from the converged neighbors (inpainting from smooth history);
+//         before the temporal there is no converged data, only raw noise.
+//       * a wide low pass of raw white noise makes LOW FREQUENCY noise (blobs the size of the kernel): the narrow passes after it cannot remove it, the temporal only slowly.
+//       * the post passes are recomputed every frame (a bad pixel costs one frame), the pre passes are accumulated into the history.
+//       * the low weight fallback of the pass (lerp back to the raw pixel when the tap weight sum is below 2) assumes count weights >= 1: with the counts of fresh pixels
+//         (0) at least half of the raw pixel survived.
+//     Idea instead: initialize disoccluded pixels from the converged neighbors' history (like the hash grid revive).
+//   - Plan (original): setting for the number of pre-temporal a-trous passes + pre-blur switchable off (A/B), reuse entry_atrous with the same head, keep step 4 and
+//     finer after the temporal and the merged finest step in the upscale pass.
 
 // Specular post blur state of one pixel. The specular channel rides along the diffuse tap loops: it reuses
 // their geometry weight and adds detail-normal + roughness similarity, with its own (lobe footprint) width.
@@ -58,339 +98,30 @@ func rtgi_specular_blur_end(RtgiSpecularBlur b, float4 center_spec) -> float4
 // groupshared float4 gs_diffuse_preload[PRELAOD_WIDTH][RTGI_POST_BLUR_X];
 // groupshared float2 gs_diffuse2_preload[PRELAOD_WIDTH][RTGI_POST_BLUR_X];
 
+// Sparse far taps (see rtgi.inl): the 4 taps are weighted by an equal share of the 8 ring taps' total weight (0.75).
+static const float2 RTGI_ATROUS_MSAA4_PATTERN[4] = { float2(-0.125f, -0.375f), float2(0.375f, -0.125f), float2(-0.375f, 0.125f), float2(0.125f, 0.375f) };
+
+// Taps whose weight is below this before the color / guide fetches are skipped without loading them.
+#define RTGI_ATROUS_MIN_TAP_WEIGHT 1e-4f
+// The callback dispatches with a square block size (dispatch_image_relative uses one block size for x and y), so the group must be square.
 [shader("compute")]
-[numthreads(RTGI_POST_BLUR_X,RTGI_POST_BLUR_Y,1)]
-func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
-{
-    let push = rtgi_post_blur_push;
-    let rtgi_settings = push.attach.globals.rtgi_settings;
-
-    // Pass 0 = horizontal (16 threads along X, 4 along Y — no swizzle needed).
-    // Pass 1 = vertical: swizzle so the 16-wide thread dimension aligns with Y reads.
-    //   GroupID.x = dtid.x / RTGI_POST_BLUR_X,  LocalID.x = dtid.x % RTGI_POST_BLUR_X  (0..15)
-    //   GroupID.y = dtid.y / RTGI_POST_BLUR_Y,  LocalID.y = dtid.y % RTGI_POST_BLUR_Y  (0..3)
-    //   pixel.x = GroupID.x * RTGI_POST_BLUR_Y + LocalID.y
-    //   pixel.y = GroupID.y * RTGI_POST_BLUR_X + LocalID.x
-    const uint2 pixel_coord = push.pass == 0
-        ? dtid
-        : uint2((dtid.x / RTGI_POST_BLUR_X) * RTGI_POST_BLUR_Y + (dtid.y % RTGI_POST_BLUR_Y),
-                (dtid.y / RTGI_POST_BLUR_Y) * RTGI_POST_BLUR_X + (dtid.x % RTGI_POST_BLUR_X));
-
-    if (any(pixel_coord >= push.size))
-    {
-        return;
-    }
-
-    // Load and precalculate constants
-    const CameraInfo camera = push.attach.globals->view_camera;
-    const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
-    const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
-    const uint2 halfres_pixel_index = pixel_coord;
-
-    const PixelData pixel = calc_pixel_data(pixel_coord, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.depth_vs);
-    const float pixel_width_ws_rcp = rcp(pixel_width_ws);
-
-    const float pixel_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[halfres_pixel_index]);
-
-    if (pixel.depth_vs == 0.0f)
-    {
-        return;
-    }
-
-
-    // We want the kernel to align with the surface,
-    // but on shallow angles we would loose too much pixel footprint,
-    // so we bias the normal to face the camera more.
-    const float ss_gradient_view_bias = 0.1f;
-    const float3 biased_vs_normal = lerp(pixel.normal_vs, float3(0,0,1), ss_gradient_view_bias);
-    const float2 ss_gradient = float2(
-        sin(acos(biased_vs_normal.x)),
-        sin(acos(biased_vs_normal.y)),
-    ) * inv_half_res_render_target_size;
-
-    float valid_sample_count = 0.0f;
-    float weight_accum = 0.0f;
-    float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
-    float2 blurred_accum2 = float2( 0.0f, 0.0f );
-
-    const float max_sample_count = rtgi_settings.max_temporal_samples;
-
-    const float ao_guide    = push.attach.ao_guide_image.get()[pixel_coord];
-    const float ao_guide_radius_scale = rtgi_settings.post_blur_ao_guiding ? lerp(rtgi_settings.post_blur_ao_guide_floor, 1.0f, ao_guide) : 1.0f;
-    // Disabled -> 0 (not 1): frame_scale only *widens* the filter on disocclusion. At 1 it would force full
-    // width every frame and override the guides; at 0 the width is driven purely by the guides from frame one.
-    const float frame_scale = rtgi_settings.post_blur_disocclusion_blur_enabled ? lerp(1.0f, 0.0f, square(saturate(pixel_samplecnt / 16.0f))) : 0.0f;
-
-    const int filter_width = max(1, int((float)rtgi_settings.post_blur_max_width * max(frame_scale, ao_guide_radius_scale)));
-
-    const float pixel_perceptual_radiance = push.attach.temporal_perceptual_radiance.get()[halfres_pixel_index];
-    const float sample_count_ramp = rtgi_settings.max_temporal_samples * 0.1f;
-    const float guide_ramp = saturate((pixel_samplecnt - sample_count_ramp) / max(sample_count_ramp, 1.0f));
-
-    const float4 pixel_spec = push.attach.rtgi_specular_before.get()[halfres_pixel_index];
-    RtgiSpecularBlur spec_blur = rtgi_specular_blur_begin(rtgi_settings, pixel_spec,
-        unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
-        unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
-        pixel_width_ws, ao_guide);
-
-    // write_debug_image(push.attach.debug_image.get(), 0, dtid, float4(Heatmap(filter_width * rcp((float)rtgi_settings.post_blur_max_width)), 2.0f), 2);
-
-    for (int i = -filter_width; i <= filter_width; )
-    {
-        int2 xy = push.pass == 0 ? int2(i, 0) : int2(0, i);
-
-        // Taps that fall outside the image get zero weight rather than clamping onto (and
-        // over-weighting) the edge pixel. Index is still clamped so the loads stay in bounds.
-        const int2 raw_index = int2(pixel_coord) + xy;
-        const bool out_of_bounds = any(raw_index < int2(0, 0)) || any(raw_index >= int2(push.size));
-        const int2 sample_index = clamp(raw_index, int2(0, 0), int2(push.size - 1));
-
-        // Load sample data
-        const PixelData sample = calc_pixel_data(uint2(sample_index), inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-        const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
-        const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
-
-        // Calculate validity weights
-        const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
-        const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample.normal_ws);
-        const float gauss_weight = calc_gaussian_weight(float(abs(i))/float(filter_width));
-
-        if (!out_of_bounds && sample.depth_vs != 0.0f && float(abs(i)) <= spec_blur.width)
-        {
-            rtgi_specular_blur_tap(spec_blur, float(abs(i)), geometric_weight,
-                unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[sample_index]),
-                unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[sample_index]),
-                push.attach.rtgi_specular_before.get()[sample_index]);
-        }
-
-        // The 5 nearest taps (center ± 2) are always sampled at stride 1 regardless of post_blur_stride.
-        // The quad-based pre-filter creates 2x2-cell boundary artifacts that need these nearby samples.
-        const bool is_near_center = abs(i) <= 2;
-
-        // Advance: outside the center zone use stride, but clamp so we land on -2 rather than
-        // skipping past it. Inside [-2, 2) walk one pixel at a time, then resume stride after 2.
-        if (i < -2)
-            i = min(i + rtgi_settings.post_blur_stride, -2);
-        else if (i < 2)
-            i += 1;
-        else
-            i += rtgi_settings.post_blur_stride;
-
-        float extra_weight = 1.0f;
-        if (!is_near_center)
-        {
-            float raw_weight = 1.0f;
-            if (rtgi_settings.post_blur_perceptual_difference_guiding)
-            {
-                const float sample_perceptual_radiance = push.attach.temporal_perceptual_radiance.get()[sample_index];
-                raw_weight = calc_perceptual_difference_weight(pixel_perceptual_radiance, sample_perceptual_radiance, rtgi_settings.post_blur_perceptual_radiance_guide_tolerance);
-            }
-            extra_weight = lerp(1.0f, raw_weight, guide_ramp);
-        }
-
-        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * extra_weight);
-
-        // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
-        const bool is_sky = sample.depth_vs == 0.0f;
-        if (!is_sky)
-        {
-            // Accumulate blurred diffuse
-            weight_accum += weight;
-            blurred_accum += weight * sample_sh_y;
-            blurred_accum2 += weight * sample_cocg;
-            valid_sample_count += geometric_weight > 0.0f;
-        }
-    }
-
-    // Calculate blurred diffuse and fallback blending
-    // Some pixels find nearly no suitable spacial samples,
-    // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
-    const float low_weight_fallback_blend = max(0.0f, 1.0f - (weight_accum / (filter_width/4.0f))); 
-    const float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.0001f);
-    const float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.0001f);
-    const float4 pixel_sh_y = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
-    const float2 pixel_cocg = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index].rg;
-    const float4 blurred_sh_y = lerp(blurry_sh_y, pixel_sh_y, low_weight_fallback_blend);
-    const float2 blurred_cocg = lerp(blurry_cocg, pixel_cocg, low_weight_fallback_blend);
-
-    push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = blurred_sh_y;
-    push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = blurred_cocg;
-    push.attach.rtgi_specular_blurred.get()[halfres_pixel_index] = rtgi_specular_blur_end(spec_blur, pixel_spec);
-}
-
-// ===========================================================================================
-// Groupshared (LDS) variant of the horizontal/vertical separable post blur. Identical math to
-// entry_post_blur. Only the world-space POSITION + depth is preloaded into LDS (as a float4), so the
-// per-tap unproject is done once per texel instead of once per tap. Everything else (normal, diffuse,
-// CoCg, perceptual guide) is fetched per tap from its texture as in the plain variant. Toggled via
-// post_blur_use_lds. The filter radius is capped at RTGI_PB_LDS_RADIUS (the preloaded halo).
-static const int RTGI_PB_LDS_RADIUS = 16;
-static const int RTGI_PB_LDS_SPAN   = RTGI_POST_BLUR_X + RTGI_PB_LDS_RADIUS * 2; // 48 texels along the blur axis
-groupshared float4 gs_pb_pos_depth[RTGI_PB_LDS_SPAN][RTGI_POST_BLUR_Y]; // .xyz = world-space position, .w = half-res depth (0 == sky)
-
-[shader("compute")]
-[numthreads(RTGI_POST_BLUR_X, RTGI_POST_BLUR_Y, 1)]
-func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
-{
-    let push = rtgi_post_blur_push;
-    let rtgi_settings = push.attach.globals.rtgi_settings;
-
-    const CameraInfo camera = push.attach.globals->view_camera;
-    const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
-    const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
-
-    const uint bl = gtid.x; // 0..RTGI_POST_BLUR_X-1, position ALONG the blur axis
-    const uint pp = gtid.y; // 0..RTGI_POST_BLUR_Y-1, perpendicular position
-
-    // Map the (swizzled for the vertical pass) thread to its pixel + the group's blur-axis start.
-    int group_blur_start;
-    int perp_global;
-    uint2 pixel_coord;
-    if (push.pass == 0)
-    {
-        group_blur_start = int(gid.x) * RTGI_POST_BLUR_X;
-        perp_global      = int(gid.y) * RTGI_POST_BLUR_Y + int(pp);
-        pixel_coord      = uint2(group_blur_start + int(bl), perp_global);
-    }
-    else
-    {
-        group_blur_start = int(gid.y) * RTGI_POST_BLUR_X;
-        perp_global      = int(gid.x) * RTGI_POST_BLUR_Y + int(pp);
-        pixel_coord      = uint2(perp_global, group_blur_start + int(bl));
-    }
-
-    // Cooperative preload of the world-space position + depth for [group_blur_start - R, +tile + R) along
-    // the blur axis (the only thing that needs the per-texel unproject). Edges clamped to match the plain
-    // variant's per-tap clamp.
-    const int2 max_index = int2(push.size) - 1;
-    for (uint s = bl; s < uint(RTGI_PB_LDS_SPAN); s += RTGI_POST_BLUR_X)
-    {
-        const int blur_global = group_blur_start - RTGI_PB_LDS_RADIUS + int(s);
-        int2 tex = push.pass == 0 ? int2(blur_global, perp_global) : int2(perp_global, blur_global);
-        tex = clamp(tex, int2(0, 0), max_index);
-        const float  d   = push.attach.view_cam_half_res_depth.get()[uint2(tex)];
-        const float2 uv  = (float2(tex) + 0.5f) * inv_half_res_render_target_size;
-        gs_pb_pos_depth[s][pp] = float4(rtgi_half_res_depth_to_world_space(camera, uv * 2.0f - 1.0f, d), d);
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    const int   center_span  = RTGI_PB_LDS_RADIUS + int(bl);
-    const float4 center_pd   = gs_pb_pos_depth[center_span][pp];
-    const float center_depth = center_pd.w;
-    if (any(pixel_coord >= push.size) || center_depth == 0.0f)
-        return;
-
-    // Center pixel via the shared helper. Per-tap samples in the loop still read their world position
-    // straight from the LDS preload, so this is the only unproject on the blur-axis hot path.
-    const PixelData pixel = calc_pixel_data(pixel_coord, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-    const float  pixel_width_ws     = rtgi_half_res_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, center_depth);
-    const float  pixel_width_ws_rcp = rcp(pixel_width_ws);
-
-    const uint2 halfres_pixel_index = pixel_coord;
-    const float pixel_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[halfres_pixel_index]);
-
-    const float ao_guide    = push.attach.ao_guide_image.get()[pixel_coord];
-    const float ao_guide_radius_scale = rtgi_settings.post_blur_ao_guiding ? lerp(rtgi_settings.post_blur_ao_guide_floor, 1.0f, ao_guide) : 1.0f;
-    const float frame_scale = rtgi_settings.post_blur_disocclusion_blur_enabled ? lerp(1.0f, 0.0f, square(saturate(pixel_samplecnt / 16.0f))) : 0.0f;
-    // Cap the width at the preloaded halo radius.
-    int filter_width = max(1, int((float)rtgi_settings.post_blur_max_width * max(frame_scale, ao_guide_radius_scale)));
-    filter_width = min(filter_width, RTGI_PB_LDS_RADIUS);
-
-    const float pixel_perceptual_radiance = push.attach.temporal_perceptual_radiance.get()[halfres_pixel_index];
-    const float sample_count_ramp = rtgi_settings.max_temporal_samples * 0.1f;
-    const float guide_ramp = saturate((pixel_samplecnt - sample_count_ramp) / max(sample_count_ramp, 1.0f));
-
-    float weight_accum = 0.0f;
-    float4 blurred_accum = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float2 blurred_accum2 = float2(0.0f, 0.0f);
-
-    const float4 pixel_spec = push.attach.rtgi_specular_before.get()[halfres_pixel_index];
-    RtgiSpecularBlur spec_blur = rtgi_specular_blur_begin(rtgi_settings, pixel_spec,
-        unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
-        unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[halfres_pixel_index]),
-        pixel_width_ws, ao_guide);
-    spec_blur.width = min(spec_blur.width, float(RTGI_PB_LDS_RADIUS));
-
-    for (int i = -filter_width; i <= filter_width; )
-    {
-        // Position + depth come from LDS; the sample's texel coord (for the other, per-tap texture reads).
-        const int span = center_span + i;
-        const float4 sample_pd = gs_pb_pos_depth[span][pp];
-        const float  sample_depth = sample_pd.w;
-        const float3 sample_pos   = sample_pd.xyz;
-        const int2 raw_index = int2(pixel_coord) + (push.pass == 0 ? int2(i, 0) : int2(0, i));
-        // Out-of-bounds taps get zero weight; index still clamped so loads stay in bounds.
-        const bool out_of_bounds = any(raw_index < int2(0, 0)) || any(raw_index >= int2(push.size));
-        const int2 sample_index = clamp(raw_index, int2(0, 0), max_index);
-        const float3 sample_norm  = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[uint2(sample_index)]);
-        const float4 sample_sh_y  = push.attach.rtgi_diffuse_before.get()[sample_index];
-        const float2 sample_cocg  = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
-
-        const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample_pos, sample_norm);
-        const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample_norm);
-        const float gauss_weight = calc_gaussian_weight(float(abs(i)) / float(filter_width));
-
-        if (!out_of_bounds && sample_depth != 0.0f && float(abs(i)) <= spec_blur.width)
-        {
-            rtgi_specular_blur_tap(spec_blur, float(abs(i)), geometric_weight,
-                unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[uint2(sample_index)]),
-                unpack_normal_roughness_roughness(push.attach.specular_normal_roughness.get()[uint2(sample_index)]),
-                push.attach.rtgi_specular_before.get()[sample_index]);
-        }
-
-        const bool is_near_center = abs(i) <= 2;
-        
-        if (i < -2)      i = min(i + rtgi_settings.post_blur_stride, -2);
-        else if (i < 2)  i += 1;
-        else             i += rtgi_settings.post_blur_stride;
-
-        float extra_weight = 1.0f;
-        if (!is_near_center)
-        {
-            float raw_weight = 1.0f;
-            if (rtgi_settings.post_blur_perceptual_difference_guiding)
-            {
-                const float sample_perceptual_radiance = push.attach.temporal_perceptual_radiance.get()[sample_index];
-                raw_weight = calc_perceptual_difference_weight(pixel_perceptual_radiance, sample_perceptual_radiance, rtgi_settings.post_blur_perceptual_radiance_guide_tolerance);
-            }
-            extra_weight = lerp(1.0f, raw_weight, guide_ramp);
-        }
-
-        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * extra_weight);
-        if (sample_depth != 0.0f) // skip sky
-        {
-            weight_accum   += weight;
-            blurred_accum  += weight * sample_sh_y;
-            blurred_accum2 += weight * sample_cocg;
-        }
-    }
-
-    const float low_weight_fallback_blend = max(0.0f, 1.0f - (weight_accum / (filter_width / 4.0f)));
-    const float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.0001f);
-    const float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.0001f);
-    const float4 pixel_sh_y  = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
-    const float2 pixel_cocg  = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index].rg;
-
-    push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index]  = lerp(blurry_sh_y, pixel_sh_y, low_weight_fallback_blend);
-    push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = lerp(blurry_cocg, pixel_cocg, low_weight_fallback_blend);
-    push.attach.rtgi_specular_blurred.get()[halfres_pixel_index] = rtgi_specular_blur_end(spec_blur, pixel_spec);
-}
-
-[shader("compute")]
-[numthreads(RTGI_POST_BLUR_X, RTGI_POST_BLUR_Y, 1)]
+[numthreads(RTGI_POST_BLUR_X, RTGI_POST_BLUR_X, 1)]
 func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
 {
     let push = rtgi_atrous_post_blur_push;
     let rtgi_settings = push.attach.globals.rtgi_settings;
 
-    if (any(dtid.xy >= push.size))
-        return;
-
     const CameraInfo camera = push.attach.globals->view_camera;
     const float2 half_res_size = push.attach.globals.settings.render_target_size.xy >> 1;
     const float2 inv_half_res_size = rcp(half_res_size);
     const uint2 pixel_index = dtid;
+
+    // Jitter amplitude in texels, 0 when jitter is off: the jitter is multiplied by it, the setting is read once.
+    const float jitter_amplitude = rtgi_settings.post_blur_atrous_jitter != 0 ? RTGI_ATROUS_TAP_JITTER_AMPLITUDE * float(push.step_size) : 0.0f;
+    const bool sparse_taps_enabled = rtgi_settings.post_blur_atrous_sparse_taps != 0;
+
+    if (any(dtid.xy >= push.size))
+        return;
 
     const PixelData pixel = calc_pixel_data(dtid, inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
     const float pixel_width_ws = rtgi_half_res_pixel_width_ws(inv_half_res_size, camera.near_plane, pixel.depth_vs);
@@ -418,6 +149,9 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
     float4 diffuse_accum = float4(0, 0, 0, 0);
     float2 diffuse2_accum = float2(0, 0);
 
+    // Per pixel, per pass, per frame seed for the tap jitter.
+    rand_seed(dtid.x * 9629u + dtid.y * 10069u + uint(push.step_size) * 1743216u + (rtgi_settings.animate_noise ? uint(push.attach.globals.trunk_flt_frame_index) * 257u : 0u));
+
     // Specular joins an a-trous level only while the step still fits inside its lobe footprint.
     const float4 pixel_spec = push.attach.rtgi_specular_before.get()[pixel_index];
     RtgiSpecularBlur spec_blur = rtgi_specular_blur_begin(rtgi_settings, pixel_spec,
@@ -425,28 +159,64 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
         unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[pixel_index]),
         pixel_width_ws, ao_guide);
 
-    for (int dy = -1; dy <= 1; ++dy)
+    const bool sparse_taps = sparse_taps_enabled && push.step_size >= RTGI_ATROUS_SPARSE_TAPS_MIN_STEP;
+    const int tap_count = sparse_taps ? 5 : 9;
+
+    for (int tap = 0; tap < tap_count; ++tap)
     {
-        for (int dx = -1; dx <= 1; ++dx)
         {
-            const int2 raw_index = int2(pixel_index) + int2(dx, dy) * push.step_size;
-            // Out-of-bounds taps get zero weight; index still clamped so loads stay in bounds.
+            // Tap 0 of the sparse pattern is the center, the dense pattern is the 3x3 grid (tap 4 is the center).
+            int2 tap_offset;
+            float tap_gauss;
+            bool is_center;
+            if (sparse_taps)
+            {
+                is_center = tap == 0;
+                tap_offset = is_center ? int2(0, 0) : int2(round(RTGI_ATROUS_MSAA4_PATTERN[max(tap - 1, 0)] * (RTGI_ATROUS_SPARSE_PATTERN_SCALE * float(push.step_size))));
+                tap_gauss = is_center ? 0.25f : 0.1875f;
+            }
+            else
+            {
+                const int dx = tap % 3 - 1;
+                const int dy = tap / 3 - 1;
+                is_center = dx == 0 && dy == 0;
+                tap_offset = int2(dx, dy) * push.step_size;
+                // 3x3 separable Gaussian: [0.25, 0.5, 0.25] per axis.
+                tap_gauss = (dx == 0 ? 0.5f : 0.25f) * (dy == 0 ? 0.5f : 0.25f);
+            }
+
+            // Tap jitter of up to +-0.25 * step_size texels, rounded to whole texels:
+            // step 1 and 2 round to 0 (no effect), from step 4 (third pass) on taps move by up to 1 texel and so on.
+            // Center tap stays put.
+            int2 tap_jitter = int2(0, 0);
+            if (!is_center)
+            {
+                tap_jitter = int2(round((float2(rand(), rand()) * 2.0f - 1.0f) * jitter_amplitude));
+            }
+            const int2 raw_index = int2(pixel_index) + tap_offset + tap_jitter;
+            // Out-of-bounds taps contribute nothing.
             const bool out_of_bounds = any(raw_index < int2(0, 0)) || any(raw_index >= int2(push.size));
-            const int2 sample_index = clamp(raw_index, int2(0, 0), int2(push.size) - 1);
+            if (out_of_bounds)
+            {
+                continue;
+            }
+            const uint2 sample_index = uint2(raw_index);
 
-            const PixelData sample = calc_pixel_data(uint2(sample_index), inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
-            if (sample.depth_vs == 0.0f) continue;
-
-            const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
-            const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
-            const float sample_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[sample_index]);
+            const PixelData sample = calc_pixel_data(sample_index, inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
+            if (sample.depth_vs == 0.0f)
+            {
+                continue;
+            }
 
             const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
+            if (geometric_weight < RTGI_ATROUS_MIN_TAP_WEIGHT)
+            {
+                continue;
+            }
             const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample.normal_ws);
-            const float sample_count_weight = sample_samplecnt + 1.0f;
 
-            const float spec_tap_distance = (dx == 0 && dy == 0) ? 0.0f : float(push.step_size);
-            if (!out_of_bounds && spec_tap_distance <= spec_blur.width)
+            const float spec_tap_distance = is_center ? 0.0f : (sparse_taps ? length(float2(tap_offset)) : float(push.step_size));
+            if (spec_tap_distance <= spec_blur.width)
             {
                 rtgi_specular_blur_tap(spec_blur, spec_tap_distance, geometric_weight,
                     unpack_normal_roughness_normal(push.attach.specular_normal_roughness.get()[sample_index]),
@@ -454,13 +224,20 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
                     push.attach.rtgi_specular_before.get()[sample_index]);
             }
 
-            // 3x3 separable Gaussian: [0.25, 0.5, 0.25] per axis.
             // Geometric guide scales down non-center tap contributions.
-            const bool is_center = (dx == 0 && dy == 0);
-            const float gauss_1d_x = dx == 0 ? 0.5f : 0.25f;
-            const float gauss_1d_y = dy == 0 ? 0.5f : 0.25f;
             const float geometric_factor = is_center ? 1.0f : effective_ao_guide_radius_scale;
-            const float gauss_weight = gauss_1d_x * gauss_1d_y * geometric_factor;
+            const float gauss_weight = tap_gauss * geometric_factor;
+
+            // The remaining factors (count weight >= 1, guide weight <= 1) cannot lift a tiny weight, skip the color fetches.
+            if (geometric_weight * normal_weight * gauss_weight < RTGI_ATROUS_MIN_TAP_WEIGHT)
+            {
+                continue;
+            }
+
+            const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
+            const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
+            const float sample_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[sample_index]);
+            const float sample_count_weight = sample_samplecnt + 1.0f;
 
             float extra_weight = 1.0f;
             if (!is_center)
@@ -474,7 +251,7 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
                 extra_weight = lerp(1.0f, raw_weight, guide_ramp);
             }
 
-            const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * sample_count_weight * extra_weight);
+            const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * extra_weight;
 
             weight_accum += weight;
             diffuse_accum += weight * sample_sh_y;

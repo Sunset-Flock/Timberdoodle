@@ -1454,6 +1454,7 @@ static constexpr inline char const PGI_SHADER_PATH[] = "./src/rendering/pgi/pgi_
 MAKE_COMPUTE_COMPILE_INFO(pgi_update_probe_texels_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_texels")
 MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe")
 MAKE_COMPUTE_COMPILE_INFO(pgi_inspect_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pgi_inspect")
+MAKE_COMPUTE_COMPILE_INFO(pgi_trace_integrate_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pgi_trace_integrate")
 MAKE_COMPUTE_COMPILE_INFO(pgi_pre_update_probes_compute_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pre_update_probes")
 
 MAKE_COMPUTE_COMPILE_INFO(pgi_eval_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "enty_eval_screen_irradiance")
@@ -1483,9 +1484,10 @@ auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelin
 auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo2
 {
     auto ret = daxa::RasterPipelineCompileInfo2{};
+    // Probes draw into the debug image (not the color image) so they end up on top of the debug views, see the fragment shader.
     ret.color_attachments = std::vector{
         daxa::RenderAttachment{
-            .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
+            .format = daxa::Format::R32G32B32A32_SFLOAT,
         },
     };
     ret.depth_test = {
@@ -1616,6 +1618,20 @@ void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_co
     }
 }
 
+void pgi_trace_integrate_callback(daxa::TaskInterface ti, RenderContext* render_context, [[maybe_unused]] PGIState* pgi_state)
+{
+    auto const & AT = PGITraceIntegrateH::Info::AT;
+    auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_INTEGRATE">());
+    PGITraceIntegratePush push = {};
+    push.attach = ti.attachment_shader_blob;
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_trace_integrate_compile_info().name));
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch_indirect({
+        .indirect_buffer = ti.id(AT.probe_indirections),
+        .offset = offsetof(PGIIndirections, probe_trace_integrate_dispatch),
+    });
+}
+
 void pgi_inspect_callback(daxa::TaskInterface ti, RenderContext* render_context, [[maybe_unused]] PGIState* pgi_state)
 {
     auto const & inspect = render_context->pgi_inspect;
@@ -1683,7 +1699,7 @@ void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render
                                  static_cast<u64>(settings.probe_count.z) * static_cast<u64>(settings.cascade_count);
         u64 const rate_limited_probes = settings.update_rate == PGI_UPDATE_RATE_FULL ? total_probes : (total_probes + 1u) / 2u;
         u64 const max_probes = std::min<u64>(rate_limited_probes, PGI_MAX_UPDATES_PER_FRAME);
-        u64 const rays_per_probe = static_cast<u64>(settings.probe_trace_resolution) * static_cast<u64>(settings.probe_trace_resolution);
+        u64 const rays_per_probe = static_cast<u64>(settings.probe_ray_count);
         ti.recorder.trace_rays({
             .width = static_cast<u32>(max_probes * rays_per_probe),
             .height = 1,
@@ -1762,6 +1778,18 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
 
     render_data.pgi_settings.probe_color_resolution = constrain_resolution(render_data.pgi_settings.probe_color_resolution);
     render_data.pgi_settings.probe_visibility_resolution = constrain_resolution(render_data.pgi_settings.probe_visibility_resolution);
+
+    {
+        // Ray count per probe: the rays per texel factor only exists with ray guiding (same condition as pgi_ray_guiding_active in the shaders).
+        auto & pgi = render_data.pgi_settings;
+        pgi.probe_trace_resolution = std::max(1, pgi.probe_trace_resolution);
+        pgi.probe_rays_per_texel = std::clamp(pgi.probe_rays_per_texel, 0.125f, 16.0f);
+        u32 const trace_res = static_cast<u32>(pgi.probe_trace_resolution);
+        u32 const texels = trace_res * trace_res;
+        bool const guided = pgi.probe_ray_guiding != 0 && pgi.probe_trace_resolution == pgi.probe_color_resolution;
+        pgi.probe_ray_count = guided ? std::max(1u, static_cast<u32>(std::ceil(pgi.probe_rays_per_texel * static_cast<f32>(texels)))) : texels;
+        pgi.probe_ray_rows = round_up_div(pgi.probe_ray_count, trace_res);
+    }
 
     for (i32 c = 0; c < render_data.pgi_settings.cascade_count; ++c)
     {
@@ -2013,15 +2041,44 @@ void PGIState::cleanup(daxa::Device& device)
 
 auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings, [[maybe_unused]] PGIState& state) -> daxa::TaskImageView
 {
+    // One slot per ray: the tile of a probe is trace_res wide and probe_ray_rows (= trace_res without more than one ray per texel) tall.
     return tg.create_task_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = { 
+            static_cast<u32>(settings.probe_trace_resolution * PGI_TRACE_TEX_PROBES_X),
+            static_cast<u32>(settings.probe_ray_rows * (PGI_MAX_UPDATES_PER_FRAME / PGI_TRACE_TEX_PROBES_X)),
+            1,
+        },
+        .array_layer_count = 1,
+        .name = "pgi traced probe lighting and depth",
+    });
+}
+
+auto pgi_create_trace_summary_texture(daxa::TaskGraph& tg, PGISettings& settings, [[maybe_unused]] PGIState& state) -> daxa::TaskImageView
+{
+    return tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {
             static_cast<u32>(settings.probe_trace_resolution * PGI_TRACE_TEX_PROBES_X),
             static_cast<u32>(settings.probe_trace_resolution * (PGI_MAX_UPDATES_PER_FRAME / PGI_TRACE_TEX_PROBES_X)),
             1,
         },
         .array_layer_count = 1,
-        .name = "pgi traced probe lighting and depth",
+        .name = "pgi traced probe summary (integrated rays per trace texel)",
+    });
+}
+
+auto pgi_create_trace_summary_count_texture(daxa::TaskGraph& tg, PGISettings& settings, [[maybe_unused]] PGIState& state) -> daxa::TaskImageView
+{
+    return tg.create_task_image({
+        .format = daxa::Format::R16_UINT,
+        .size = {
+            static_cast<u32>(settings.probe_trace_resolution * PGI_TRACE_TEX_PROBES_X),
+            static_cast<u32>(settings.probe_trace_resolution * (PGI_MAX_UPDATES_PER_FRAME / PGI_TRACE_TEX_PROBES_X)),
+            1,
+        },
+        .array_layer_count = 1,
+        .name = "pgi traced probe summary ray count",
     });
 }
 
@@ -2113,31 +2170,22 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
                 .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
             })
             .executes(pgi_trace_probe_rays_callback, info.render_context, &info.pgi_state));
-    //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
-    info.tg.add_task(daxa::HeadTask<PGIUpdateProbesH::Info>()
-            .head_views(PGIUpdateProbesH::Info::Views{
+    // Integrates the rays of every trace texel. Must run before the probe update rewrites the ray distribution (cdf) the trace used.
+    daxa::TaskImageView pgi_trace_summary = pgi_create_trace_summary_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
+    daxa::TaskImageView pgi_trace_summary_count = pgi_create_trace_summary_count_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
+    info.tg.add_task(daxa::HeadTask<PGITraceIntegrateH::Info>()
+            .head_views(PGITraceIntegrateH::Info::Views{
                 .globals = info.render_context->tgpu_render_data.view(),
                 .probe_indirections = pgi_indirections,
-                .probe_info = info.pgi_state.probe_info_view,
-                .probe_info_copy = probe_info_copy,
                 .trace_result = pgi_trace_result,
-                .requests = info.pgi_state.cell_requests_view,
-                .probe_color = info.pgi_state.probe_color_view,
+                .trace_summary = pgi_trace_summary,
+                .trace_summary_count = pgi_trace_summary_count,
                 .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
             })
-            .executes(pgi_update_probes_callback, info.render_context, &info.pgi_state));
-    info.tg.add_task(daxa::HeadTask<PGIUpdateProbeTexelsH::Info>()
-            .head_views(PGIUpdateProbeTexelsH::Info::Views{
-                .globals = info.render_context->tgpu_render_data.view(),
-                .probe_indirections = pgi_indirections,
-                .probe_color = info.pgi_state.probe_color_view,
-                .probe_visibility = info.pgi_state.probe_visibility_view,
-                .probe_info = info.pgi_state.probe_info_view,
-                .trace_result = pgi_trace_result,
-            })
-            .executes(pgi_update_probe_texels_callback, info.render_context, &info.pgi_state));
+            .executes(pgi_trace_integrate_callback, info.render_context, &info.pgi_state));
 
     // Probe inspection: always in the graph (no graph rebuild when it is toggled), the callback skips the dispatch while it is off.
+    // Before the probe update: that one rewrites the probe ray cdf, the inspection needs the cdf this frame's trace used to show its rays.
     if (info.pgi_state.inspect_buffer.id().is_empty())
     {
         auto & device = info.render_context->gpu_context->device;
@@ -2157,11 +2205,38 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
                 .probe_indirections = pgi_indirections,
                 .probe_color = info.pgi_state.probe_color_view,
                 .probe_info = info.pgi_state.probe_info_view,
+                .probe_visibility = info.pgi_state.probe_visibility_view,
+                .probe_requests = info.pgi_state.cell_requests_view,
                 .trace_result = pgi_trace_result,
                 .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
                 .inspect = info.pgi_state.inspect_buffer.view(),
             })
             .executes(pgi_inspect_callback, info.render_context, &info.pgi_state));
+    //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
+    info.tg.add_task(daxa::HeadTask<PGIUpdateProbesH::Info>()
+            .head_views(PGIUpdateProbesH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_indirections = pgi_indirections,
+                .probe_info = info.pgi_state.probe_info_view,
+                .probe_info_copy = probe_info_copy,
+                .trace_result = pgi_trace_summary,
+                .requests = info.pgi_state.cell_requests_view,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_ray_cdf = info.pgi_state.probe_ray_cdf.view(),
+                .trace_count = pgi_trace_summary_count,
+            })
+            .executes(pgi_update_probes_callback, info.render_context, &info.pgi_state));
+    info.tg.add_task(daxa::HeadTask<PGIUpdateProbeTexelsH::Info>()
+            .head_views(PGIUpdateProbeTexelsH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_indirections = pgi_indirections,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_visibility = info.pgi_state.probe_visibility_view,
+                .probe_info = info.pgi_state.probe_info_view,
+                .trace_result = pgi_trace_summary,
+                .trace_count = pgi_trace_summary_count,
+            })
+            .executes(pgi_update_probe_texels_callback, info.render_context, &info.pgi_state));
 
 
     TaskPGIUpdateOut ret = {};

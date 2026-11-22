@@ -12,6 +12,7 @@ struct PGIIndirections
     DispatchIndirectStruct probe_trace_dispatch;
     DispatchIndirectStruct probe_color_update_dispatch;
     DispatchIndirectStruct probe_visibility_update_dispatch;
+    DispatchIndirectStruct probe_trace_integrate_dispatch;
     DispatchIndirectStruct probe_shade_rays_dispatch;
     DrawIndexedIndirectStruct probe_debug_draw_dispatch;
     daxa_u32 detailed_probe_count;
@@ -22,7 +23,7 @@ struct PGIIndirections
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
-DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image) // the debug image: probes draw into it with alpha 3 (exposed blend, replace) so they cover the debug views
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
@@ -42,6 +43,24 @@ struct PGIDrawDebugProbesPush
 // Texel update dispatch is 1D: workgroups are wrapped into rows of this many groups (dispatch limit per dimension).
 #define PGI_UPDATE_LINEAR_WG_X 1024
 
+
+// Integrates the rays of every trace texel of the updated probes into one value per trace texel (the trace summary).
+// The probe update passes read the summary as if it were one ray per texel, trace_summary_count holds the number of valid rays
+// that were integrated into the texel (0 = no data, the update passes skip the texel).
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGITraceIntegrateH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, trace_summary)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DArrayId<daxa_u32>, trace_summary_count)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), probe_ray_cdf)
+DAXA_DECL_TASK_HEAD_END
+
+struct PGITraceIntegratePush
+{
+    PGITraceIntegrateH::AttachmentShaderBlob attach;
+};
+
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpdateProbeTexelsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
@@ -49,6 +68,7 @@ DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_co
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec2>, probe_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_u32>, trace_count)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpdateProbeTexelsPush
@@ -66,6 +86,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, requests)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(daxa_u32), probe_ray_cdf)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_u32>, trace_count)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpdateProbesPush
@@ -100,11 +121,21 @@ struct PGIInspectData
     daxa_f32 max_visibility_distance;
     daxa_u32 color_resolution;
     daxa_u32 trace_resolution;
-    daxa_u32 _pad[1];
+    daxa_u32 visibility_resolution;
+    // Probe requests. A probe is a vertex of up to 8 cells, each cell keeps a direct and an indirect request timer in its base probe
+    // (set to 63 / 255 when the cell is sampled, counted down by one per frame). The probe is deleted (its info reset) once all of its cells have both timers at 0.
+    // Index = x + 2 y + 4 z of the cell, the cell base probe is the probe minus (x, y, z). ~0u = no such cell (clamped to the window or not a base probe).
+    daxa_u32 request_cell_direct[8];
+    daxa_u32 request_cell_indirect[8];
+    daxa_u32 request_package;       // raw package at the probe's own entry (bits 16 / 17: the probe is directly / indirectly requested)
+    daxa_u32 requested;             // any cell timer is not 0
+    daxa_u32 is_new_probe;          // the probe came into existence by the window moving (no history, not requested yet)
+    daxa_u32 _pad2;
     daxa_f32vec4 irradiance[PGI_INSPECT_MAX_TEXELS];    // .a = hysteresis
     daxa_f32vec4 radiance[PGI_INSPECT_MAX_TEXELS];
     daxa_u32 cdf[PGI_INSPECT_MAX_TEXELS];               // probe ray cdf, normalized to PGI_RAY_CDF_ONE
     PGIInspectRay rays[PGI_INSPECT_MAX_TEXELS];
+    daxa_f32vec2 visibility[PGI_INSPECT_MAX_TEXELS];    // visibility resolution, .x mean ray distance (negative = backface), .y mean deviation
 };
 DAXA_DECL_BUFFER_PTR(PGIInspectData)
 
@@ -113,6 +144,8 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), gl
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_u32>, probe_requests)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), probe_ray_cdf)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(PGIInspectData), inspect)

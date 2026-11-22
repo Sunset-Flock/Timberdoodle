@@ -161,7 +161,8 @@ void entry_ray_gen()
     int3 dtid = DispatchRaysIndex().xyz;
 
     // Early out for the rays past the updated probes: the direct dispatch is sized for the worst case, the indirect one is exact.
-    let ray_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count) * uint(reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution);
+    let rays_per_probe = reg_settings.probe_ray_count;
+    let ray_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count) * rays_per_probe;
     if (uint(dtid.x) >= ray_count)
     {
         return;
@@ -171,8 +172,8 @@ void entry_ray_gen()
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        indirect_index = dtid.x / (reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution);
-        uint local_index = (dtid.x - indirect_index * (reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution));
+        indirect_index = dtid.x / rays_per_probe;
+        uint local_index = (dtid.x - indirect_index * rays_per_probe);
         probe_texel.y = local_index / reg_settings.probe_trace_resolution;
         probe_texel.x = local_index - reg_settings.probe_trace_resolution * probe_texel.y;
 
@@ -184,19 +185,20 @@ void entry_ray_gen()
 
     uint frame_index = push.attach.globals.frame_index;
 
-    // Seed is the same for all threads processing a probe.
-    // This is important to be able to efficiently reconstruct data between tracing and probe texel updates.
-    float2 in_texel_offset = pgi_probe_trace_noise(probe_index, frame_index);
-
     PGIProbeInfo probe_info = PGIProbeInfo::load(reg_settings, reg_cascade, push.attach.probe_info.get(), probe_index);
 
     float3 probe_position = pgi_probe_index_to_worldspace(reg_settings, reg_cascade, probe_info, probe_index);
 
-    uint3 probe_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(reg_settings, indirect_index), 0);
+    uint3 probe_texture_base_index = uint3(pgi_indirect_index_to_ray_tex_offset(reg_settings, indirect_index), 0);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
     uint3 trace_result_texture_index = probe_texture_index;
 
-    float2 probe_uv = float2(float2(probe_texel) + in_texel_offset) * rcp(reg_settings.probe_trace_resolution);
+    // The ray at the atlas position (probe_texel) is the ray with index (y * trace_res + x) of the probe.
+    // Without guiding it is shot at its own trace texel, with guiding at the texel the probe ray cdf assigns it.
+    // The noise seed is the same for all threads processing a probe: this is important to be able to efficiently
+    // reconstruct data between tracing and the probe texel integration / updates.
+    float2 probe_uv = pgi_probe_ray_uv(reg_settings, reg_cascade, (uint*)(push.attach.probe_ray_cdf), probe_index, frame_index,
+        uint(probe_texel.y * reg_settings.probe_trace_resolution + probe_texel.x));
 
     float3 probe_normal = pgi_probe_uv_to_probe_normal(probe_uv);
 
