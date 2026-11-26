@@ -21,16 +21,29 @@ DAXA_DECL_BUFFER_PTR(RtLab3Settings)
 //              reprojected reservoir of last frame (reconnection Jacobian, M capped, optional visibility ray). The result is the
 //              history of the next frame.
 //   spatial    (per pixel, 0..RT_LAB3_MAX_SPATIAL_PASSES passes, ping pong) merges neighbor reservoirs (random taps in a disc, geometry
-//              tests, Jacobian, optional visibility ray). Not fed back into the history.
-//   shade      (per pixel) estimate = L_o cos W / pi from the final reservoir (W = unbiased contribution weight)
+//              tests, Jacobian). No ray in this pass. Not fed back into the history.
+//   shade      (per pixel) estimate = L_o cos W / pi from the final reservoir (W = unbiased contribution weight). ONE visibility ray for
+//              a sample that came from a neighbor (optional, spatial_visibility), a blocked sample gives 0.
 //   filter     ray filter AFTER the reuse (clamps the estimate against its neighbors, hue preserving)
 //   [old lab: resolve (upsamples at half res)]
 // Reuse is the biased ReSTIR GI variant (M weighted, no pairwise MIS). No temporal or spatial denoiser follows.
 //
-// Reservoir images (lab res): A (RGBA32F) sample position xyz + W, B (RGBA32F) radiance rgb (RTGI_RADIANCE_SCALE units) + M, C (R32G32B32A32_UINT)
-// .x octahedral sample normal, .y sample age in frames (0 = traced this frame; +1 per temporal reuse, spatial reuse keeps the age of the copied sample),
-// .z asfloat RAY HISTORY of the pixel: rays shot at this pixel over time (reprojected like the temporal reuse, capped at the target of the ray redistribution).
+// Reservoir image (lab res, 16 bytes per pixel and slot, one RGBA32_UINT texture array with RT_LAB3_MAX_SLOTS layers, all packed):
+//   .x radiance rgb / RTGI_RADIANCE_SCALE as RGB9E5
+//   .y octahedral DIRECTION from the reservoir's pixel to the sample (12:12 bit) | confidence M (8 bit, sqrt coded: byte = sqrt(M) * 8) << 24
+//   .z f16 DISTANCE to the sample | f16 contribution weight W << 16
+//   .w octahedral sample normal (8:8 bit) | sample age (7 bit) << 16 | unvalidated (bit 23) | RAY HISTORY (8 bit, sqrt coded like M) << 24
+// The sample position is pixel position + direction * distance: load and store need the world position of the pixel the reservoir belongs to
+// (the caller has it: the pixel itself, the tap of a reuse, the reprojected history tap).
+// Age: frames since the sample was traced (0 = traced this frame; +1 per temporal reuse, spatial reuse keeps the age of the copied sample), capped at 127.
+// Unvalidated: the sample came from a neighbor pixel by spatial reuse and was not yet tested for visibility from this pixel (the shade pass does it).
+// RAY HISTORY: rays shot at this pixel over time (reprojected like the temporal reuse, capped at the target of the ray redistribution).
 // It is NOT the reservoir confidence M (reuse changes M without any ray being shot): the ray redistribution reads it (output .a) as its history.
+
+// One reservoir per ray of a pixel: a pixel with N rays (the ray redistribution) keeps min(N, RT_LAB3_MAX_SLOTS) reservoirs (at least one: a pixel without a ray
+// keeps its history), each one runs the temporal and the spatial reuse on its own and the shade averages them. Rays past the slot count are candidates of
+// slot ray % RT_LAB3_MAX_SLOTS. The reservoir images are texture arrays with one layer per slot, `slot_count` holds the slots of every pixel (0 = no geometry).
+#define RT_LAB3_MAX_SLOTS 4u
 
 #define RT_LAB3_PASS_X 8
 #define RT_LAB3_PASS_Y 8
@@ -72,12 +85,10 @@ DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_depth_history)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, lab_face_normal_history)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec2>, ray_alloc)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtLab3Ray), rays)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, history_a)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, history_b)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, history_c)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_a)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_b)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32vec4>, out_c)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayIndex<daxa_u32vec4>, history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, slot_count_history)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DArrayIndex<daxa_u32vec4>, out_reservoir)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, out_slot_count)
 // ReTIR only (rt_lab_retir.hpp, null otherwise): .rgb mean of the estimates after each of the pixel's rays, .a their count.
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_samples)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
@@ -95,12 +106,9 @@ DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtLab3SpatialH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, lab_face_normal)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, in_a)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, in_b)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, in_c)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_a)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, out_b)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32vec4>, out_c)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayIndex<daxa_u32vec4>, in_reservoir)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, slot_count)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DArrayIndex<daxa_u32vec4>, out_reservoir)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
@@ -120,11 +128,13 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), gl
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, lab_face_normal)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, in_a)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, in_b)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32vec4>, in_c)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayIndex<daxa_u32vec4>, in_reservoir)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, slot_count)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, slot_estimates) // per slot estimate / RTGI_RADIANCE_SCALE (f16)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, shaded)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, samples) // ReTIR (null otherwise): read instead of the final reservoir
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances) // visibility ray of a spatially reused sample
+DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtLab3ShadePush
@@ -140,6 +150,8 @@ DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtLab3FilterH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, lab_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, shaded)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, slot_count)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayIndex<daxa_f32vec4>, slot_estimates)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, filtered)
 // RT Lab 4 (null otherwise): the filtered estimate again with a per pixel sample weight in .a (RT_LAB3_CELL_WEIGHT_*), the input of the cell grid.
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, cell_input)

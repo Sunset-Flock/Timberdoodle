@@ -34,7 +34,7 @@ void rt_lab_retir_temporal_callback(daxa::TaskInterface ti, RenderContext * rend
     std::memcpy(alloc.host_address, &settings, sizeof(RtLab3Settings));
     RtLab3TemporalPush push = {};
     push.settings = alloc.device_address;
-    rt_lab_dispatch(ti, render_context, push, AT.out_a, RT_LAB3_PASS_X, RenderTimes::index<"RT_LAB", "LAB3_TEMPORAL">(), rt_lab_retir_temporal_compile_info().name);
+    rt_lab_dispatch(ti, render_context, push, AT.out_reservoir, RT_LAB3_PASS_X, RenderTimes::index<"RT_LAB", "LAB3_TEMPORAL">(), rt_lab_retir_temporal_compile_info().name);
 }
 
 void rt_lab_retir_ui(RenderContext & render_context)

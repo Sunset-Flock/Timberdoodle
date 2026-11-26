@@ -21,10 +21,11 @@ func entry_rt_lab_retir_temporal(uint2 dtid : SV_DispatchThreadID)
     const float depth = push.attach.lab_depth.get()[dtid];
     if (depth == 0.0f)
     {
-        rt_lab3_store(push.attach.out_a.get(), push.attach.out_b.get(), push.attach.out_c.get(), dtid, rt_lab3_empty_reservoir());
+        push.attach.out_slot_count.get()[dtid] = 0u;
         push.attach.out_samples.get()[dtid] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }
+    push.attach.out_slot_count.get()[dtid] = 1u; // one reservoir per pixel
     const float2 size = float2(push.size);
     const float3 position = linear_depth_to_world_space(camera, rt_lab_ndc(dtid, rcp(size)), depth);
     const float3 normal = uncompress_normal_octahedral_32(push.attach.lab_face_normal.get()[dtid]);
@@ -83,5 +84,6 @@ func entry_rt_lab_retir_temporal(uint2 dtid : SV_DispatchThreadID)
     selected.count = count_sum;
     selected.ray_history = min(merge.ray_history + float(alloc.y), ray_history_cap);
     selected.weight = (selected_p_hat > 0.0f && count_sum > 0.0f) ? weight_sum / (count_sum * selected_p_hat) : 0.0f;
-    rt_lab3_store(push.attach.out_a.get(), push.attach.out_b.get(), push.attach.out_c.get(), dtid, selected);
+    selected.unvalidated = false;
+    rt_lab3_store(push.attach.out_reservoir.get(), dtid, 0u, selected, position);
 }

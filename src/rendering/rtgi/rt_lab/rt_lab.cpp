@@ -80,7 +80,7 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
             .ray_filter_mode               = RT_LAB_RAY_FILTER_OFF,
             .ray_filter_radius             = 2,
             .ray_filter_factor             = 64.0f, // 2^6
-            .ray_filter_tolerance          = 7.0f,
+            .ray_filter_tolerance          = 2.7f,
             .sh_guide_mode                 = RT_LAB_SH_GUIDE_OFF,
             .sh_guide_direction_strength   = 4.0f,
             .sh_guide_cross_strength       = 1.0f,
@@ -101,7 +101,7 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
         .hit_ao_enabled                = 1,
         .hit_ao_range                  = 1.0f,
         .redistribution_enabled        = 1,
-        .ray_budget                    = 1.0f,
+        .ray_budget                    = 4.0f,
         .min_ray_budget                = 0.125f,
         .max_rays_per_pixel            = 16,
         .fast_convergence_samples      = 32.0f,
@@ -116,7 +116,7 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
         .bicubic_reprojection          = 1,
         .occluder_aware_soft_normalize = 1,
         .variance_guide_enabled        = 1,
-        .variance_guide_sigmas         = 2.0f,
+        .variance_guide_sigmas         = 2.7f,
         .luma_moments_enabled          = 0,
         .distribution_guide_mode       = RT_LAB_DISTRIBUTION_OFF,
         .distribution_guide_sigmas     = 1.0f,
@@ -137,7 +137,7 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
         .ray_filter_mode               = RT_LAB_RAY_FILTER_PERCEPTUAL,
         .ray_filter_radius             = 2,
         .ray_filter_factor             = 64.0f, // 2^6
-        .ray_filter_tolerance          = 7.0f,
+        .ray_filter_tolerance          = 2.7f,
         .sh_guide_mode                 = RT_LAB_SH_GUIDE_OFF,
         .sh_guide_direction_strength   = 4.0f,
         .sh_guide_cross_strength       = 1.0f,
@@ -156,13 +156,27 @@ auto rt_lab_default_settings(RtLabPreset preset) -> RtLabSettings
     settings.temporal_gradient_oct_denoise = 1;
     settings.temporal_gradient_oct_distance_scale = 1.0f;
     settings.temporal_gradient2_scale_history = 0;
+    if (preset == RT_LAB_PRESET_CUSTOM)
+    {
+        // Default pipeline of the custom preset: ReSTIR GI + the classic denoiser, at half resolution.
+        settings.half_res = 1;
+        settings.restir_enabled = 1;
+        settings.denoiser = RT_LAB_DENOISER_CLASSIC;
+    }
     return settings;
 }
 
 auto rt_lab_default_preset_config(RtLabPreset preset) -> RtLabPresetConfig
 {
     RtLabPresetConfig config = {};
-    config.integrator.enabled = preset != RT_LAB_PRESET_PROGRESSIVE; // the reference accumulates without a temporal resolve
+    config.integrator.enabled = false; // no temporal post resolve by default (the progressive reference accumulates without one anyway)
+    if (preset == RT_LAB_PRESET_CUSTOM)
+    {
+        config.lab3.settings.temporal_max_m = 16.0f;
+        config.lab3.settings.temporal_max_age = 16;
+        config.lab3.settings.spatial_passes = 3;
+        config.lab3.settings.spatial_taps = 8;
+    }
     return config;
 }
 
@@ -1547,9 +1561,22 @@ void rt_lab_preset_config_ui(RenderContext & render_context, i32 preset)
     bool const retir = settings.retir_enabled != 0 && !restir;
     bool const hash_grid = settings.denoiser == RT_LAB_DENOISER_HASH_GRID;
     bool const none = settings.denoiser == RT_LAB_DENOISER_NONE && (restir || retir);
-    if (restir && ImGui::CollapsingHeader("ReSTIR GI Settings"))
+    if (restir)
     {
-        rt_lab3_ui(render_context);
+        // The header shows the GPU time of the ReSTIR passes (temporal + spatial + shade + filter), like the other sections.
+        bool const open = ImGui::CollapsingHeader("ReSTIR GI Settings");
+        u64 restir_time = 0;
+        for (u32 index : {RenderTimes::index<"RT_LAB", "LAB3_TEMPORAL">(), RenderTimes::index<"RT_LAB", "LAB3_SPATIAL">(),
+                 RenderTimes::index<"RT_LAB", "LAB3_SHADE">(), RenderTimes::index<"RT_LAB", "LAB3_FILTER">()})
+        {
+            restir_time += render_context.render_times.get_average(index);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%8.1f us", static_cast<f32>(restir_time) * 0.001f);
+        if (open)
+        {
+            rt_lab3_ui(render_context);
+        }
     }
     if (retir && ImGui::CollapsingHeader("ReTIR Settings"))
     {
@@ -2235,7 +2262,8 @@ static auto rt_lab_main_impl(TasksRtgiInfo const & info, RtLab3Stage const * res
     }
     // Pixel telemetry (rt_lab_telemetry.hpp) needs the ray lengths (the lab itself does not use them).
     bool const telemetry = !restir && render_context.rt_lab.telemetry.enabled && !render_context.rt_lab.telemetry.buffer.id().is_empty();
-    bool const sh_guide = !restir && (settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) != 0 && settings.temporal_enabled != 0 && settings.spatial_enabled != 0;
+    // The SH guide of the spatial filter was removed: no SH images / second moments for it (the neural dump still has its own SH images).
+    bool const sh_guide = false;
     // Directional variance SH guide: the second moments of the light direction distribution.
     bool const sh_variance_guide = sh_guide && (settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK) == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE;
     daxa::TaskBufferView ray_lengths = daxa::NullTaskBuffer;
@@ -2759,7 +2787,7 @@ static auto rt_lab_main_impl(TasksRtgiInfo const & info, RtLab3Stage const * res
             dist_b_history = dist_b.previous();
             dist_b_accumulated = dist_b.current();
             lab_distribution = dist_a_accumulated;
-            bool const dist_multi = settings.distribution_guide_mode >= RT_LAB_DISTRIBUTION_LOGNORMAL_3;
+            bool const dist_multi = false; // the dark tail mode was removed (a saved mode 3 runs as the body + bright tail)
             lab_distribution_b_probe = dist_b_accumulated;
             lab_distribution_tail = dist_b_accumulated;
             if (dist_multi)
@@ -2819,7 +2847,7 @@ static auto rt_lab_main_impl(TasksRtgiInfo const & info, RtLab3Stage const * res
                 .gradient2 = gradient2,
             })
             .executes(rt_lab_temporal_callback, &render_context, settings.split_history_enabled != 0 && !separate_color, sh_guide || neural_dump_sh,
-                coarse_anti_lag != daxa::NullTaskImage, moments_accumulated != daxa::NullTaskImage, sh_variance_guide, neural_dump_sh, settings.distribution_guide_mode, false,
+                coarse_anti_lag != daxa::NullTaskImage, moments_accumulated != daxa::NullTaskImage, sh_variance_guide, neural_dump_sh, std::min(settings.distribution_guide_mode, RT_LAB_DISTRIBUTION_LOGNORMAL), false,
                 gradient2 != daxa::NullTaskImage));
         lab_diffuse = temporal_output;
 

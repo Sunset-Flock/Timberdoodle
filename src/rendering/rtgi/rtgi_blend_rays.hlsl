@@ -95,6 +95,25 @@ func entry_blend_rays(uint2 dtid : SV_DispatchThreadID)
             ? int2(push.attach.globals.rtgi_settings.debug_ray_pixel_x, push.attach.globals.rtgi_settings.debug_ray_pixel_y)
             : int2(floor(push.attach.globals.cursor_uv * push.attach.globals.settings.render_target_size));
         debug_pick = all(int2(dtid) == (full_res_pixel >> 1));
+        if (debug_pick)
+        {
+            // Red crosshair on the picked full res pixel (NDC of the main camera, slightly in front of the surface).
+            const CameraInfo cross_camera = push.attach.globals.view_camera;
+            const float cross_depth = push.attach.view_cam_half_res_depth.get()[dtid] * 1.001f;
+            const float2 center = (float2(full_res_pixel) + 0.5f) * cross_camera.inv_screen_size * 2.0f - 1.0f;
+            const float2 arm = float2(10.0f, 10.0f) * cross_camera.inv_screen_size * 2.0f;
+            const float2 gap = float2(3.0f, 3.0f) * cross_camera.inv_screen_size * 2.0f;
+            for (uint i = 0u; i < 4u; ++i)
+            {
+                const float2 dir = i == 0u ? float2(1, 0) : (i == 1u ? float2(-1, 0) : (i == 2u ? float2(0, 1) : float2(0, -1)));
+                ShaderDebugLineDraw line = {};
+                line.start = float3(center + dir * gap, cross_depth);
+                line.end = float3(center + dir * arm, cross_depth);
+                line.color = float3(1.0f, 0.0f, 0.0f);
+                line.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA;
+                debug_draw_line(push.attach.globals.debug, line);
+            }
+        }
     }
 
     const float depth = push.attach.view_cam_half_res_depth.get()[dtid];

@@ -18,6 +18,32 @@
 
 namespace
 {
+    // History of the RTGI debug ray picker: the per frame results of the picked pixel over the last frames (cpu side).
+    struct RtgiRayPickHistory
+    {
+        static constexpr u32 WINDOW = 32;
+        struct Sample
+        {
+            daxa_f32vec3 mean = {};
+            f32 luma = 0.0f;
+            f32 variance = 0.0f;
+            u32 ray_count = 0;
+        };
+        std::array<Sample, WINDOW> samples = {};
+        u32 count = 0;
+        u32 next = 0;
+        // Frames to wait after a new pick until the readback shows the new pixel.
+        u32 skip_frames = 0;
+
+        void push(Sample const & sample)
+        {
+            samples[next] = sample;
+            next = (next + 1) % WINDOW;
+            count = std::min(count + 1, WINDOW);
+        }
+    };
+    RtgiRayPickHistory rtgi_ray_pick_history = {};
+
     // Index == DEBUG_DRAW_MODE_* value (shader_shared/shared.inl).
     constexpr std::array<char const *, DEBUG_DRAW_MODE_COUNT> DEBUG_DRAW_MODE_NAMES = {
         "NONE",
@@ -736,6 +762,44 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
     render_context.render_data.hovered_entity_index = ~0u;
     render_context.render_data.selected_entity_index = ~0u;
 
+    // RTGI debug ray picker: a click in the viewport picks the pixel, then its per frame result is collected over a window of frames.
+    {
+        auto & pick = rtgi_ray_pick_history;
+        RtgiSettings & rtgi = render_context.render_data.rtgi_settings;
+        if (rtgi.debug_ray_pick_enabled == 0)
+        {
+            pick = {};
+        }
+        else
+        {
+            if (!window->is_cursor_captured() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().WantCaptureMouse)
+            {
+                rtgi.debug_ray_pixel_x = s_cast<i32>(std::floor(render_context.render_data.cursor_uv.x * s_cast<f32>(render_context.render_data.settings.render_target_size.x)));
+                rtgi.debug_ray_pixel_y = s_cast<i32>(std::floor(render_context.render_data.cursor_uv.y * s_cast<f32>(render_context.render_data.settings.render_target_size.y)));
+                rtgi.debug_ray_pick_frozen = 1;
+                pick = {};
+                pick.skip_frames = MAX_GPU_FRAMES_IN_FLIGHT + 1;
+            }
+            ReadbackValues const & rb = render_context.general_readback;
+            if (rtgi.debug_ray_pick_frozen != 0 && rb.rtgi_debug_ray_info.w > 0.5f)
+            {
+                if (pick.skip_frames > 0)
+                {
+                    pick.skip_frames -= 1;
+                }
+                else
+                {
+                    pick.push({
+                        .mean = {rb.rtgi_debug_ray_mean.x, rb.rtgi_debug_ray_mean.y, rb.rtgi_debug_ray_mean.z},
+                        .luma = 0.2126f * rb.rtgi_debug_ray_mean.x + 0.7152f * rb.rtgi_debug_ray_mean.y + 0.0722f * rb.rtgi_debug_ray_mean.z,
+                        .variance = rb.rtgi_debug_ray_variance.w,
+                        .ray_count = s_cast<u32>(rb.rtgi_debug_ray_mean.w + 0.5f),
+                    });
+                }
+            }
+        }
+    }
+
     // PGI probe inspection: while picking is on, the debug probe draw writes the probe under the cursor into the readback.
     {
         auto & inspect = render_context.pgi_inspect;
@@ -1248,8 +1312,10 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::EndDisabled();
                     ImGui::SetItemTooltip("Rays per probe trace texel (1 = one ray per texel on average). Only with probe ray guiding: the guiding distributes\nthe probe's ceil(texels * this) rays by the radiance of the texels. Without guiding every texel gets exactly one ray.\nRays per probe now: %u", render_data.pgi_settings.probe_ray_count);
                 }
-                ImGui::SliderFloat("Probe Ray Base Fraction", &render_data.pgi_settings.probe_ray_base_fraction, 0.0f, 4.0f);
-                ImGui::SetItemTooltip("Fraction of the average texel luma added to every texel weight of the probe ray distribution.\nUniform share of the rays = fraction / (1 + fraction).");
+                ImGui::SliderFloat("Min Texel Importance", &render_data.pgi_settings.probe_ray_min_importance, 0.0f, 1.0f);
+                ImGui::SetItemTooltip("Every probe texel gets at least this importance, exactly (a share of the rays is spread uniformly). Importance of a probe texel = its share of the probe's rays relative to a uniform spread. 1 = the mean: one ray per texel on average(this is then multiplied with Rays Per Texel).\nA clamp of importance 1 therefore shoots exactly 1 ray per texel (times Rays Per Texel), 16 = at most 16 times that.");
+                ImGui::SliderFloat("Max Texel Importance", &render_data.pgi_settings.probe_ray_max_importance, 1.0f, 128.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SetItemTooltip("No probe texel gets more than this importance, exactly: the texels above it are clamped to it and the freed rays go to the other texels. Importance of a probe texel = its share of the probe's rays relative to a uniform spread. 1 = the mean: one ray per texel on average(this is then multiplied with Rays Per Texel).\nA clamp of importance 1 therefore shoots exactly 1 ray per texel (times Rays Per Texel), 16 = at most 16 times that.");
                 ImGui::Checkbox("Direct Trace Dispatch", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_trace_direct_dispatch));
                 ImGui::SetItemTooltip("Dispatch the probe rays directly over the worst case number of probes (update rate and update list size) and let the raygen exit early,\ninstead of the indirect dispatch over the exact number of rays.");
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
@@ -1620,22 +1686,19 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         ImGui::SetItemTooltip("Draws the rays shot from one pixel THIS frame as debug lines (origin to hit, colored by the ray radiance, circle at the hit) and reads back\nthe mean color and variance of its diffuse rays. The pixel is the one under the cursor, or the frozen one.");
                         if (rtgi.debug_ray_pick_enabled != 0)
                         {
-                            bool frozen = rtgi.debug_ray_pick_frozen != 0;
-                            if (ImGui::Checkbox("Freeze Pixel", &frozen))
+                            if (rtgi.debug_ray_pick_frozen != 0)
                             {
-                                if (frozen)
-                                {
-                                    // Keep the pixel the cursor is on right now.
-                                    rtgi.debug_ray_pixel_x = s_cast<i32>(std::floor(render_data.cursor_uv.x * s_cast<f32>(render_data.settings.render_target_size.x)));
-                                    rtgi.debug_ray_pixel_y = s_cast<i32>(std::floor(render_data.cursor_uv.y * s_cast<f32>(render_data.settings.render_target_size.y)));
-                                }
-                                rtgi.debug_ray_pick_frozen = frozen ? 1 : 0;
-                            }
-                            ImGui::SetItemTooltip("Keeps the currently picked pixel so the cursor can leave it.");
-                            if (frozen)
-                            {
+                                ImGui::Text("Picked pixel %d, %d", rtgi.debug_ray_pixel_x, rtgi.debug_ray_pixel_y);
                                 ImGui::SameLine();
-                                ImGui::Text("pixel %d, %d", rtgi.debug_ray_pixel_x, rtgi.debug_ray_pixel_y);
+                                if (ImGui::SmallButton("Clear Pick"))
+                                {
+                                    rtgi.debug_ray_pick_frozen = 0;
+                                    rtgi_ray_pick_history = {};
+                                }
+                            }
+                            else
+                            {
+                                ImGui::TextDisabled("Click in the viewport to pick a pixel (hovering shows the pixel under the cursor).");
                             }
                             ImGui::SliderFloat("Ray Draw Length (m)", &rtgi.debug_ray_length, 0.1f, 100.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
                             ImGui::SetItemTooltip("Rays that miss or hit further away are drawn up to this length.");
@@ -1674,6 +1737,55 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                             else
                             {
                                 ImGui::TextDisabled("No geometry under the picked pixel (sky), or the pixel is not shot yet.");
+                            }
+
+                            auto const & hist = rtgi_ray_pick_history;
+                            if (rtgi.debug_ray_pick_frozen != 0 && hist.count > 0)
+                            {
+                                u32 const n = hist.count;
+                                f32 mean_luma = 0.0f;
+                                f32 within_variance = 0.0f;
+                                f32 min_luma = std::numeric_limits<f32>::max();
+                                f32 max_luma = 0.0f;
+                                daxa_f32vec3 mean_rgb = {0.0f, 0.0f, 0.0f};
+                                std::array<f32, RtgiRayPickHistory::WINDOW> plot = {};
+                                for (u32 i = 0; i < n; ++i)
+                                {
+                                    // Oldest first.
+                                    auto const & smp = hist.samples[(hist.next + RtgiRayPickHistory::WINDOW - n + i) % RtgiRayPickHistory::WINDOW];
+                                    plot[i] = smp.luma;
+                                    mean_luma += smp.luma;
+                                    within_variance += smp.variance;
+                                    min_luma = std::min(min_luma, smp.luma);
+                                    max_luma = std::max(max_luma, smp.luma);
+                                    mean_rgb.x += smp.mean.x;
+                                    mean_rgb.y += smp.mean.y;
+                                    mean_rgb.z += smp.mean.z;
+                                }
+                                mean_luma /= s_cast<f32>(n);
+                                within_variance /= s_cast<f32>(n);
+                                mean_rgb = {mean_rgb.x / s_cast<f32>(n), mean_rgb.y / s_cast<f32>(n), mean_rgb.z / s_cast<f32>(n)};
+                                f32 temporal_variance = 0.0f;
+                                for (u32 i = 0; i < n; ++i)
+                                {
+                                    f32 const d = plot[i] - mean_luma;
+                                    temporal_variance += d * d;
+                                }
+                                temporal_variance = n > 1 ? temporal_variance / s_cast<f32>(n - 1) : 0.0f;
+                                f32 const temporal_std = std::sqrt(temporal_variance);
+                                ImGui::SeparatorText("Window statistics");
+                                ImGui::Text("Frames: %u / %u", n, RtgiRayPickHistory::WINDOW);
+                                ImGui::Text("Mean color: %.4f %.4f %.4f (luma %.4f)", mean_rgb.x, mean_rgb.y, mean_rgb.z, mean_luma);
+                                ImGui::SetItemTooltip("Mean over the window of the per frame mean diffuse ray radiance of the pixel.");
+                                if (n > 1 && mean_luma > 0.0f)
+                                {
+                                    ImGui::Text("Frame to frame std dev %.4g (%.1f%% of mean), range %.4g .. %.4g", temporal_std, 100.0f * temporal_std / mean_luma, min_luma, max_luma);
+                                    ImGui::SetItemTooltip("Spread of the per frame estimate (luminance) over the window = the noise of the raw rays frame to frame.");
+                                    f32 const rays_mean = [&]() { f32 r = 0.0f; for (u32 i = 0; i < n; ++i) { r += s_cast<f32>(hist.samples[i].ray_count); } return r / s_cast<f32>(n); }();
+                                    ImGui::Text("Mean within frame variance %.4g, rays per frame %.2f", within_variance, rays_mean);
+                                    ImGui::SetItemTooltip("Average of the per frame ray variance. The frame to frame variance should be about this / rays per frame if the rays are independent.");
+                                }
+                                ImGui::PlotLines("##rtgi_pick_luma", plot.data(), s_cast<i32>(n), 0, "Frame mean luma", 0.0f, max_luma * 1.1f, ImVec2(0.0f, 60.0f));
                             }
                         }
                     }
@@ -2470,12 +2582,12 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                     ImGui::SliderFloat("Tolerance (sigmas)", &settings.variance_guide_sigmas, 0.25f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
                     ImGui::EndDisabled();
                     ImGui::BeginDisabled(settings.temporal_enabled == 0);
-                    // Combo entries -> distribution_guide_mode values (the skew-normal schemes 2 / 4 were removed).
-                    char const * const distribution_modes[] = {"Off", "Lognormal Body + Bright Tail", "Dark Tail + Lognormal Body + Bright Tail"};
-                    i32 distribution_index = settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_OFF ? 0 : (settings.distribution_guide_mode >= RT_LAB_DISTRIBUTION_LOGNORMAL_3 ? 2 : 1);
-                    if (ImGui::Combo("Distribution Guide", &distribution_index, distribution_modes, 3))
+                    // Combo entries -> distribution_guide_mode values (the skew-normal schemes and the dark tail mode were removed).
+                    char const * const distribution_modes[] = {"Off", "Lognormal Body + Bright Tail"};
+                    i32 distribution_index = settings.distribution_guide_mode == RT_LAB_DISTRIBUTION_OFF ? 0 : 1;
+                    if (ImGui::Combo("Distribution Guide", &distribution_index, distribution_modes, 2))
                     {
-                        settings.distribution_guide_mode = distribution_index == 0 ? RT_LAB_DISTRIBUTION_OFF : (distribution_index == 1 ? RT_LAB_DISTRIBUTION_LOGNORMAL : RT_LAB_DISTRIBUTION_LOGNORMAL_3);
+                        settings.distribution_guide_mode = distribution_index == 0 ? RT_LAB_DISTRIBUTION_OFF : RT_LAB_DISTRIBUTION_LOGNORMAL;
                     }
                     ImGui::SetItemTooltip("Fine filter. Every pixel tracks its incoming light as a lognormal body / tail mixture of y = ln(1 + luma / floor):\n"
                                           "the pixel's perceptual mean (the mean of y over ALL samples, independent of the split) sets the tail thresholds: bright tail =\n"
@@ -2483,8 +2595,6 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                                           "so there is no feedback loop.\n"
                                           "Tap weight = exp(-|mu_c - mu_t| / (k sqrt(var_c + var_t) + eps)) of the BODY log means (variances with one prior sample).\n"
                                           "Rejected taps do not count into the effective sample count. Multiplies with the variance guide. Graph shape.\n"
-                                          "Dark Tail adds a DARK tail below mean - 2 (the mirror of the bright tail); the tap weight then compares all components of both\n"
-                                          "pixels: sum over pairs of w_a w_b exp(-|mu_a - mu_b| / (k sqrt(var_a + var_b) + eps)), normalized by the self overlaps.\n"
                                           "Inspect the tracked state of single pixels in RT Lab -> Analysis -> Pixel Picker.");
                     if (settings.distribution_guide_mode != RT_LAB_DISTRIBUTION_OFF)
                     {
@@ -2507,28 +2617,6 @@ void UIEngine::ui_rt_lab(RenderContext & render_context, ApplicationState & app_
                         }
                     }
                     ImGui::EndDisabled();
-                    char const * const sh_guide_modes[] = {"Off", "Dominant Direction", "Cross Evaluation", "Direction z-Test", "Directional Variance"};
-                    i32 sh_guide_mode = settings.sh_guide_mode & RT_LAB_SH_GUIDE_MODE_MASK;
-                    ImGui::Combo("SH Guide", &sh_guide_mode, sh_guide_modes, 5);
-                    ImGui::SetItemTooltip("Fine filter. Compares where the light of center and tap comes from (SH-Y of the temporal pass, read only).\n"
-                                          "Each mode has a base weight in 0..1, the tap weight is multiplied by pow(base, strength): strength 0 = no effect.\n"
-                                          "Dominant Direction: base = cosine between the dominant directions, only as far as both have a clear dominant direction.\n"
-                                          "Cross Evaluation: the tap's SH resolved at the center's normal vs the center's own, base = exp(-(relative difference / 0.5)^2).\n"
-                                          "Direction z-Test: mean light vector difference vs its noise (1 - R^2, history lengths), base = exp(-z^2 / 8).\n"
-                                          "Directional Variance: the temporal pass also accumulates the second moments of the light direction distribution (3x3 center +\n"
-                                          "distance weighted per frame, m1 = the SH-Y): the Y weighted direction covariance (anisotropic) and the luma variance.\n"
-                                          "Mahalanobis distance of the mean light direction difference under C_c / n_c + C_t / n_t, plus a z test of Y; base = exp(-(z^2 per\n"
-                                          "degree of freedom) / 8).\n"
-                                          "Rejected taps are not counted. Graph shape (off vs on).");
-                    settings.sh_guide_mode = sh_guide_mode;
-                    ImGui::BeginDisabled(sh_guide_mode == 0);
-                    f32 & sh_guide_strength = sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTION ? settings.sh_guide_direction_strength :
-                                              (sh_guide_mode == RT_LAB_SH_GUIDE_CROSS ? settings.sh_guide_cross_strength :
-                                              (sh_guide_mode == RT_LAB_SH_GUIDE_DIRECTIONAL_VARIANCE ? settings.sh_guide_directional_variance_strength : settings.sh_guide_statistical_strength));
-                    ImGui::SliderFloat("SH Guide Strength", &sh_guide_strength, 0.0f, 16.0f, "%.2f");
-                    ImGui::SetItemTooltip("Exponent of the mode's base weight. 0 = the guide does nothing, higher = stronger. Every mode keeps its own value.");
-                    ImGui::EndDisabled();
-
                     ImGui::SeparatorText("Geometry Guides");
                     ImGui::SliderFloat("Plane Tolerance (px)", &settings.blur_plane_tolerance, 0.1f, 8.0f);
                     ImGui::SliderFloat("Normal Power", &settings.blur_normal_power, 0.0f, 64.0f);

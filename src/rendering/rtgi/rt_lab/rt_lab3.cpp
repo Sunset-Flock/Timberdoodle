@@ -147,7 +147,7 @@ static void rt_lab3_trace_callback(daxa::TaskInterface ti, RenderContext * rende
 static void rt_lab3_temporal_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtLab3TemporalH::Info::AT;
-    rt_lab3_dispatch_pixels(ti, render_context, RtLab3TemporalPush{}, AT.out_a, RenderTimes::index<"RT_LAB", "LAB3_TEMPORAL">(), rt_lab3_temporal_compile_info().name);
+    rt_lab3_dispatch_pixels(ti, render_context, RtLab3TemporalPush{}, AT.out_reservoir, RenderTimes::index<"RT_LAB", "LAB3_TEMPORAL">(), rt_lab3_temporal_compile_info().name);
 }
 
 static void rt_lab3_spatial_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass_index)
@@ -155,7 +155,7 @@ static void rt_lab3_spatial_callback(daxa::TaskInterface ti, RenderContext * ren
     auto const & AT = RtLab3SpatialH::Info::AT;
     RtLab3SpatialPush push = {};
     push.pass_index = pass_index;
-    rt_lab3_dispatch_pixels(ti, render_context, push, AT.out_a, RenderTimes::index<"RT_LAB", "LAB3_SPATIAL">(), rt_lab3_spatial_compile_info().name);
+    rt_lab3_dispatch_pixels(ti, render_context, push, AT.out_reservoir, RenderTimes::index<"RT_LAB", "LAB3_SPATIAL">(), rt_lab3_spatial_compile_info().name);
 }
 
 static void rt_lab3_shade_callback(daxa::TaskInterface ti, RenderContext * render_context, bool samples_bound)
@@ -219,39 +219,45 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
     // between two transient sets.
     struct Reservoirs
     {
-        daxa::TaskImageView a = {};
-        daxa::TaskImageView b = {};
-        daxa::TaskImageView c = {};
+        daxa::TaskImageView image = {};
     };
     auto const create_reservoir_image = [&](char const * name, daxa::Format format, bool persistent) -> daxa::TaskImageView
     {
         return info.tg.create_task_image({
             .format = format,
             .size = size,
+            .array_layer_count = RT_LAB3_MAX_SLOTS,
             .lifetime_type = persistent ? daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER : daxa::TaskResourceLifetimeType::TRANSIENT,
             .name = name,
         });
     };
-    auto history_a = create_reservoir_image("rt_lab3_reservoir_a_persistent", daxa::Format::R32G32B32A32_SFLOAT, true);
-    auto history_b = create_reservoir_image("rt_lab3_reservoir_b_persistent", daxa::Format::R32G32B32A32_SFLOAT, true);
-    auto history_c = create_reservoir_image("rt_lab3_reservoir_c_persistent", daxa::Format::R32G32B32A32_UINT, true);
-    Reservoirs const temporal = {history_a.current(), history_b.current(), history_c.current()};
-    Reservoirs const previous = {history_a.previous(), history_b.previous(), history_c.previous()};
+    // Slots (reservoirs) per pixel of the frame, persistent: the temporal reuse maps its slots on the history slots of the reprojected pixel.
+    auto slot_count = info.tg.create_task_image({
+        .format = daxa::Format::R8_UINT,
+        .size = size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "rt_lab3_slot_count_persistent",
+    });
+    auto slot_estimates = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = size,
+        .array_layer_count = RT_LAB3_MAX_SLOTS,
+        .name = "rt_lab3_slot_estimates",
+    });
+    auto history = create_reservoir_image("rt_lab3_reservoir_persistent", daxa::Format::R32G32B32A32_UINT, true);
+    Reservoirs const temporal = {history.current()};
+    Reservoirs const previous = {history.previous()};
     bool const retir = settings.retir_enabled != 0;
     i32 const spatial_passes = retir ? 0 : std::clamp(lab_state.lab3.settings.spatial_passes, 0, RT_LAB3_MAX_SPATIAL_PASSES);
     Reservoirs ping = {};
     Reservoirs pong = {};
     if (spatial_passes >= 1)
     {
-        ping = {create_reservoir_image("rt_lab3_spatial_ping_a", daxa::Format::R32G32B32A32_SFLOAT, false),
-                create_reservoir_image("rt_lab3_spatial_ping_b", daxa::Format::R32G32B32A32_SFLOAT, false),
-                create_reservoir_image("rt_lab3_spatial_ping_c", daxa::Format::R32G32B32A32_UINT, false)};
+        ping = {create_reservoir_image("rt_lab3_spatial_ping", daxa::Format::R32G32B32A32_UINT, false)};
     }
     if (spatial_passes >= 2)
     {
-        pong = {create_reservoir_image("rt_lab3_spatial_pong_a", daxa::Format::R32G32B32A32_SFLOAT, false),
-                create_reservoir_image("rt_lab3_spatial_pong_b", daxa::Format::R32G32B32A32_SFLOAT, false),
-                create_reservoir_image("rt_lab3_spatial_pong_c", daxa::Format::R32G32B32A32_UINT, false)};
+        pong = {create_reservoir_image("rt_lab3_spatial_pong", daxa::Format::R32G32B32A32_UINT, false)};
     }
 
     // Ray list (the old lab's passes): a selection of the lab pixels shoots.
@@ -358,12 +364,10 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .lab_face_normal_history = lab_face_normal.previous(),
             .ray_alloc = ray_alloc,
             .rays = rays,
-            .history_a = previous.a,
-            .history_b = previous.b,
-            .history_c = previous.c,
-            .out_a = temporal.a,
-            .out_b = temporal.b,
-            .out_c = temporal.c,
+            .history = previous.image,
+            .slot_count_history = slot_count.previous(),
+            .out_reservoir = temporal.image,
+            .out_slot_count = slot_count.current(),
             .out_samples = temporal_samples,
             .mesh_instances = info.mesh_instances,
             .tlas = info.tlas,
@@ -380,12 +384,9 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
                 .globals = render_context.tgpu_render_data.view(),
                 .lab_depth = lab_depth.current(),
                 .lab_face_normal = lab_face_normal.current(),
-                .in_a = final_reservoirs.a,
-                .in_b = final_reservoirs.b,
-                .in_c = final_reservoirs.c,
-                .out_a = destination.a,
-                .out_b = destination.b,
-                .out_c = destination.c,
+                .in_reservoir = final_reservoirs.image,
+                .slot_count = slot_count.current(),
+                .out_reservoir = destination.image,
                 .mesh_instances = info.mesh_instances,
                 .tlas = info.tlas,
             })
@@ -405,11 +406,13 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .debug_image = info.debug_image,
             .lab_depth = lab_depth.current(),
             .lab_face_normal = lab_face_normal.current(),
-            .in_a = final_reservoirs.a,
-            .in_b = final_reservoirs.b,
-            .in_c = final_reservoirs.c,
+            .in_reservoir = final_reservoirs.image,
+            .slot_count = slot_count.current(),
+            .slot_estimates = slot_estimates,
             .shaded = shaded,
             .samples = temporal_samples,
+            .mesh_instances = info.mesh_instances,
+            .tlas = info.tlas,
         })
         .executes(rt_lab3_shade_callback, &render_context, retir));
     bool const cell_input_bound = cell_weight_mode >= 0;
@@ -427,6 +430,8 @@ auto rt_lab3_add_restir(TasksRtgiInfo const & info, i32 cell_weight_mode, i32 ce
             .globals = render_context.tgpu_render_data.view(),
             .lab_depth = lab_depth.current(),
             .shaded = shaded,
+            .slot_count = slot_count.current(),
+            .slot_estimates = slot_estimates,
             .filtered = output.current(),
             .cell_input = cell_input,
             .ray_alloc = ray_alloc,
@@ -510,8 +515,8 @@ void rt_lab3_settings_ui(RenderContext & render_context)
         {
             sum += render_context.render_times.get_average(i);
         }
-        ImGui::SameLine();
-        ImGui::TextDisabled("%8.1f us", static_cast<f32>(sum) * 0.001f);
+        // Own line (a SameLine after a separator text puts it behind the full width separator, out of view).
+        ImGui::TextDisabled("Cost: %.1f us", static_cast<f32>(sum) * 0.001f);
     };
 
     ImGui::TextDisabled("Resolution: the Half Resolution checkbox of the preset.");

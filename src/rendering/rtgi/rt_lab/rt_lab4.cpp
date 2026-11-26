@@ -77,10 +77,10 @@ void rt_lab4_ui(RenderContext & render_context)
                           "temporal accumulation. ReSTIR then only drives the ray redistribution. Pixels without a fresh ray feed nothing.\n"
                           "Graph rebuild when changed.");
     ImGui::BeginDisabled(lab4.cell_source != RT_LAB3_CELL_SOURCE_RESTIR);
-    char const * modes[] = {"One per pixel with a reservoir", "Fresh rays shot this frame", "Accumulated rays shot (ray history)"};
+    char const * modes[] = {"One per reservoir slot (ray) of the pixel", "Fresh rays shot this frame", "Accumulated rays shot (ray history)"};
     ImGui::Combo("Input Sample Weight", &lab4.cell_weight_mode, modes, 3);
     ImGui::SetItemTooltip("Only for the ReSTIR estimate input: what a pixel's estimate counts as in the denoiser (the weight of its mean):\n"
-                          "one sample per pixel that has a reservoir, the fresh rays the pixel shot this frame (pixels without a fresh ray feed nothing),\n"
+                          "one sample per reservoir slot of the pixel (min(rays, 4)), the fresh rays the pixel shot this frame (pixels without a fresh ray feed nothing),\n"
                           "or the rays shot at it over time (ray history; the reuse correlates the samples, so this still overstates the information).\n"
                           "Graph rebuild when changed.");
     ImGui::EndDisabled();

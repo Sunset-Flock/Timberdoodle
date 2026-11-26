@@ -484,7 +484,7 @@ func entry_update_probe_visibility(
     {
         relevant_trace_blend *= rcp(acc_cos_weights);
 
-        float update_factor = 0.01f;
+        float update_factor = 0.05f;
 
         float ray_to_texel_ratio = float(reg_settings.probe_trace_resolution) / float(reg_settings.probe_visibility_resolution);
         update_factor *= ray_to_texel_ratio;
@@ -536,10 +536,26 @@ func pgi_probe_radiance_luma(float3 radiance) -> float
     return max(0.0f, dot(radiance, float3(0.2126f, 0.7152f, 0.0722f)));
 }
 
-// One wave per probe. Each lane owns a contiguous section of the texels:
-// - lane local: luma section sum, later the prefix sum inside the section
-// - wave: ONE exclusive prefix sum over the section sums gives every section its start
-// - the base distribution is patched into the finished prefix sum
+// Rounds of the wave wide solve of the clamp (the clamped set only grows, 2-4 rounds are enough in practice).
+#define PGI_RAY_CDF_CLAMP_ROUNDS 4
+// Luma floor relative to the average luma, keeps the clamp solvable when all but a few texels are exactly black.
+#define PGI_RAY_CDF_MIN_LUMA_RELATIVE 1e-3f
+
+// Luma of radiance texel i (row major) of a probe, at least min_luma.
+func pgi_probe_ray_luma(Texture2DArray<float4> radiance_tex, int3 radiance_base, int res, int i, float min_luma) -> float
+{
+    let y = int(fast_uint_div(uint(i), uint(res)));
+    return max(pgi_probe_radiance_luma(radiance_tex[radiance_base + int3(i - y * res, y, 0)].rgb), min_luma);
+}
+
+// Builds the ray cdf of a probe, one wave per probe. Each lane owns a contiguous section of the texels.
+// The importance of a texel is its share of the rays relative to a uniform spread (average = 1). The cdf is a mixture of the capped luma distribution and a uniform base:
+//     weight_i = c_i + b,   c_i = min(luma_i, T),   b = f * sum(c) / texel_count,   f = min / (1 - min)
+// - The importance of texel i is (imp_i + f) / (1 + f), imp_i = texel_count * c_i / sum(c) = its importance in the capped luma distribution alone.
+//   Floor: >= f / (1 + f) = min = probe_ray_min_importance. Ceiling: <= max = probe_ray_max_importance if imp_i <= cap' = (max - min) / (1 - min).
+//   The base is relative to sum(c) (not to the raw luma): that keeps both bounds valid after the final normalization.
+// - T is solved (water filling) so that the texels above T all end at exactly cap': T = cap' * rest / (texel_count - cap' * k),
+//   k = number of clamped texels, rest = sum of the luma of the others. The clamped set only grows, each round is one wave sum.
 func pgi_update_probe_ray_cdf(PGISettings reg_settings, PGICascade reg_cascade, int4 probe_index, int lane)
 {
     let push = update_probes_push;
@@ -551,54 +567,80 @@ func pgi_update_probe_ray_cdf(PGISettings reg_settings, PGICascade reg_cascade, 
     let section_begin = min(lane * section_size, texel_count);
     let section_end = min(section_begin + section_size, texel_count);
 
-    // Source (radiance texels) and destination (cdf buffer) addressing.
-    Texture2DArray<float4> radiance_tex = push.attach.probe_color.get();
     // Radiance lives in the upper half of the color layers.
+    Texture2DArray<float4> radiance_tex = push.attach.probe_color.get();
     int3 radiance_base = pgi_probe_texture_base_offset<HAS_BORDER>(reg_settings, reg_cascade, res, probe_index);
     radiance_base.z += reg_settings.cascade_count * reg_settings.probe_count.z;
     // The cdf is a flat buffer: texel_count consecutive values per probe, in stable probe order.
     uint* cdf_ptr = push.attach.probe_ray_cdf + pgi_probe_stable_linear_index(reg_settings, reg_cascade, probe_index) * uint(texel_count);
 
-    // Step 1, lane local: sum of the luma over this lane's section.
     float section_sum = 0.0f;
     for (int i = section_begin; i < section_end; ++i)
     {
-        int y = int(fast_uint_div(uint(i), uint(res)));
-        int2 texel = int2(i - y * res, y);
-        section_sum += pgi_probe_radiance_luma(radiance_tex[radiance_base + int3(texel, 0)].rgb);
+        section_sum += pgi_probe_ray_luma(radiance_tex, radiance_base, res, i, 0.0f);
+    }
+    let total = WaveActiveSum(section_sum);
+
+    // A probe without any radiance (fresh or invalid) is sampled uniformly.
+    if (total <= 0.0f)
+    {
+        for (int i = section_begin; i < section_end; ++i)
+        {
+            cdf_ptr[i] = uint((uint64_t(i + 1) * uint64_t(PGI_RAY_CDF_ONE)) / uint64_t(texel_count));
+        }
+        return;
     }
 
-    // Step 2, wave: the only wave prefix sum over the section sums, exclusive: the start of this lane's section.
-    let section_start = WavePrefixSum(section_sum);
-    let section_end_sum = section_start + section_sum; // inclusive prefix sum
-    // Lanes past the last texel have empty sections, so the inclusive sum of the last lane is the total.
-    let total = WaveReadLaneAt(section_end_sum, WARP_SIZE - 1);
+    // Bounds: min in [0, 1) (the share of the rays that is spread uniformly), max >= 1 (max = 1: uniform).
+    let min_importance = clamp(reg_settings.probe_ray_min_importance, 0.0f, 0.99f);
+    let max_importance = max(reg_settings.probe_ray_max_importance, 1.0f);
+    let base_fraction = min_importance * rcp(1.0f - min_importance);
+    let capped_importance = (max_importance - min_importance) * rcp(1.0f - min_importance);
+    let min_luma = total * rcp(float(texel_count)) * PGI_RAY_CDF_MIN_LUMA_RELATIVE;
 
-    // Step 3, base distribution: patch it into the finished prefix sum.
-    // Adding the constant base_weight to every texel weight adds (i + 1) * base_weight to the inclusive prefix sum of texel i.
-    // The base weight is a settings fraction of the average texel luma (the share of uniformly spread rays is fraction / (1 + fraction)).
-    // A probe without any radiance (fresh or invalid) is sampled uniformly (every weight 1).
-    let has_radiance = total > 0.0f;
-    let base_weight = has_radiance ? (total * rcp(float(texel_count)) * max(0.0f, reg_settings.probe_ray_base_fraction)) : 1.0f;
-    let patched_total = (has_radiance ? total : 0.0f) + float(texel_count) * base_weight;
-    let scale = float(PGI_RAY_CDF_ONE) * rcp(patched_total);
+    // Solve the ceiling T of the luma weights (all rounds are wave uniform).
+    float max_weight = 3.0e38f;
+    [loop]
+    for (int round = 0; round < PGI_RAY_CDF_CLAMP_ROUNDS; ++round)
+    {
+        float clamped_count = 0.0f;
+        float rest_sum = 0.0f;
+        for (int i = section_begin; i < section_end; ++i)
+        {
+            let luma = pgi_probe_ray_luma(radiance_tex, radiance_base, res, i, min_luma);
+            clamped_count += luma > max_weight ? 1.0f : 0.0f;
+            rest_sum += luma > max_weight ? 0.0f : luma;
+        }
+        let sums = WaveActiveSum(float2(clamped_count, rest_sum));
+        let denominator = float(texel_count) - capped_importance * sums.x;
+        let new_max_weight = capped_importance * sums.y * rcp(max(denominator, 1e-3f));
+        if (denominator <= 1e-3f || new_max_weight >= max_weight * (1.0f - 1e-4f))
+        {
+            break;
+        }
+        max_weight = new_max_weight;
+    }
 
-    // Step 4, lane local: prefix sum inside the section, offset by the section start,
-    // patched with the base distribution, normalized to PGI_RAY_CDF_ONE and written out.
-    float cumulative = has_radiance ? section_start : 0.0f;
+    // ONE exclusive wave prefix sum over the clamped section sums: the start of this lane's section. Lanes past the last texel have empty sections,
+    // so the inclusive sum of the last lane is the clamped total.
+    float clamped_section_sum = 0.0f;
     for (int i = section_begin; i < section_end; ++i)
     {
-        int y = int(fast_uint_div(uint(i), uint(res)));
-        int2 texel = int2(i - y * res, y);
-        cumulative += pgi_probe_radiance_luma(radiance_tex[radiance_base + int3(texel, 0)].rgb);
-        let patched = (has_radiance ? cumulative : 0.0f) + float(i + 1) * base_weight;
-        uint cdf = min(PGI_RAY_CDF_ONE, uint(patched * scale + 0.5f));
+        clamped_section_sum += min(pgi_probe_ray_luma(radiance_tex, radiance_base, res, i, min_luma), max_weight);
+    }
+    let section_start = WavePrefixSum(clamped_section_sum);
+    let clamped_total = WaveReadLaneAt(section_start + clamped_section_sum, WARP_SIZE - 1);
+
+    // Prefix sum inside the section on top of the section start. The base is a constant per texel: texel i's inclusive prefix gets (i + 1) * base.
+    // The total is clamped_total * (1 + f) (normalized to PGI_RAY_CDF_ONE).
+    let base_weight = base_fraction * clamped_total * rcp(float(texel_count));
+    let scale = float(PGI_RAY_CDF_ONE) * rcp(clamped_total * (1.0f + base_fraction));
+    float cumulative = section_start;
+    for (int i = section_begin; i < section_end; ++i)
+    {
+        cumulative += min(pgi_probe_ray_luma(radiance_tex, radiance_base, res, i, min_luma), max_weight);
         // Rounding must not leave the last value off the exact total.
-        if (i == texel_count - 1)
-        {
-            cdf = PGI_RAY_CDF_ONE;
-        }
-        cdf_ptr[i] = cdf;
+        cdf_ptr[i] = i == texel_count - 1 ? PGI_RAY_CDF_ONE : min(PGI_RAY_CDF_ONE, uint((cumulative + float(i + 1) * base_weight) * scale + 0.5f));
     }
 }
 
